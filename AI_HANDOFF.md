@@ -15,12 +15,13 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-10-project-files
-commit: f0d6536b852ba7af05961ca9295034fa4790e899
-PR:     #11 — Phase 10: add portable project files
-base:   phase-9-undo-autosave
+branch: phase-10-stabilization
+PR:     #12 — Phase 10 stabilization: fix project and LiDAR state regressions
+base:   phase-10-project-files
 CI:     passed
 ```
+
+PR #11 remains the portable-project Phase 10 branch immediately below this stabilization PR.
 
 Resume from **Phase 11 — LiDAR scan caching**.
 
@@ -57,12 +58,14 @@ main
   ↓
 #10 phase-9-undo-autosave
   ↓
-#11 phase-10-project-files   ← CURRENT HEAD
+#11 phase-10-project-files
+  ↓
+#12 phase-10-stabilization   ← CURRENT HEAD
 ```
 
 For Phase 11:
 
-1. Branch from `phase-10-project-files`.
+1. Branch from `phase-10-stabilization`.
 2. Suggested branch name:
 
    ```text
@@ -72,7 +75,7 @@ For Phase 11:
 3. Open the new PR against:
 
    ```text
-   phase-10-project-files
+   phase-10-stabilization
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -142,9 +145,17 @@ The server is intentionally loopback-only.
 
 ## 5. Test commands
 
-Run the full Python suite:
+Run the runtime-only Python suite:
 
 ```bash
+python -m unittest discover -s tests -v
+```
+
+For the full development suite including real Chromium regressions:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
 python -m unittest discover -s tests -v
 ```
 
@@ -160,7 +171,7 @@ node tests/frontend_history_smoke.js
 node tests/frontend_project_file_smoke.js
 ```
 
-GitHub Actions runs these plus JavaScript syntax checks and the real cube OBJ → LiDAR engine integration tests.
+GitHub Actions runs these plus JavaScript syntax checks, real Chromium project/source regressions, and the real cube OBJ → LiDAR engine integration tests.
 
 Do not mark a roadmap phase complete until the exact branch-head CI is green.
 
@@ -444,9 +455,60 @@ Stores:
 
 Phase 9 v1 autosaves migrate to v2.
 
-Source identity uses filename plus known file metadata. A mismatched source blocks rendering/export.
+Source identity prefers SHA-256 content identity when both sides have it and falls back to filename + known size for older references. Modification time is metadata only, not a hard identity constraint. A mismatched explicit project source blocks rendering/export.
+
+A post-review stabilization pass also fixed:
+- autosave source hints becoming accidental permanent project locks,
+- stale LiDAR scans being treated as fresh after project/camera changes,
+- scan-channel mixing across different scan IDs,
+- late async server restore overwriting a newer image selection,
+- failed model uploads making the frontend forget the previous scene,
+- old rendered scans being relabeled as newly uploaded models,
+- NaN/Inf and near-zero-extent mesh acceptance.
+
+Real browser regressions now cover the confirmed state-machine bugs in CI.
 
 Scan binaries are **not** inside the project JSON yet.
+
+### Reference-render review findings
+
+#### Product-quality interpretation
+
+The external automated review's overall conclusion was that the **core renderer, determinism, speed, project files, and architecture are stronger than the current LiDAR gallery initially suggests**.
+
+Useful observations:
+
+- the 2D image path with real tonal shading produced the strongest art,
+- Color Threads and curvature-following strokes were visually convincing,
+- Architectural Scan and Depth Contours remained readable even before the winding fix,
+- the flat-shading bug was the dominant reason tone-led LiDAR presets looked uniformly dark,
+- after two-sided normal orientation, torus/terrain-style LiDAR renders recovered visible form,
+- project JSON worked well as an automation interface for repeatable headless rendering,
+- mathematical Vortex/Rose/Log-Spiral effects can be visually subtle because they are canvas-centered and compete with the surface field,
+- known-empty LiDAR background still receives faint low-importance strokes; a later clean-background option would be useful,
+- Depth Contours can be sparse on smooth surfaces and Confidence density can show cell-scale speckle.
+
+Environment-specific manual timings from that review (do **not** treat as SLAs):
+
+```text
+60k–140k high-quality render: ~1.5 s
+640×480 LiDAR scan: ~5–14 s
+uncaught page errors during automated gallery sessions: 0 observed
+```
+
+Priority implication: after Phase 11 caching, art-quality work should focus first on sensor-to-art evidence/mapping rather than adding more field types.
+A Playwright-driven reference-render bundle supplied after Phase 10 found one additional sensor/render issue and gave us stronger regression fixtures.
+
+Key findings now incorporated:
+
+- imported mesh winding must not control shaded tone,
+- visible hit normals are oriented against incoming ray direction before channel computation and shading,
+- the repository's inward-wound `samples/cube.obj` is a permanent regression fixture for this,
+- repeated real-browser high-quality renders with identical source/settings/seed must produce byte-identical PNG output within the same runtime,
+- large historical PNG goldens are kept out of CI; their hashes/provenance live in `tests/reference/phase10_reference_manifest.json`,
+- reproducible trefoil/torus/still-life/ripple/image fixtures can be generated with `scripts/make_reference_fixtures.py`.
+
+The reference review also observed future art-quality opportunities (not Phase 10 blockers): depth-contour density can become sparse on smooth surfaces, confidence-driven density can show cell-scale speckle, and canvas-centered math fields may read better later if optionally centered on the projected object.
 
 ## 9. Current HTTP API
 
@@ -459,11 +521,11 @@ POST /api/scene/upload?filename=model.obj
 POST /api/lidar/scan
 GET  /api/lidar/maps
 
-GET  /api/lidar/maps/shaded.png
-GET  /api/lidar/maps/depth.png
-GET  /api/lidar/maps/edge.png
-GET  /api/lidar/maps/variance.png
-GET  /api/lidar/maps/confidence.png
+GET  /api/lidar/maps/shaded.png?scan_id=<id>
+GET  /api/lidar/maps/depth.png?scan_id=<id>
+GET  /api/lidar/maps/edge.png?scan_id=<id>
+GET  /api/lidar/maps/variance.png?scan_id=<id>
+GET  /api/lidar/maps/confidence.png?scan_id=<id>
 ```
 
 `/api/scene/upload` uses raw request bytes, not multipart.
@@ -492,7 +554,7 @@ Current scan request fields:
 - one current scan metadata object,
 - one current set of scan-channel PNG bytes.
 
-Uploading a new scene clears the current scan.
+Uploading a new scene clears the current server scan. Scene metadata now includes SHA-256 of the uploaded raw OBJ/STL bytes. Channel retrieval checks the requested `scan_id`; a stale ID returns HTTP 409 instead of silently serving the current scan.
 
 This is the main place Phase 11 will evolve.
 
@@ -571,9 +633,9 @@ Those must remain fast browser-side edits.
 
 Do not key only on the filename if the server can cheaply retain a stronger identity.
 
-A good Phase 11 implementation can compute a scene/model fingerprint during upload, for example SHA-256 of the uploaded raw STL/OBJ bytes, and store it in the scene metadata/runtime state.
+Phase 10 stabilization already computes SHA-256 of the uploaded raw STL/OBJ bytes and stores it in scene metadata.
 
-This avoids collisions between two different files named `model.obj`.
+Phase 11 should reuse that existing fingerprint as the model component of the cache key. This avoids collisions between two different files named `model.obj`.
 
 ### Recommended first cache scope
 

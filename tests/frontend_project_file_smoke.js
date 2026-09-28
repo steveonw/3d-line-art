@@ -155,8 +155,8 @@ assert(
   'different known source sizes should not match'
 );
 assert(
-  !Project.sourceMatches(source, { ...source, lastModified: 1700000001000 }),
-  'different known modification times should not match'
+  Project.sourceMatches(source, { ...source, lastModified: 1700000001000 }),
+  'modification time should be a soft hint, not source identity'
 );
 assert(
   Project.sourceMatches(source, {
@@ -167,6 +167,19 @@ assert(
     type: null
   }),
   'server-side name-only references should satisfy the same model name'
+);
+
+const hashed = {
+  ...source,
+  sha256: 'a'.repeat(64)
+};
+assert(
+  Project.sourceMatches(hashed, { ...hashed, name: 'renamed.obj', lastModified: 1 }),
+  'matching content hashes should survive rename/mtime changes'
+);
+assert(
+  !Project.sourceMatches(hashed, { ...hashed, sha256: 'b'.repeat(64) }),
+  'different content hashes must not match'
 );
 
 assert(

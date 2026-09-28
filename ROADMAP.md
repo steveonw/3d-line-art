@@ -341,6 +341,8 @@ scans/
 
 **Phase 10 validation:** GitHub Actions passes portable project v2 save/open round trips, Phase 9 v1 migration, camera/LiDAR/art/flow/palette/seed/export restoration, source identity matching, future-version and foreign-format rejection, the checked-in cube project fixture, history/autosave regression, all deterministic renderer/flow/stroke-placement tests, the server/API suite, and the real cube OBJ LiDAR integration test. Project files reference source files rather than embedding them; a mismatched source blocks rendering until the referenced image/model is loaded, and stale restored LiDAR scans are marked for rescan.
 
+**Phase 10 post-review stabilization:** real Chromium regressions now cover autosave source freedom, explicit-project source locking, installed-scan freshness, camera round-trips, and byte-identical repeat PNG rendering. Server hardening now enforces scan-id channel isolation, strict finite JSON, non-finite/degenerate mesh rejection, model SHA-256 identity, and two-sided hit-normal orientation so imported triangle winding cannot flatten the shaded LiDAR channel. Failed model uploads preserve the prior scene, asynchronous server restore is generation-guarded, and reference-render hashes/fixture generators are preserved under `tests/reference/` and `scripts/make_reference_fixtures.py`.
+
 ## v0.3 checkpoint
 
 The application is now usable as a persistent creative tool.
@@ -548,6 +550,28 @@ This should be treated as a later experimental plugin rather than a core phase.
 ---
 
 # Later polish
+
+## Art-quality follow-ups from reference-render review
+
+These are **not** Phase 11 requirements. Preserve them for later visual-polish work after scan caching is solid.
+
+- [ ] Add an optional clean-background mode for LiDAR sources so known no-hit background does not receive faint paper-grain strokes
+- [ ] Let mathematical fields optionally center on the projected object/occupied scan region instead of always the canvas center
+- [ ] Improve visible readability/strength tuning for Vortex, Rose, and Log Spiral fields
+- [ ] Improve Depth Contours coverage on smooth/slowly varying surfaces without destroying contour structure
+- [ ] Reduce cell-scale speckle when Confidence is used as a density source
+- [ ] Keep explicit scan-state UI unambiguous: current/cached/running/stale should be visually distinct
+- [ ] Consider treating the versioned project JSON as a supported automation/headless input contract, since automated reference rendering worked cleanly through it
+
+Manual reference-review observations (environment-specific, **not performance SLAs**):
+
+```text
+60k–140k high-quality line renders: roughly ~1.5 s
+640×480 single-view LiDAR scans: roughly 5–14 s
+automated review sessions: zero uncaught page errors observed
+```
+
+The review concluded that the 2D renderer/art engine is currently stronger than the LiDAR sensor-to-art mapping. Prefer improving the LiDAR evidence/mapping path before adding more decorative flow fields.
 
 ## Mathematical experimental modes
 

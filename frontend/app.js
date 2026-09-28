@@ -241,6 +241,9 @@
   let modelReference = null;
   let requiredSourceReference = null;
   let lidarSourceMaps = null;
+  let installedScanSignature = null;
+  let installedScanId = null;
+  let installedScanLabel = null;
   let scanDirty = false;
   let activeRender = null;
 
@@ -297,22 +300,43 @@
   let historyUiLocked = false;
   let restoredSourceHint = null;
 
-  function fileSourceReference(file, kind) {
-    if (!file) return { kind: 'none', name: null, size: null, lastModified: null, type: null };
+  async function sha256File(file) {
+    if (!file || !globalThis.crypto?.subtle || typeof file.arrayBuffer !== 'function') {
+      return null;
+    }
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function fileSourceReference(file, kind, knownSha256 = null) {
+    if (!file) {
+      return {
+        kind: 'none',
+        name: null,
+        size: null,
+        lastModified: null,
+        type: null,
+        sha256: null
+      };
+    }
     return {
       kind,
       name: file.name || null,
       size: Number.isFinite(file.size) ? file.size : null,
       lastModified: Number.isFinite(file.lastModified) ? file.lastModified : null,
-      type: file.type || null
+      type: file.type || null,
+      sha256: knownSha256 || await sha256File(file)
     };
   }
 
   function currentSourceReference() {
     if (requiredSourceReference) return requiredSourceReference;
-    if (sourceKind === 'lidar' && modelReference) return modelReference;
-    if (modelReference && sceneLoaded && !sourceImage) return modelReference;
     if (sourceReference) return sourceReference;
+    if (modelReference && sceneLoaded && !sourceImage) return modelReference;
     if (sourceKind === 'none' && restoredSourceHint) return restoredSourceHint;
     return { kind: sourceKind, name: sourceName };
   }
@@ -358,8 +382,53 @@
       Number(scan.camera?.yaw_deg),
       Number(scan.camera?.elevation_deg),
       Number(scan.camera?.distance_scale),
-      Number(scan.camera?.fov_deg)
+      Number(scan.camera?.fov_deg),
+      scan.scene?.sha256 || scan.scene?.name || null
     ]);
+  }
+
+  function installedModelMatchesCurrent() {
+    if (sourceKind !== 'lidar' || !sourceReference || !modelReference) return true;
+    return LineArtProjectState.sourceMatches(sourceReference, modelReference);
+  }
+
+  function rememberInstalledScan(scan) {
+    installedScanSignature = scanMetadataSignature(scan);
+    installedScanId = scan.scan_id || null;
+    installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
+    return updateScanFreshness();
+  }
+
+  function clearInstalledScan() {
+    installedScanSignature = null;
+    installedScanId = null;
+    installedScanLabel = null;
+    scanDirty = false;
+  }
+
+  function updateScanFreshness() {
+    if (!installedScanSignature || sourceKind !== 'lidar') {
+      scanDirty = sourceKind === 'lidar' && !!sourceImage;
+      if (sceneLoaded && sourceKind !== 'lidar') {
+        scanSummary.textContent = 'ready to scan';
+        scanBtn.textContent = 'Scan LiDAR';
+      }
+      return scanDirty;
+    }
+
+    // Compare sensor controls explicitly; the installed signature also carries
+    // scene identity, while current settings do not.
+    const parsedInstalled = JSON.parse(installedScanSignature);
+    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 7));
+    const currentSensor = JSON.stringify(JSON.parse(scanSettingsSignature(settings)));
+    const sensorMatch = installedSensor === currentSensor;
+    const modelMatch = installedModelMatchesCurrent();
+
+    scanDirty = !sensorMatch || !modelMatch;
+    scanSummary.textContent =
+      `${installedScanLabel || 'scan'}${scanDirty ? ' · settings changed' : ''}`;
+    scanBtn.textContent = 'Rescan LiDAR';
+    return scanDirty;
   }
 
   function normalizeRestoredSettings(next) {
@@ -453,7 +522,6 @@
     );
     if (!restored) return false;
 
-    const beforeScan = scanSettingsSignature(settings);
     historyApplying = true;
     try {
       Object.assign(settings, normalizeRestoredSettings(restored.settings));
@@ -465,11 +533,7 @@
         applyRendererMaps(maps);
       }
 
-      if (sceneLoaded && beforeScan !== scanSettingsSignature(settings)) {
-        scanDirty = true;
-        scanSummary.textContent = 'settings changed';
-        scanBtn.textContent = 'Rescan LiDAR';
-      }
+      updateScanFreshness();
 
       if (highQualityStrokeStore) highQualityStale = true;
       updateExportNote();
@@ -477,7 +541,12 @@
       historyApplying = false;
     }
 
-    if (preview && sourceImage && projectSourceReady()) schedulePreview();
+    if (
+      preview &&
+      sourceImage &&
+      projectSourceReady() &&
+      !(sourceKind === 'lidar' && scanDirty)
+    ) schedulePreview();
     refreshButtons();
     return true;
   }
@@ -558,6 +627,7 @@
     }
 
     if (activeRender) stopRender(false);
+    ++loadSerial;
     clearTimeout(previewTimer);
     previewTimer = 0;
 
@@ -574,6 +644,8 @@
         applyRendererMaps(maps);
       }
 
+      updateScanFreshness();
+
       if (highQualityStrokeStore) highQualityStale = true;
       updateExportNote();
     } finally {
@@ -585,9 +657,17 @@
     history.saveNow(captureProjectState());
 
     if (projectSourceReady()) {
-      setProjectStatus(`Opened ${file.name}. Source reference is satisfied.`);
-      setStatus('Project opened. Rebuilding preview from the referenced source.', 0);
-      if (sourceImage) schedulePreview();
+      if (sourceKind === 'lidar' && scanDirty) {
+        setProjectStatus(
+          `Opened ${file.name}. Source matches, but the installed LiDAR scan is stale. Rescan LiDAR.`,
+          true
+        );
+        setStatus('Project opened. Rescan LiDAR to match the saved sensor settings.', 0);
+      } else {
+        setProjectStatus(`Opened ${file.name}. Source reference is satisfied.`);
+        setStatus('Project opened. Rebuilding preview from the referenced source.', 0);
+        if (sourceImage) schedulePreview();
+      }
     } else if (restored.source.kind === 'lidar') {
       setProjectStatus(
         `Opened ${file.name}. Load ${requiredSourceLabel(restored.source)} to reproduce the project.`,
@@ -720,10 +800,15 @@
   }
 
   function markScanControlsChanged(historyKey = null) {
-    scanDirty = true;
-    scanSummary.textContent = sceneLoaded ? 'settings changed' : 'single view';
-    scanBtn.textContent = 'Rescan LiDAR';
+    if (installedScanSignature && sourceKind === 'lidar') {
+      updateScanFreshness();
+    } else {
+      scanDirty = !!sceneLoaded;
+      scanSummary.textContent = sceneLoaded ? 'ready to scan' : 'single view';
+      scanBtn.textContent = 'Scan LiDAR';
+    }
     recordSettingsChange(historyKey);
+    refreshButtons();
   }
 
   function updateLidarArtControlAvailability(locked = false) {
@@ -918,6 +1003,7 @@
     const uiLocked = highActive || exportBusy || scanRunning;
     const sourceReady = projectSourceReady();
     const modelReady = projectModelReady();
+    const sensorReady = !(sourceKind === 'lidar' && scanDirty);
 
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
@@ -929,11 +1015,12 @@
       el.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || highActive || exportBusy;
     });
     scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
-    renderBtn.disabled = !sourceReady || !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
+    renderBtn.disabled = !sourceReady || !sensorReady || !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
     cancelBtn.disabled = !active;
 
     const canSave =
       sourceReady &&
+      sensorReady &&
       !active &&
       !loadingImage &&
       !scanRunning &&
@@ -990,7 +1077,12 @@
       restoredSourceHint = null;
     }
 
-    if (kind !== 'lidar') lidarSourceMaps = null;
+    if (kind !== 'lidar') {
+      lidarSourceMaps = null;
+      clearInstalledScan();
+    } else {
+      updateScanFreshness();
+    }
     applyRendererMaps(maps);
 
     displayStrokeStore = null;
@@ -1015,13 +1107,17 @@
     updateLidarArtControlAvailability(false);
     refreshButtons();
     autosaveCurrentState();
-    if (projectSourceReady()) {
+    if (projectSourceReady() && !(kind === 'lidar' && scanDirty)) {
       setStatus(readyMessage, 0);
       startRender('preview');
-    } else {
+    } else if (!projectSourceReady()) {
       const needed = requiredSourceLabel();
       setProjectStatus(`This source does not match the project. Load ${needed}.`, true);
       setStatus(`Source loaded, but the project is waiting for ${needed}.`, 0);
+      refreshButtons();
+    } else {
+      setProjectStatus('LiDAR source loaded, but the installed scan is stale. Rescan LiDAR.', true);
+      setStatus('Rescan LiDAR to match the current sensor settings.', 0);
       refreshButtons();
     }
   }
@@ -1072,6 +1168,13 @@
         return;
       }
 
+      const imageReference = await fileSourceReference(file, 'image');
+      if (serial !== loadSerial) {
+        newSourceCanvas.width = 0;
+        newSourceCanvas.height = 0;
+        return;
+      }
+
       installSource(
         newSourceCanvas,
         newPixels,
@@ -1080,7 +1183,7 @@
         h,
         `Ready - ${w} x ${h}px. Building direction-aware preview...`,
         'image',
-        fileSourceReference(file, 'image')
+        imageReference
       );
     } catch (error) {
       bitmap?.close?.();
@@ -1104,8 +1207,17 @@
 
   async function uploadModelFile(file) {
     if (!file) return;
+
+    const previous = {
+      sceneLoaded,
+      modelReference,
+      scanDirty,
+      modelStatus: modelStatus.textContent,
+      scanSummary: scanSummary.textContent,
+      scanButton: scanBtn.textContent
+    };
+
     modelLoading = true;
-    sceneLoaded = false;
     modelStatus.textContent = `Uploading ${file.name}...`;
     refreshButtons();
 
@@ -1113,10 +1225,16 @@
       const result = await LidarClient.uploadScene(file);
       const scene = result.scene;
       sceneLoaded = true;
-      modelReference = fileSourceReference(file, 'lidar');
+      modelReference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
+
+      // Uploading a model replaces the server scene/scan, but it does not
+      // relabel the old canvas. sourceReference stays tied to the installed
+      // drawing until a new scan is installed.
       scanDirty = true;
       scanBtn.textContent = 'Scan LiDAR';
-      scanSummary.textContent = 'ready to scan';
+      scanSummary.textContent = sourceKind === 'lidar' && sourceImage
+        ? `${installedScanLabel || 'scan'} · settings changed`
+        : 'ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
 
@@ -1135,10 +1253,21 @@
       autosaveCurrentState();
     } catch (error) {
       console.error(error);
-      sceneLoaded = false;
+      sceneLoaded = previous.sceneLoaded;
+      modelReference = previous.modelReference;
+      scanDirty = previous.scanDirty;
+      scanSummary.textContent = previous.scanSummary;
+      scanBtn.textContent = previous.scanButton;
       const suffix = error.errorId ? ` (${error.errorId})` : '';
-      modelStatus.textContent = `Model upload failed: ${error.message}${suffix}`;
-      setStatus('Could not load that 3D model.', 0);
+      modelStatus.textContent = previous.sceneLoaded
+        ? `Model upload failed: ${error.message}${suffix}. Previous model is still loaded.`
+        : `Model upload failed: ${error.message}${suffix}`;
+      setStatus(
+        previous.sceneLoaded
+          ? 'Could not load that 3D model. The previous model is still available.'
+          : 'Could not load that 3D model.',
+        0
+      );
     } finally {
       modelLoading = false;
       refreshButtons();
@@ -1193,10 +1322,7 @@
         }
       }
 
-      scanDirty = false;
-      scanBtn.textContent = 'Rescan LiDAR';
-      const smartText = scan.smart_sampling ? ' · smart' : '';
-      scanSummary.textContent = `${scan.width}×${scan.height}${smartText}`;
+      rememberInstalledScan(scan);
       modelStatus.textContent =
         `${scan.scene?.name || '3D model'} - ${Math.round(scan.coverage * 100)}% ray coverage · orbit ${Math.round(scan.camera?.yaw_deg ?? 0)}°`;
 
@@ -1210,7 +1336,8 @@
         'lidar',
         modelReference || {
           kind: 'lidar',
-          name: scan.scene?.name || '3D model'
+          name: scan.scene?.name || '3D model',
+          sha256: scan.scene?.sha256 || null
         }
       );
     } catch (error) {
@@ -1229,12 +1356,23 @@
   }
 
   async function restoreServerScene() {
+    const serial = ++loadSerial;
     try {
+      // Autosave recovery only hints at the previous image; it must not let an
+      // unrelated server-side LiDAR scene replace that recovery path.
+      if (
+        requiredSourceReference?.kind === 'image' ||
+        (!requiredSourceReference && restoredSourceHint?.kind === 'image')
+      ) {
+        return null;
+      }
+
       const result = await LidarClient.getState();
+      if (serial !== loadSerial) return null;
+
       const workspace = result.state?.workspace;
       const scene = workspace?.scene;
       if (!scene?.loaded) return null;
-      if (requiredSourceReference?.kind === 'image') return null;
 
       sceneLoaded = true;
       const serverReference = {
@@ -1242,14 +1380,15 @@
         name: scene.name || '3D model',
         size: null,
         lastModified: null,
-        type: null
+        type: null,
+        sha256: scene.sha256 || null
       };
       const hintedReference =
         (requiredSourceReference?.kind === 'lidar' &&
-          requiredSourceReference.name === serverReference.name)
+          LineArtProjectState.sourceMatches(requiredSourceReference, serverReference))
           ? requiredSourceReference
           : ((restoredSourceHint?.kind === 'lidar' &&
-              restoredSourceHint.name === serverReference.name)
+              LineArtProjectState.sourceMatches(restoredSourceHint, serverReference))
               ? restoredSourceHint
               : serverReference);
       modelReference = hintedReference;
@@ -1272,8 +1411,17 @@
       if (workspace?.scan?.status === 'ready') {
         try {
           const mapsResponse = await LidarClient.getMaps();
+          if (serial !== loadSerial) return null;
+
           const scan = mapsResponse.scan;
           const images = await LidarClient.fetchScanMaps(scan);
+          if (serial !== loadSerial) {
+            for (const item of Object.values(images)) {
+              item.canvas.width = 0;
+              item.canvas.height = 0;
+            }
+            return null;
+          }
 
           lidarSourceMaps = LineArtAnalysis.buildLidarSourceMaps(
             images.shaded.imageData,
@@ -1293,11 +1441,7 @@
             }
           }
 
-          scanDirty = scanSettingsSignature(settings) !== scanMetadataSignature(scan);
-          scanBtn.textContent = 'Rescan LiDAR';
-          const smartText = scan.smart_sampling ? ' · smart' : '';
-          const staleText = scanDirty ? ' · settings changed' : '';
-          scanSummary.textContent = `${scan.width}×${scan.height}${smartText}${staleText}`;
+          rememberInstalledScan(scan);
           modelStatus.textContent =
             `${scan.scene?.name || scene.name || '3D model'} - restored server scan · ${Math.round(scan.coverage * 100)}% coverage`;
 
@@ -1313,12 +1457,16 @@
             'lidar',
             modelReference
           );
+
           if (scanDirty) {
-            scanBtn.textContent = 'Rescan LiDAR';
-            setProjectStatus('Referenced model restored; current server scan is stale. Rescan LiDAR to reproduce the project.', true);
+            setProjectStatus(
+              'Referenced model restored; current server scan is stale. Rescan LiDAR to reproduce the project.',
+              true
+            );
           }
           return 'lidar';
         } catch (error) {
+          if (serial !== loadSerial) return null;
           console.warn('Could not restore the previous LiDAR scan:', error);
         }
       }
@@ -1332,6 +1480,7 @@
       refreshButtons();
       return 'scene';
     } catch (_) {
+      if (serial !== loadSerial) return null;
       modelStatus.textContent = '3D mode requires the local Python server.';
       return null;
     }
@@ -1339,6 +1488,7 @@
 
   function schedulePreview() {
     if (!sourceImage || loadingImage) return;
+    if (sourceKind === 'lidar' && scanDirty) return;
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       previewTimer = 0;
@@ -1363,6 +1513,7 @@
 
   function startRender(kind) {
     if (!sourceImage || loadingImage) return;
+    if (sourceKind === 'lidar' && scanDirty) return;
     clearTimeout(previewTimer);
     previewTimer = 0;
 
@@ -1494,8 +1645,7 @@
     Object.assign(settings, normalizeRestoredSettings(restoredProject.settings));
     pngScaleSelect.value = restoredProject.export.pngScale;
     restoredSourceHint = restoredProject.source;
-    requiredSourceReference =
-      restoredProject.source.kind === 'none' ? null : restoredProject.source;
+    requiredSourceReference = null;
   }
 
   syncUI();
@@ -1515,8 +1665,7 @@
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
-      `Autosave restored. Reselect ${requiredSourceLabel(restoredProject.source)}.`,
-      true
+      `Autosave restored. Reselect image "${restoredProject.source.name || 'previous image'}" to continue, or choose another image.`
     );
   } else if (restoredProject?.source?.kind === 'lidar') {
     setProjectStatus('Autosave restored. Checking the local server for the referenced model...');

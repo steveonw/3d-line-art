@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .errors import ErrorRecorder
-from .lidar_bridge import LidarBridge, LidarUnavailableError
+from .lidar_bridge import LidarBridge, LidarUnavailableError, ScanIdMismatchError
 from .state import StudioState
 
 HOST = "127.0.0.1"
@@ -100,6 +100,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 {"ok": False, "error": str(error), "code": "lidar_unavailable"},
+                head_only=method == "HEAD",
+            )
+        except ScanIdMismatchError as error:
+            self._send_json(
+                HTTPStatus.CONFLICT,
+                {"ok": False, "error": str(error), "code": "scan_mismatch"},
                 head_only=method == "HEAD",
             )
         except (ValueError, json.JSONDecodeError) as error:
@@ -208,7 +214,9 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path.startswith("/api/lidar/maps/") and path.endswith(".png"):
             channel = path.rsplit("/", 1)[-1][:-4]
-            payload = self.server.lidar.channel_png(channel)
+            params = parse_qs(query, keep_blank_values=True)
+            scan_id = (params.get("scan_id") or [None])[0]
+            payload = self.server.lidar.channel_png(channel, scan_id=scan_id)
             self._send_bytes(
                 HTTPStatus.OK,
                 payload,
@@ -307,7 +315,15 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         *,
         head_only: bool = False,
     ) -> None:
-        body = (json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
+        body = (
+            json.dumps(
+                payload,
+                separators=(",", ":"),
+                sort_keys=True,
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
         self._send_bytes(
             status,
             body,

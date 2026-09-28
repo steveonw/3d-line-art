@@ -4,3 +4,6 @@ __pycache__/
 
 # LiDAR Ink Studio local runtime data
 .lidar-ink/
+
+# Generated reference renders / fixtures
+artifacts/

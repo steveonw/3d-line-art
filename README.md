@@ -433,7 +433,10 @@ filename
 file size
 last-modified timestamp when available
 media type when available
+SHA-256 when available
 ```
+
+When both sides have a SHA-256, content identity is authoritative. The modification timestamp is retained as metadata but is not a hard match requirement.
 
 When reopening a project, LiDAR Ink checks the reference before enabling rendering. A different image/model cannot silently become the source for the saved settings.
 
@@ -487,6 +490,62 @@ scans/confidence.bin
 So the Phase 10 project file is portable creative state plus a source reference, not a self-contained archive of the source model and LiDAR cache.
 
 Project JSON is capped at 1 MB when opened. Unknown future schema versions and foreign project formats are rejected instead of guessed at.
+
+## Phase 10 stabilization
+
+A post-Phase-10 browser review found state-machine bugs that the earlier DOM/string smoke tests could not exercise. The stabilization branch fixes them before Phase 11:
+
+- autosave recovery restores source **hints**, not hard project locks,
+- explicit project files still enforce source identity,
+- installed LiDAR scan freshness is compared against the actual scan metadata,
+- returning camera controls to the scanned values clears stale state,
+- stale LiDAR scans block render/export until rescanned,
+- scan-channel URLs are bound to their `scan_id` and stale IDs return HTTP 409,
+- OBJ/STL geometry rejects NaN/Inf and near-zero extent,
+- model uploads carry SHA-256 fingerprints,
+- local image references use browser SHA-256 when Web Crypto is available,
+- `lastModified` is a portability hint rather than a hard identity constraint,
+- failed model uploads keep the previous scene usable,
+- asynchronous server restore cannot overwrite a newer user source selection.
+
+Real headless-browser regressions now run in CI. For the full development suite:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+python -m unittest discover -s tests -v
+```
+
+Runtime-only installs can continue using `requirements.txt`; the browser regression module skips itself when Playwright is unavailable.
+
+## Reference-render regression review
+
+A full Playwright-driven Phase 10 reference-render bundle was used to exercise LiDAR presets, camera orbits, sensor maps, mathematical flow fields, the 2D image path, and repeated PNG export.
+
+The review found one additional LiDAR correctness bug: imported mesh winding could flatten the shaded channel because face normals were used without orienting them toward the camera. The bridge now treats visible mesh hits as two-sided by flipping only hit normals whose `n·rayDirection > 0` before channel computation and shaded rendering.
+
+The inward-wound repository cube now has real tonal variation instead of collapsing to the lighting floor.
+
+Regression coverage now includes:
+
+- a real cube scan that fails if shaded object pixels collapse to a flat tone,
+- a real Chromium test that renders identical source/settings/seed twice and requires byte-identical PNG SHA-256 output,
+- the existing geometry/seed prefix determinism tests,
+- source/scan state-machine regressions.
+
+The large review PNGs are not checked into the repository as hard CI goldens because browser PNG bytes can be brittle across Chromium/platform upgrades. Their hashes and provenance are recorded in:
+
+```text
+tests/reference/phase10_reference_manifest.json
+```
+
+Reference meshes and the synthetic shaded 2D source can be regenerated with:
+
+```bash
+python scripts/make_reference_fixtures.py
+```
+
+See `tests/reference/README.md` for the reference-render testing policy.
 
 ## Mesh guardrails
 

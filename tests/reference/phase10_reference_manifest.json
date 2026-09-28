@@ -1,0 +1,48 @@
+{
+  "schema": "lidar-ink-reference-renders-v1",
+  "captured_from": {
+    "branch": "phase-10-project-files",
+    "note": "External review bundle supplied by the repository owner; full PNG gallery intentionally not committed."
+  },
+  "findings": {
+    "deterministic_repeat": {
+      "first": "trefoil__flow_baseline.png",
+      "second": "trefoil__flow_baseline_repeat.png",
+      "sha256": "2e351f4d6d7708ef5be8574c678fab14f4dbf0b7b84cf2766e5e56b0b0b7d042",
+      "byte_identical": true
+    },
+    "two_sided_normal_comparisons": [
+      {
+        "model": "cube",
+        "original_sha256_prefix": "5e43ec9adb5c209b",
+        "two_sided_sha256": "6aeee31df53ec2625072c339d3d33f4069e4db6c40575f4d3762dabccca2aea2",
+        "size": [
+          1280,
+          960
+        ]
+      },
+      {
+        "model": "torus",
+        "original_sha256_prefix": "1596fc0525b451e9",
+        "two_sided_sha256": "5521cf0c6f8fdcbed5373d64a76f77bfef8fc9cd075cb90e330d0439448665e6",
+        "size": [
+          1280,
+          960
+        ]
+      },
+      {
+        "model": "trefoil",
+        "original_sha256_prefix": "2e351f4d6d7708ef",
+        "two_sided_sha256": "11a60ab23b5f721e38adeef68afef69f4b64a99f2448a8f617644d7b8bda2afe",
+        "size": [
+          1280,
+          960
+        ]
+      }
+    ]
+  },
+  "ci_policy": {
+    "exact_bundle_hashes_required": false,
+    "rationale": "Cross-version browser PNG bytes can be brittle. CI asserts deterministic repeat equality and winding-independent tonal variation instead."
+  }
+}

@@ -45,7 +45,10 @@
       name: typeof source.name === 'string' && source.name ? source.name : null,
       size: finiteOrNull(source.size),
       lastModified: finiteOrNull(source.lastModified),
-      type: typeof source.type === 'string' && source.type ? source.type : null
+      type: typeof source.type === 'string' && source.type ? source.type : null,
+      sha256: typeof source.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(source.sha256)
+        ? source.sha256.toLowerCase()
+        : null
     };
   }
 
@@ -121,13 +124,16 @@
     const b = normalizeSource(candidate);
     if (a.kind === 'none') return true;
     if (a.kind !== b.kind) return false;
+
+    // Content identity is authoritative when both sides have it. This lets the
+    // same bytes survive copies, downloads, git checkouts, and filename changes.
+    if (a.sha256 && b.sha256) return a.sha256 === b.sha256;
+
+    // Older project files and server-restored scenes may not have a hash yet.
+    // Fall back to filename + known size. lastModified is only a hint because
+    // it commonly changes when a file is copied to another machine.
     if (!a.name || !b.name || a.name !== b.name) return false;
     if (a.size !== null && b.size !== null && a.size !== b.size) return false;
-    if (
-      a.lastModified !== null &&
-      b.lastModified !== null &&
-      a.lastModified !== b.lastModified
-    ) return false;
     return true;
   }
 
