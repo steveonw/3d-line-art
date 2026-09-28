@@ -123,6 +123,11 @@
     if (a.kind !== b.kind) return false;
     if (!a.name || !b.name || a.name !== b.name) return false;
     if (a.size !== null && b.size !== null && a.size !== b.size) return false;
+    if (
+      a.lastModified !== null &&
+      b.lastModified !== null &&
+      a.lastModified !== b.lastModified
+    ) return false;
     return true;
   }
 
