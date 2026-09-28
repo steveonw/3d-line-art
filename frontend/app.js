@@ -1235,8 +1235,37 @@
       if (!scene?.loaded) return null;
 
       sceneLoaded = true;
+      const serverReference = {
+        kind: 'lidar',
+        name: scene.name || '3D model',
+        size: null,
+        lastModified: null,
+        type: null
+      };
+      const hintedReference =
+        (requiredSourceReference?.kind === 'lidar' &&
+          requiredSourceReference.name === serverReference.name)
+          ? requiredSourceReference
+          : ((restoredSourceHint?.kind === 'lidar' &&
+              restoredSourceHint.name === serverReference.name)
+              ? restoredSourceHint
+              : serverReference);
+      modelReference = hintedReference;
+
       modelStatus.textContent =
         `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
+
+      if (!projectModelReady()) {
+        scanDirty = true;
+        scanSummary.textContent = 'different project model';
+        scanBtn.textContent = 'Scan LiDAR';
+        setProjectStatus(
+          `Local server has a different model. Load ${requiredSourceLabel()}.`,
+          true
+        );
+        refreshButtons();
+        return 'scene-mismatch';
+      }
 
       if (workspace?.scan?.status === 'ready') {
         try {
@@ -1276,11 +1305,16 @@
             maps,
             images.shaded.width,
             images.shaded.height,
-            `Restored LiDAR scan - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
+            scanDirty
+              ? 'Referenced model restored. Rescan LiDAR to reproduce the saved camera settings.'
+              : `Restored LiDAR scan - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
             'lidar',
-            scan.scene?.name || scene.name || '3D model'
+            modelReference
           );
-          if (scanDirty) scanBtn.textContent = 'Rescan LiDAR';
+          if (scanDirty) {
+            scanBtn.textContent = 'Rescan LiDAR';
+            setProjectStatus('Referenced model restored; current server scan is stale. Rescan LiDAR to reproduce the project.', true);
+          }
           return 'lidar';
         } catch (error) {
           console.warn('Could not restore the previous LiDAR scan:', error);
@@ -1290,6 +1324,9 @@
       scanDirty = true;
       scanSummary.textContent = 'ready to scan';
       scanBtn.textContent = 'Scan LiDAR';
+      if (requiredSourceReference?.kind === 'lidar') {
+        setProjectStatus('Referenced model is loaded. Run LiDAR to reproduce the project.', true);
+      }
       refreshButtons();
       return 'scene';
     } catch (_) {
