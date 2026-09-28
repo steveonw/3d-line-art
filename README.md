@@ -518,6 +518,35 @@ python -m unittest discover -s tests -v
 
 Runtime-only installs can continue using `requirements.txt`; the browser regression module skips itself when Playwright is unavailable.
 
+## Reference-render regression review
+
+A full Playwright-driven Phase 10 reference-render bundle was used to exercise LiDAR presets, camera orbits, sensor maps, mathematical flow fields, the 2D image path, and repeated PNG export.
+
+The review found one additional LiDAR correctness bug: imported mesh winding could flatten the shaded channel because face normals were used without orienting them toward the camera. The bridge now treats visible mesh hits as two-sided by flipping only hit normals whose `n·rayDirection > 0` before channel computation and shaded rendering.
+
+The inward-wound repository cube now has real tonal variation instead of collapsing to the lighting floor.
+
+Regression coverage now includes:
+
+- a real cube scan that fails if shaded object pixels collapse to a flat tone,
+- a real Chromium test that renders identical source/settings/seed twice and requires byte-identical PNG SHA-256 output,
+- the existing geometry/seed prefix determinism tests,
+- source/scan state-machine regressions.
+
+The large review PNGs are not checked into the repository as hard CI goldens because browser PNG bytes can be brittle across Chromium/platform upgrades. Their hashes and provenance are recorded in:
+
+```text
+tests/reference/phase10_reference_manifest.json
+```
+
+Reference meshes and the synthetic shaded 2D source can be regenerated with:
+
+```bash
+python scripts/make_reference_fixtures.py
+```
+
+See `tests/reference/README.md` for the reference-render testing policy.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
