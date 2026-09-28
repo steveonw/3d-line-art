@@ -95,10 +95,10 @@
     const randomTieBreak = clamp(Number(jitter) || 0, 0, 1) * (1 - sampleBias) * 0.28;
     const qualityScore = evidence + randomTieBreak;
 
-    // Any clear candidate outranks a colliding candidate. If all generated
-    // candidates collide, the renderer still chooses the best one and lets the
-    // coverage grid decide whether that area needs more ink.
-    const selectionScore = qualityScore + (spacingIsClear ? 8 : 0);
+    // Spacing is a meaningful preference, not an absolute veto. Strong
+    // remaining coverage can still beat a clear but useless location, which
+    // keeps the coverage grid as the final authority at high stroke densities.
+    const selectionScore = qualityScore + (spacingIsClear ? 0.38 : -0.16);
 
     const importance = clamp(
       0.02 +
