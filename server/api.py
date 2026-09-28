@@ -8,18 +8,25 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .errors import ErrorRecorder
+from .lidar_bridge import LidarBridge, LidarUnavailableError
 from .state import StudioState
 
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.1-phase2"
-API_VERSION = 1
+SERVER_VERSION = "0.2-phase3"
+API_VERSION = 2
 
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_JSON_BYTES = 64 * 1024
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+
+
+class PayloadTooLarge(ValueError):
+    pass
 
 
 class StudioHTTPServer(ThreadingHTTPServer):
@@ -32,10 +39,12 @@ class StudioHTTPServer(ThreadingHTTPServer):
         frontend_dir: Path,
         state: StudioState,
         error_recorder: ErrorRecorder,
+        lidar_bridge: Any | None = None,
     ) -> None:
         self.frontend_dir = Path(frontend_dir).resolve()
         self.state = state
         self.error_recorder = error_recorder
+        self.lidar = lidar_bridge or LidarBridge(state)
         super().__init__(server_address, StudioRequestHandler)
 
 
@@ -70,7 +79,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             path = unquote(parsed.path)
 
             if path.startswith("/api/"):
-                self._handle_api(method, path)
+                self._handle_api(method, path, parsed.query)
                 return
 
             if method not in {"GET", "HEAD"}:
@@ -81,6 +90,24 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 return
 
             self._serve_static(path, head_only=method == "HEAD")
+        except PayloadTooLarge as error:
+            self._send_json(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"ok": False, "error": str(error), "code": "payload_too_large"},
+                head_only=method == "HEAD",
+            )
+        except LidarUnavailableError as error:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"ok": False, "error": str(error), "code": "lidar_unavailable"},
+                head_only=method == "HEAD",
+            )
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": str(error), "code": "bad_request"},
+                head_only=method == "HEAD",
+            )
         except Exception as error:
             error_id = self.server.error_recorder.record(
                 error,
@@ -98,7 +125,18 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 head_only=method == "HEAD",
             )
 
-    def _handle_api(self, method: str, path: str) -> None:
+    def _busy(self) -> None:
+        self._send_json(
+            HTTPStatus.CONFLICT,
+            {
+                "ok": False,
+                "error": "studio is busy",
+                "code": "busy",
+                "state": self.server.state.snapshot(),
+            },
+        )
+
+    def _handle_api(self, method: str, path: str, query: str) -> None:
         if method == "GET" and path == "/api/health":
             snapshot = self.server.state.snapshot()
             self._send_json(
@@ -123,25 +161,72 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
         if method == "POST" and path == "/api/reset":
             if not self.server.state.try_begin_operation("reset"):
-                self._send_json(
-                    HTTPStatus.CONFLICT,
-                    {
-                        "ok": False,
-                        "error": "studio is busy",
-                        "code": "busy",
-                        "state": self.server.state.snapshot(),
-                    },
-                )
+                self._busy()
                 return
             try:
-                state = self.server.state.reset()
+                self.server.state.reset()
             finally:
                 self.server.state.end_operation()
-            state = self.server.state.snapshot()
-            self._send_json(HTTPStatus.OK, {"ok": True, "state": state})
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "state": self.server.state.snapshot()},
+            )
             return
 
-        if path in {"/api/health", "/api/state", "/api/reset"}:
+        if method == "POST" and path == "/api/scene/upload":
+            params = parse_qs(query, keep_blank_values=True)
+            filename = (params.get("filename") or [""])[0].strip()
+            raw = self._read_body(MAX_UPLOAD_BYTES)
+            if not self.server.state.try_begin_operation("scene-upload"):
+                self._busy()
+                return
+            try:
+                info = self.server.lidar.upload_scene(filename, raw)
+            finally:
+                self.server.state.end_operation()
+            self._send_json(HTTPStatus.OK, {"ok": True, "scene": info})
+            return
+
+        if method == "POST" and path == "/api/lidar/scan":
+            options = self._read_json(MAX_JSON_BYTES)
+            if not self.server.state.try_begin_operation("lidar-scan"):
+                self._busy()
+                return
+            try:
+                scan = self.server.lidar.scan(options)
+            finally:
+                self.server.state.end_operation()
+            self._send_json(HTTPStatus.OK, {"ok": True, "scan": scan})
+            return
+
+        if method == "GET" and path == "/api/lidar/maps":
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "scan": self.server.lidar.maps_summary()},
+            )
+            return
+
+        if method == "GET" and path.startswith("/api/lidar/maps/") and path.endswith(".png"):
+            channel = path.rsplit("/", 1)[-1][:-4]
+            payload = self.server.lidar.channel_png(channel)
+            self._send_bytes(
+                HTTPStatus.OK,
+                payload,
+                "image/png",
+                cache_control="no-store",
+                head_only=False,
+            )
+            return
+
+        known_paths = {
+            "/api/health",
+            "/api/state",
+            "/api/reset",
+            "/api/scene/upload",
+            "/api/lidar/scan",
+            "/api/lidar/maps",
+        }
+        if path in known_paths or path.startswith("/api/lidar/maps/"):
             self._send_json(
                 HTTPStatus.METHOD_NOT_ALLOWED,
                 {"ok": False, "error": "method not allowed", "code": "method_not_allowed"},
@@ -152,6 +237,29 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             HTTPStatus.NOT_FOUND,
             {"ok": False, "error": "API route not found", "code": "not_found"},
         )
+
+    def _read_body(self, max_bytes: int) -> bytes:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            return b""
+        try:
+            length = int(raw_length)
+        except ValueError as error:
+            raise ValueError("invalid Content-Length") from error
+        if length < 0:
+            raise ValueError("invalid Content-Length")
+        if length > max_bytes:
+            raise PayloadTooLarge(f"request exceeds {max_bytes // (1024 * 1024)} MB limit")
+        return self.rfile.read(length)
+
+    def _read_json(self, max_bytes: int) -> dict[str, Any]:
+        raw = self._read_body(max_bytes)
+        if not raw:
+            return {}
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("JSON body must be an object")
+        return payload
 
     def _serve_static(self, request_path: str, *, head_only: bool) -> None:
         frontend_root = self.server.frontend_dir
@@ -244,15 +352,22 @@ def create_server(
     port: int = PORT,
     state: StudioState | None = None,
     error_recorder: ErrorRecorder | None = None,
+    lidar_bridge: Any | None = None,
 ) -> StudioHTTPServer:
     frontend_dir = Path(frontend_dir).resolve()
     if not frontend_dir.is_dir():
         raise FileNotFoundError(f"Frontend directory not found: {frontend_dir}")
     if host != HOST:
-        raise ValueError(f"Phase 2 server is local-only and must bind to {HOST}")
+        raise ValueError(f"LiDAR Ink Studio is local-only and must bind to {HOST}")
 
     state = state or StudioState()
     error_recorder = error_recorder or ErrorRecorder(
         frontend_dir.parent / ".lidar-ink" / "errors.jsonl"
     )
-    return StudioHTTPServer((host, int(port)), frontend_dir, state, error_recorder)
+    return StudioHTTPServer(
+        (host, int(port)),
+        frontend_dir,
+        state,
+        error_recorder,
+        lidar_bridge=lidar_bridge,
+    )
