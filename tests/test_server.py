@@ -74,9 +74,13 @@ class FakeLidarBridge:
         }
         return metadata
 
-    def channel_png(self, channel: str) -> bytes:
+    def channel_png(self, channel: str, scan_id: str | None = None) -> bytes:
         if channel not in set(CHANNELS):
             raise ValueError("unknown LiDAR channel")
+        current = self.state.get_scan()
+        if scan_id and scan_id != current["metadata"]["scan_id"]:
+            from server.lidar_bridge import ScanIdMismatchError
+            raise ScanIdMismatchError("requested scan is no longer current")
         payload = self.state.get_scan_channel(channel)
         if payload is None:
             raise ValueError("no LiDAR scan is available")
@@ -256,10 +260,18 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(set(maps["scan"]["channels"]), set(CHANNELS))
 
         for channel in CHANNELS:
-            status, body, content_type = self.request(f"/api/lidar/maps/{channel}.png")
+            status, body, content_type = self.request(
+                f"/api/lidar/maps/{channel}.png?scan_id=fake123"
+            )
             self.assertEqual(status, 200)
             self.assertEqual(body, PNG)
             self.assertEqual(content_type, "image/png")
+
+        status, payload = self.json_request(
+            "/api/lidar/maps/depth.png?scan_id=stale999"
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["code"], "scan_mismatch")
 
     def test_reset_discards_scene_and_scan(self) -> None:
         self.upload_fake_scene()
