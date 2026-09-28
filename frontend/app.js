@@ -653,8 +653,12 @@
       syncUI();
 
       if (projectSourceReady() && sourceKind === 'lidar' && lidarSourceMaps) {
-        const maps = composeCurrentLidarMaps();
-        applyRendererMaps(maps);
+        if (installedScanMode === 'multi' && multiViewBundle) {
+          activateMultiViewSource({ preview: false });
+        } else {
+          const maps = composeCurrentLidarMaps();
+          applyRendererMaps(maps);
+        }
       }
 
       updateScanFreshness();
@@ -1009,7 +1013,11 @@
     multiViewSummary.textContent = `${mode} · ${statuses.join(' · ')}`;
   }
 
-  function activateMultiViewSource({ historyKey = null } = {}) {
+  function activateMultiViewSource({
+    historyKey = null,
+    install = false,
+    preview = true
+  } = {}) {
     if (!multiViewBundle) return false;
     const current = multiViewBundle.views[settings.lidar.multiViewCurrent] ||
       multiViewBundle.views[multiViewBundle.order[0]];
@@ -1031,20 +1039,48 @@
       ? 'Combined 5-view LiDAR'
       : `${current.scan.view?.label || current.name} LiDAR view`;
 
-    installSource(
-      nextCanvas,
-      pixels,
-      maps,
-      multiViewBundle.width,
-      multiViewBundle.height,
-      `${label} ready - ${multiViewBundle.width} x ${multiViewBundle.height}px. Building preview...`,
-      'lidar',
-      modelReference || {
-        kind: 'lidar',
-        name: current.scan.scene?.name || '3D model',
-        sha256: current.scan.scene?.sha256 || null
+    if (install || sourceKind !== 'lidar' || !sourceImage) {
+      installSource(
+        nextCanvas,
+        pixels,
+        maps,
+        multiViewBundle.width,
+        multiViewBundle.height,
+        `${label} ready - ${multiViewBundle.width} x ${multiViewBundle.height}px. Building preview...`,
+        'lidar',
+        modelReference || {
+          kind: 'lidar',
+          name: current.scan.scene?.name || '3D model',
+          sha256: current.scan.scene?.sha256 || null
+        }
+      );
+    } else {
+      if (sourceCanvas && sourceCanvas !== nextCanvas) {
+        sourceCanvas.width = 0;
+        sourceCanvas.height = 0;
       }
-    );
+      sourceCanvas = nextCanvas;
+      sourcePixels = pixels;
+      sourceImage = {
+        width: multiViewBundle.width,
+        height: multiViewBundle.height
+      };
+      applyRendererMaps(maps);
+      displayStrokeStore = null;
+      displayRenderMeta = null;
+      highQualityStrokeStore = null;
+      highQualityRenderMeta = null;
+      highQualityStale = false;
+      updateScanFreshness();
+      updateLidarArtControlAvailability(false);
+      refreshButtons();
+      autosaveCurrentState();
+      setStatus(
+        `${label} ready - ${multiViewBundle.width} x ${multiViewBundle.height}px.`,
+        0
+      );
+      if (preview && !scanDirty) schedulePreview();
+    }
 
     updateMultiViewSummary();
     if (historyKey) recordSettingsChange(historyKey);
