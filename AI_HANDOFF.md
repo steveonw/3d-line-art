@@ -15,17 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-10-stabilization
-PR:     #12 — Phase 10 stabilization: fix project and LiDAR state regressions
-base:   phase-10-project-files
+branch: phase-11-scan-cache
+PR:     #13 — Phase 11: add bounded LiDAR scan caching
+base:   phase-10-stabilization
 CI:     passed
 ```
 
-PR #11 remains the portable-project Phase 10 branch immediately below this stabilization PR.
+Resume from **Phase 12 — Fixed multi-view scanning**.
 
-Resume from **Phase 11 — LiDAR scan caching**.
-
-Do **not** start Phase 12 multi-view work until Phase 11 is implemented, tested, committed, and green.
+Do **not** start Phase 13 automatic view selection until Phase 12 is implemented, tested, committed, and green.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -60,22 +58,24 @@ main
   ↓
 #11 phase-10-project-files
   ↓
-#12 phase-10-stabilization   ← CURRENT HEAD
+#12 phase-10-stabilization
+  ↓
+#13 phase-11-scan-cache      ← CURRENT HEAD
 ```
 
-For Phase 11:
+For Phase 12:
 
-1. Branch from `phase-10-stabilization`.
+1. Branch from `phase-11-scan-cache`.
 2. Suggested branch name:
 
    ```text
-   phase-11-scan-cache
+   phase-12-fixed-multiview
    ```
 
 3. Open the new PR against:
 
    ```text
-   phase-10-stabilization
+   phase-11-scan-cache
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -546,308 +546,99 @@ Current scan request fields:
 }
 ```
 
-## 10. Current server state limitation
+## 10. Current server/cache state
 
-`server/state.py` currently holds:
+`server/state.py` now holds:
 
 - one current scene object,
 - one current scan metadata object,
-- one current set of scan-channel PNG bytes.
+- one current set of current-scan PNG channel bytes,
+- a bounded in-memory LRU of reusable scans.
 
-Uploading a new scene clears the current server scan. Scene metadata now includes SHA-256 of the uploaded raw OBJ/STL bytes. Channel retrieval checks the requested `scan_id`; a stale ID returns HTTP 409 instead of silently serving the current scan.
-
-This is the main place Phase 11 will evolve.
-
-## 11. Next task: Phase 11 — LiDAR scan caching
-
-Roadmap requirement:
-
-Cache scans based on:
+Default cache bounds:
 
 ```text
-model
-camera
-resolution
-LiDAR settings
+256 MB soft byte cap
+16 entries
 ```
 
-UI must be able to show:
+The stable scan cache key contains:
 
 ```text
-Scan cached
-Scan running
-Scan stale
+model SHA-256
+width
+height
+rays_per_pixel
+smart_sampling
+yaw_deg
+elevation_deg
+distance_scale
+fov_deg
+sensor seed
 ```
 
-Changing only art style must reuse the existing scan.
+Art settings are intentionally excluded.
 
-Example:
+Uploading a new scene clears the **current scan** but does not clear safely namespaced cache entries. The uploaded model SHA-256 prevents two different files with the same filename from colliding.
+
+Explicit server reset clears the scene, current scan, cache entries, and cache counters.
+
+Current scan metadata exposes `cache_hit`, `cache_key`, and cache statistics. All five cached PNG channels are restored together. Channel retrieval still enforces the current `scan_id` and returns HTTP 409 for stale channel URLs.
+
+## 11. Completed Phase 11 — LiDAR scan caching
+
+Phase 11 is complete.
+
+Implemented:
+
+- content-addressed scan keys using model SHA-256 + normalized sensor inputs,
+- bounded in-memory LRU with byte accounting,
+- 256 MB / 16-entry default limits,
+- exact cache hits that bypass LiDAR engine loading/raycasting,
+- full five-channel restoration,
+- same-filename/different-model isolation,
+- reset clearing,
+- cache hit/miss/eviction statistics,
+- explicit browser states:
+  - `Scan running…`
+  - `Scan ready`
+  - `Scan cached`
+  - `Scan stale`,
+- browser verification that art-only preset changes do not issue another scan request.
+
+The cache architecture intentionally follows the good content-addressed/byte-bounded ideas from `steveonw/Read-Aloud-Main`. A separate duplicate in-flight table was not added because this local server already serializes expensive operations.
+
+## 12. Next task: Phase 12 — Fixed multi-view scanning
+
+Roadmap scope:
 
 ```text
-Fine Pencil
-   → Architectural
-   → Dense Scribble
+Front
+Back
+Left
+Right
+Top
 ```
 
-must not raycast three times.
+Requirements:
 
-### Recommended Phase 11 cache key
+- keep each scan independently inspectable,
+- add current-view mode,
+- add combined-view mode,
+- add per-view debug coloring.
 
-Use a stable server-side key containing only sensor inputs.
+Phase 12 should build **on top of the Phase 11 scan cache**, not replace it.
 
-Conceptually:
+Recommended direction:
 
-```text
-scene identity
-+ width
-+ height
-+ rays_per_pixel
-+ smart_sampling
-+ yaw_deg
-+ elevation_deg
-+ distance_scale
-+ fov_deg
-+ sensor seed
-```
+- define stable named camera/view descriptors,
+- request each view through the existing cached single-view scan path,
+- store the resulting scan identity/cache key per view,
+- do not immediately collapse the five scans into one opaque result,
+- preserve current-view selection and independent channel inspection,
+- add a browser-side or server-side combined representation only after individual views are retained.
 
-Do **not** include art-only settings such as:
-
-```text
-palette
-line count
-stroke length
-stroke weight
-opacity
-flow mixer
-procedural flow
-density-source browser remix
-direction-source browser remix
-geometry-edge display strength
-depth influence
-art seed
-```
-
-Those must remain fast browser-side edits.
-
-### Scene identity
-
-Do not key only on the filename if the server can cheaply retain a stronger identity.
-
-Phase 10 stabilization already computes SHA-256 of the uploaded raw STL/OBJ bytes and stores it in scene metadata.
-
-Phase 11 should reuse that existing fingerprint as the model component of the cache key. This avoids collisions between two different files named `model.obj`.
-
-### Recommended first cache scope
-
-Keep Phase 11 simple and local:
-
-- in-memory cache only,
-- bounded/LRU or small fixed maximum,
-- cache metadata + existing PNG channel bytes,
-- clear cache on explicit server reset,
-- replacing the scene may leave old cache entries only if they are safely namespaced by model fingerprint; otherwise clear them.
-
-Disk cache persistence can be a later enhancement unless the roadmap is explicitly changed.
-
-
-### Primary Phase 11 reference: Read-Aloud-Main
-
-Before inventing the cache machinery, inspect:
-
-```text
-steveonw/Read-Aloud-Main
-```
-
-especially:
-
-```text
-web/app.js
-scripts/web_tests.js
-scripts/stress_browser.js
-cmd/launcher/main.go
-```
-
-This is owner-authorized source material and may be copied/adapted directly.
-
-Useful patterns already implemented there:
-
-- content-specific cache keys that include only inputs that change the expensive result,
-- a `Map`-backed in-memory cache,
-- byte accounting,
-- a soft memory cap,
-- oldest-entry eviction,
-- protecting entries that are actively needed,
-- avoiding duplicate expensive work when an equivalent request is already in flight,
-- keeping valid results from cancelled/stale runs in cache even when they should not become current UI state,
-- cache-isolation tests proving different settings do not collide,
-- stress tests for cache growth and eviction,
-- application and installation fingerprints,
-- localhost launcher hardening and asset-integrity checks.
-
-The Read Aloud sentence cache key follows this principle:
-
-```text
-voice + speaker + delivery + speed + exact spoken text
-```
-
-The LiDAR equivalent should follow the same rule:
-
-```text
-model fingerprint
-+ width
-+ height
-+ rays_per_pixel
-+ smart_sampling
-+ yaw
-+ elevation
-+ distance
-+ fov
-+ sensor seed
-```
-
-Do not copy TTS-specific machinery. Reuse the cache architecture and tests.
-
-A particularly useful Read Aloud behavior is:
-
-```text
-request A starts
-user changes settings
-request A finishes
-    ├─ do not make A the current UI result
-    └─ keep A in cache under A's exact key
-```
-
-For LiDAR this means a scan that finishes after camera controls changed can still be retained as a valid cache entry, provided the result is associated with its original immutable scan key. If the user returns to those exact sensor settings later, that result can become an instant hit.
-
-### Suggested server changes
-
-Likely touch:
-
-```text
-server/state.py
-server/lidar_bridge.py
-server/api.py
-```
-
-Possible responsibilities:
-
-`server/state.py`
-
-- store scene fingerprint,
-- store a bounded map of cache key → scan metadata + channel bytes,
-- expose cache hit/current/stale status in the workspace snapshot,
-- helper methods for lookup/store/clear.
-
-`server/lidar_bridge.py`
-
-- normalize scan options first,
-- build cache key,
-- lookup before raycasting,
-- on hit: restore cached scan as current and return its map summary,
-- on miss: run the existing LiDAR path, then cache the resulting metadata/channels.
-
-`server/api.py`
-
-- API shape may stay the same if `POST /api/lidar/scan` returns a cache-hit marker.
-- Avoid adding unnecessary endpoints unless the UI needs them.
-
-Example response addition:
-
-```json
-{
-  "ok": true,
-  "scan": {
-    "...": "...",
-    "cache": "hit"
-  }
-}
-```
-
-or a boolean like `cache_hit`.
-
-Choose one consistent representation and test it.
-
-### Suggested frontend changes
-
-Likely touch:
-
-```text
-frontend/app.js
-frontend/lidar_client.js
-```
-
-The existing `scanSummary` can show:
-
-```text
-Scan cached
-Scan running
-Scan stale
-```
-
-Important distinction:
-
-- **cached** = server reused an exact sensor-result key,
-- **running** = engine is raycasting,
-- **stale** = current visible scan does not match current camera/sensor controls.
-
-Art-only controls should not mark the sensor scan stale.
-
-### Minimum Phase 11 tests
-
-Add server/unit tests proving:
-
-1. Same scene + identical sensor options:
-   - first request computes scan,
-   - second request hits cache,
-   - engine/raycast path is not executed again.
-
-2. Art-only changes:
-   - do not cause a scan request,
-   - existing current scan remains reusable.
-
-3. Changing any real sensor input causes a miss:
-   - yaw,
-   - elevation,
-   - distance,
-   - FOV,
-   - resolution,
-   - rays per pixel,
-   - smart sampling,
-   - sensor seed.
-
-4. Different model bytes with the same filename do not collide.
-
-5. Server reset clears cache/current scan as intended.
-
-6. Cache hit restores all required channels:
-
-   ```text
-   shaded
-   depth
-   edge
-   variance
-   confidence
-   ```
-
-7. The real cube OBJ integration test still passes.
-
-8. Existing deterministic frontend tests remain green.
-
-## 12. Phase 11 non-goals
-
-Do not start these in the cache branch:
-
-- fixed multi-view scanning,
-- Auto Scan,
-- confidence fusion,
-- Three.js viewer,
-- world-space strokes,
-- 3D Ink,
-- internal geometry generators,
-- LLM scene generation,
-- desktop packaging.
-
-Those have later roadmap phases.
+Important: Phase 12 is fixed predictable multi-view only. Do not start automatic candidate-camera selection or active perception; that remains Phase 13.
 
 ## 13. Determinism and behavior invariants
 
@@ -1001,8 +792,10 @@ For every major phase:
 Start here:
 
 ```text
-Phase 11 — LiDAR scan caching
+Phase 12 — Fixed multi-view scanning
 ```
+
+Branch from `phase-11-scan-cache` and base the Phase 12 PR on `phase-11-scan-cache`.
 
 First inspect:
 
@@ -1013,12 +806,12 @@ server/api.py
 frontend/app.js
 frontend/lidar_client.js
 tests/test_lidar_bridge.py
-tests/test_server.py
+tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Then inspect the cache implementation and tests in `steveonw/Read-Aloud-Main`, especially `web/app.js` and `scripts/web_tests.js`, and adapt the useful cache patterns rather than redesigning them from scratch.
+Preserve the Phase 11 cache key and LRU behavior. Fixed views should request/reuse cached single-view scans rather than creating a second unrelated sensor pipeline.
 
-Implement a minimal, deterministic, bounded in-memory scan cache keyed only by scene identity + sensor inputs.
+Implement Front / Back / Left / Right / Top with independent inspectability, then current-view and combined-view modes.
 
-Do not touch Phase 12.
+Do not touch Phase 13 automatic view selection.
