@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import types
 import unittest
 
 from PIL import Image
@@ -10,6 +11,8 @@ from server.lidar_bridge import (
     ScanIdMismatchError,
     _float_option,
     _int_option,
+    _load_engine,
+    _orient_hit_normals_against_rays,
 )
 from server.state import StudioState
 
@@ -89,6 +92,28 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
             2,
             "sample cube shading collapsed to a flat winding-dependent tone",
         )
+
+    def test_two_sided_normal_orientation_faces_camera(self) -> None:
+        engine = _load_engine()
+        np = engine.np
+        burst = types.SimpleNamespace(
+            depths=np.asarray([1.0, 2.0, engine.INF], dtype=np.float64),
+            dirs=np.asarray(
+                [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+                dtype=np.float64,
+            ),
+            normals=np.asarray(
+                [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0], [0.0, 0.0, 1.0]],
+                dtype=np.float64,
+            ),
+        )
+
+        flipped = _orient_hit_normals_against_rays(engine, burst)
+
+        self.assertEqual(flipped, 1)
+        self.assertLessEqual(float(np.dot(burst.normals[0], burst.dirs[0])), 0.0)
+        self.assertLessEqual(float(np.dot(burst.normals[1], burst.dirs[1])), 0.0)
+        self.assertEqual(burst.normals[2].tolist(), [0.0, 0.0, 1.0])
 
     def test_rejects_nonfinite_and_degenerate_meshes(self) -> None:
         state = StudioState()
