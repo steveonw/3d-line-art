@@ -587,6 +587,76 @@ Keep Phase 11 simple and local:
 
 Disk cache persistence can be a later enhancement unless the roadmap is explicitly changed.
 
+
+### Primary Phase 11 reference: Read-Aloud-Main
+
+Before inventing the cache machinery, inspect:
+
+```text
+steveonw/Read-Aloud-Main
+```
+
+especially:
+
+```text
+web/app.js
+scripts/web_tests.js
+scripts/stress_browser.js
+cmd/launcher/main.go
+```
+
+This is owner-authorized source material and may be copied/adapted directly.
+
+Useful patterns already implemented there:
+
+- content-specific cache keys that include only inputs that change the expensive result,
+- a `Map`-backed in-memory cache,
+- byte accounting,
+- a soft memory cap,
+- oldest-entry eviction,
+- protecting entries that are actively needed,
+- avoiding duplicate expensive work when an equivalent request is already in flight,
+- keeping valid results from cancelled/stale runs in cache even when they should not become current UI state,
+- cache-isolation tests proving different settings do not collide,
+- stress tests for cache growth and eviction,
+- application and installation fingerprints,
+- localhost launcher hardening and asset-integrity checks.
+
+The Read Aloud sentence cache key follows this principle:
+
+```text
+voice + speaker + delivery + speed + exact spoken text
+```
+
+The LiDAR equivalent should follow the same rule:
+
+```text
+model fingerprint
++ width
++ height
++ rays_per_pixel
++ smart_sampling
++ yaw
++ elevation
++ distance
++ fov
++ sensor seed
+```
+
+Do not copy TTS-specific machinery. Reuse the cache architecture and tests.
+
+A particularly useful Read Aloud behavior is:
+
+```text
+request A starts
+user changes settings
+request A finishes
+    ├─ do not make A the current UI result
+    └─ keep A in cache under A's exact key
+```
+
+For LiDAR this means a scan that finishes after camera controls changed can still be retained as a valid cache entry, provided the result is associated with its original immutable scan key. If the user returns to those exact sensor settings later, that result can become an instant hit.
+
 ### Suggested server changes
 
 Likely touch:
@@ -801,6 +871,7 @@ Core owner-controlled references include:
 - `steveonw/lidar-numpy` — confidence/multi-lens ideas.
 - `steveonw/lidar-probe` — active-view selection ideas.
 - `steveonw/LocalChatBox` — desktop/runtime packaging ideas.
+- `steveonw/Read-Aloud-Main` — **primary Phase 11 cache reference**: content-addressed expensive-result caching, memory accounting/eviction, cache-isolation and stress tests; also a strong later reference for portable localhost launchers, app/install fingerprints, integrity checking, save APIs, process reuse, and runtime hardening.
 - `steveonw/text-to-3d` — viewer/geometry/verification ideas; still not a required LLM dependency.
 - `steveonw/other-tools` — procedural/hash/world-generation utilities may be reused directly where useful.
 - other `steveonw` repositories may also be mined for useful subsystems if they materially help a roadmap phase.
@@ -884,6 +955,8 @@ tests/test_server.py
 ROADMAP.md
 ```
 
-Then implement a minimal, deterministic, bounded in-memory scan cache keyed only by scene identity + sensor inputs.
+Then inspect the cache implementation and tests in `steveonw/Read-Aloud-Main`, especially `web/app.js` and `scripts/web_tests.js`, and adapt the useful cache patterns rather than redesigning them from scratch.
+
+Implement a minimal, deterministic, bounded in-memory scan cache keyed only by scene identity + sensor inputs.
 
 Do not touch Phase 12.
