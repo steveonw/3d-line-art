@@ -12,7 +12,15 @@
   }
 
   function createHistory(options = {}) {
-    const storage = options.storage ?? window.localStorage;
+    let storage = options.storage || null;
+    let storageAccessError = null;
+    if (!storage) {
+      try {
+        storage = window.localStorage;
+      } catch (error) {
+        storageAccessError = error;
+      }
+    }
     const storageKey = options.storageKey || 'lidar-ink-studio:autosave';
     const limit = Math.max(2, Number(options.limit) || 80);
     const autosaveDelayMs = Math.max(0, Number(options.autosaveDelayMs) || 250);
@@ -77,6 +85,7 @@
         state: clone(state)
       };
       try {
+        if (!storage) throw storageAccessError || new Error('local storage is unavailable');
         storage.setItem(storageKey, JSON.stringify(envelope));
         autosaveState = 'saved';
         lastSavedAt = savedAt;
@@ -93,6 +102,7 @@
 
     function restoreAutosave() {
       try {
+        if (!storage) throw storageAccessError || new Error('local storage is unavailable');
         const raw = storage.getItem(storageKey);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
@@ -212,6 +222,7 @@
         autosaveTimer = null;
       }
       try {
+        if (!storage) throw storageAccessError || new Error('local storage is unavailable');
         storage.removeItem(storageKey);
         autosaveState = 'idle';
         lastSavedAt = null;
