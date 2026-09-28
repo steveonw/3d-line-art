@@ -1534,6 +1534,9 @@
       const scene = result.scene;
       sceneLoaded = true;
       modelReference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
+      multiViewBundle = null;
+      installedMultiViewSignature = null;
+      updateMultiViewSummary();
 
       // Uploading a model replaces the server scene/scan, but it does not
       // relabel the old canvas. sourceReference stays tied to the installed
@@ -1672,7 +1675,118 @@
     }
   }
 
-  async function restoreServerScene() {
+  async function runFixedMultiViewScan() {
+    if (!sceneLoaded || scanRunning) return;
+
+    const serial = ++loadSerial;
+    stopRender(false);
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    scanRunning = true;
+    loadingImage = true;
+    scanSummary.textContent = 'Scan running… · 5 fixed views';
+    scanMultiBtn.textContent = 'Scanning 5 Views…';
+    refreshButtons();
+    setStatus('Scanning Front, Back, Left, Right, and Top...', 0);
+    setStats(0, 0, 0);
+
+    try {
+      const options = readScanControls();
+      delete options.yaw_deg;
+      delete options.elevation_deg;
+
+      const response = await LidarClient.scanFixedViews(options);
+      const multiview = response.multiview;
+      const order = multiview?.order || [];
+      if (order.length !== LineArtMultiView.VIEW_ORDER.length) {
+        throw new Error('Fixed multi-view scan did not return all five views.');
+      }
+
+      setStatus('Loading five independent LiDAR map sets...', 0);
+
+      const loadedViews = await Promise.all(order.map(async name => {
+        const scan = multiview.views?.[name];
+        if (!scan) throw new Error(`Missing fixed LiDAR view: ${name}`);
+        const images = await LidarClient.fetchScanMaps(scan);
+        try {
+          const sourceMaps = LineArtAnalysis.buildLidarSourceMaps(
+            images.shaded.imageData,
+            images.depth.imageData,
+            images.edge.imageData,
+            images.variance.imageData,
+            images.confidence.imageData,
+            images.shaded.width,
+            images.shaded.height
+          );
+          return {
+            name,
+            scan,
+            width: images.shaded.width,
+            height: images.shaded.height,
+            pixels: images.shaded.imageData,
+            sourceMaps
+          };
+        } finally {
+          for (const item of Object.values(images)) {
+            item.canvas.width = 0;
+            item.canvas.height = 0;
+          }
+        }
+      }));
+
+      if (serial !== loadSerial) return;
+
+      const width = loadedViews[0].width;
+      const height = loadedViews[0].height;
+      for (const view of loadedViews) {
+        if (view.width !== width || view.height !== height) {
+          throw new Error('Fixed LiDAR view dimensions do not match.');
+        }
+      }
+
+      const combinedRgba = LineArtMultiView.combineShadedPixels(
+        loadedViews,
+        width,
+        height
+      );
+      const combinedPixels = new ImageData(combinedRgba, width, height);
+      const views = Object.fromEntries(loadedViews.map(view => [view.name, view]));
+
+      multiViewBundle = {
+        metadata: multiview,
+        order: [...order],
+        views,
+        width,
+        height,
+        combinedPixels
+      };
+
+      if (!views[settings.lidar.multiViewCurrent]) {
+        settings.lidar.multiViewCurrent = order[0];
+        multiViewCurrent.value = order[0];
+      }
+
+      rememberInstalledMultiView(multiview);
+      const averageCoverage = loadedViews.reduce(
+        (sum, view) => sum + Number(view.scan.coverage || 0),
+        0
+      ) / loadedViews.length;
+      modelStatus.textContent =
+        `${loadedViews[0].scan.scene?.name || '3D model'} - 5 fixed views · ${Math.round(averageCoverage * 100)}% average coverage`;
+
+      activateMultiViewSource({ install: true });
+    } catch (error) {
+      console.error(error);
+      if (serial !== loadSerial) return;
+      scanRunning = false;
+      loadingImage = false;
+      refreshButtons();
+      const suffix = error.errorId ? ` (${error.errorId})` : '';
+      setStatus(`Fixed multi-view scan failed: ${error.message}${suffix}`, 0);
+    }
+  }
+
+    async function restoreServerScene() {
     const serial = ++loadSerial;
     try {
       // Autosave recovery only hints at the previous image; it must not let an
@@ -1981,6 +2095,7 @@
   document.body.dataset.phase10Ready = 'true';
   document.body.dataset.phase11Ready = 'true';
   document.body.dataset.phase115Ready = 'true';
+  document.body.dataset.phase12Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -2009,6 +2124,23 @@
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
   scanBtn.addEventListener('click', runLidarScan);
+  scanMultiBtn.addEventListener('click', runFixedMultiViewScan);
+  multiViewMode.addEventListener('change', () => {
+    settings.lidar.multiViewMode = multiViewMode.value === 'combined'
+      ? 'combined'
+      : 'current';
+    activateMultiViewSource({ historyKey: 'lidar:multiViewMode' });
+    refreshButtons();
+  });
+  multiViewCurrent.addEventListener('change', () => {
+    if (!LineArtMultiView.VIEW_ORDER.includes(multiViewCurrent.value)) return;
+    settings.lidar.multiViewCurrent = multiViewCurrent.value;
+    activateMultiViewSource({ historyKey: 'lidar:multiViewCurrent' });
+  });
+  multiViewDebugColors.addEventListener('change', () => {
+    settings.lidar.multiViewDebugColors = multiViewDebugColors.checked;
+    activateMultiViewSource({ historyKey: 'lidar:multiViewDebugColors' });
+  });
   undoBtn.addEventListener('click', undoSettings);
   redoBtn.addEventListener('click', redoSettings);
 
@@ -2182,5 +2314,6 @@
       sourceCanvas.height = 0;
     }
     lidarSourceMaps = null;
+    multiViewBundle = null;
   });
 })();
