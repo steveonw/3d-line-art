@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase5" />
+  <meta name="application-version" content="5.3-phase6" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -187,6 +187,26 @@
 
       <div class="section">
         <div class="label-row">
+          <span class="group-label">Procedural Flow</span>
+          <span class="value">seeded fBm</span>
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="flowScale">Flow Scale</label><span class="value" id="flowScaleValue">120 px</span></div>
+          <input id="flowScale" type="range" min="20" max="320" step="5" value="120" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="flowTurbulence">Turbulence</label><span class="value" id="flowTurbulenceValue">0%</span></div>
+          <input id="flowTurbulence" type="range" min="0" max="1" step="0.05" value="0" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="flowOctaves">Octaves</label><span class="value" id="flowOctavesValue">4</span></div>
+          <input id="flowOctaves" type="range" min="1" max="7" step="1" value="4" />
+        </div>
+        <div class="source-help">Adds smooth seeded direction variation on top of the current image/LiDAR flow field.</div>
+      </div>
+
+      <div class="section">
+        <div class="label-row">
           <label for="seedInput">Seed</label>
           <span class="value">coordinate-stable variation</span>
         </div>
@@ -236,6 +256,7 @@
 
   <script src="analysis_maps.js"></script>
   <script src="random_field.js"></script>
+  <script src="procedural_flow.js"></script>
   <script src="line_renderer.js"></script>
   <script src="export.js"></script>
   <script src="lidar_client.js"></script>

@@ -213,12 +213,12 @@ Borrow the coordinate-stable randomness idea from `other-tools/Quiet Roads`.
 
 Borrow the useful procedural-field ideas from the world-generator tools.
 
-- [ ] Add seeded Simplex/fBm-style noise
-- [ ] Create `proceduralFlow(x, y)`
-- [ ] Add Flow Scale
-- [ ] Add Turbulence
-- [ ] Add Octaves
-- [ ] Keep Seed visible and repeatable
+- [x] Add seeded Simplex/fBm-style noise
+- [x] Create `proceduralFlow(x, y)`
+- [x] Add Flow Scale
+- [x] Add Turbulence
+- [x] Add Octaves
+- [x] Keep Seed visible and repeatable
 
 Conceptually:
 
@@ -229,6 +229,8 @@ final direction =
 ```
 
 **Done when:** strokes can look natural or turbulent while still respecting object geometry.
+
+**Phase 6 validation:** GitHub Actions passes procedural-flow repeatability, zero-turbulence preservation, nearby-sample smoothness, scale/octave behavior, stable-randomness regression checks, frontend LiDAR-map tests, the server/API suite, and the real cube OBJ LiDAR integration test. The procedural field is deterministic and layers on top of the existing image/LiDAR direction field.
 
 ---
 
@@ -577,7 +579,7 @@ FIRST MAJOR CHECKPOINT / v0.1
 
 5. LiDAR controls                              [x]
 6. Stable seeded randomness                    [x]
-7. Procedural noise                            [ ]
+7. Procedural noise                            [x]
 8. Mathematical flow mixer                     [ ]
 9. Better stroke placement                     [ ]
 ---------------------------------------------------

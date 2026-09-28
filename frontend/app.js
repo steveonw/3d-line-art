@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase5';
+  const BUILD_VERSION = '5.3-phase6';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -29,6 +29,11 @@
     sampleBias: 0.70,
     flowStrength: 0.65,
     seed: 2841,
+    procedural: {
+      scale: 120,
+      turbulence: 0,
+      octaves: 4
+    },
     lidar: {
       scanResolution: '320x240',
       raysPerPixel: 2,
@@ -148,6 +153,12 @@
   const lineCountNumber = document.getElementById('lineCountNumber');
   const lineCountDisplay = document.getElementById('lineCountDisplay');
   const slidersRoot = document.getElementById('sliders');
+  const flowScale = document.getElementById('flowScale');
+  const flowScaleValue = document.getElementById('flowScaleValue');
+  const flowTurbulence = document.getElementById('flowTurbulence');
+  const flowTurbulenceValue = document.getElementById('flowTurbulenceValue');
+  const flowOctaves = document.getElementById('flowOctaves');
+  const flowOctavesValue = document.getElementById('flowOctavesValue');
   const seedInput = document.getElementById('seedInput');
   const variationBtn = document.getElementById('variationBtn');
   const renderBtn = document.getElementById('renderBtn');
@@ -260,6 +271,16 @@
     cameraFovValue.textContent = `${Math.round(s.cameraFov)}°`;
     geometryEdgeStrengthValue.textContent = `${Math.round(s.geometryEdgeStrength * 100)}%`;
     depthInfluenceValue.textContent = `${Math.round(s.depthInfluence * 100)}%`;
+  }
+
+  function syncProceduralControls() {
+    const p = settings.procedural;
+    flowScale.value = p.scale;
+    flowTurbulence.value = p.turbulence;
+    flowOctaves.value = p.octaves;
+    flowScaleValue.textContent = `${Math.round(p.scale)} px`;
+    flowTurbulenceValue.textContent = `${Math.round(p.turbulence * 100)}%`;
+    flowOctavesValue.textContent = String(p.octaves);
   }
 
   function readScanControls() {
@@ -386,6 +407,7 @@
     seedInput.value = settings.seed;
     for (const def of sliderDefs) updateSliderValue(def);
     syncLidarControls();
+    syncProceduralControls();
     syncModeButtons();
     syncPaletteAvailability();
   }
@@ -481,6 +503,9 @@
     presetSelect.disabled = locked;
     lineCountRange.disabled = locked;
     lineCountNumber.disabled = locked;
+    flowScale.disabled = locked;
+    flowTurbulence.disabled = locked;
+    flowOctaves.disabled = locked;
     seedInput.disabled = locked;
     variationBtn.disabled = locked;
     pngScaleSelect.disabled = locked;
@@ -792,7 +817,11 @@
 
     const serial = ++renderSerial;
     const isPreview = kind === 'preview';
-    const renderSettings = { ...settings };
+    const renderSettings = {
+      ...settings,
+      procedural: { ...settings.procedural },
+      lidar: { ...settings.lidar }
+    };
     const target = isPreview ? Math.min(renderSettings.lineCount, PREVIEW_MAX_LINES) : renderSettings.lineCount;
     const seed = normalizeSeed(renderSettings.seed);
 
@@ -905,7 +934,9 @@
   document.body.dataset.phase3Ready = 'true';
   document.body.dataset.phase4Ready = 'true';
   document.body.dataset.phase5Ready = 'true';
+  document.body.dataset.phase6Ready = 'true';
   syncLidarControls();
+  syncProceduralControls();
   restoreServerScene();
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
@@ -979,6 +1010,27 @@
   document.querySelector('.quick-counts').addEventListener('click', e => {
     const btn = e.target.closest('button[data-count]');
     if (btn) setLineCount(Number(btn.dataset.count));
+  });
+
+  flowScale.addEventListener('input', () => {
+    settings.procedural.scale = Number(flowScale.value);
+    flowScaleValue.textContent = `${Math.round(settings.procedural.scale)} px`;
+    markSettingsChanged(true);
+    schedulePreview();
+  });
+
+  flowTurbulence.addEventListener('input', () => {
+    settings.procedural.turbulence = Number(flowTurbulence.value);
+    flowTurbulenceValue.textContent = `${Math.round(settings.procedural.turbulence * 100)}%`;
+    markSettingsChanged(true);
+    schedulePreview();
+  });
+
+  flowOctaves.addEventListener('input', () => {
+    settings.procedural.octaves = Number(flowOctaves.value);
+    flowOctavesValue.textContent = String(settings.procedural.octaves);
+    markSettingsChanged(true);
+    schedulePreview();
   });
 
   seedInput.addEventListener('change', () => {

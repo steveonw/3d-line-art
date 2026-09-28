@@ -26,6 +26,7 @@ jobs:
         run: |
           node --check frontend/analysis_maps.js
           node --check frontend/random_field.js
+          node --check frontend/procedural_flow.js
           node --check frontend/line_renderer.js
           node --check frontend/export.js
           node --check frontend/lidar_client.js
@@ -36,6 +37,9 @@ jobs:
 
       - name: Run stable randomness smoke test
         run: node tests/frontend_randomness_smoke.js
+
+      - name: Run procedural flow smoke test
+        run: node tests/frontend_procedural_flow_smoke.js
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
