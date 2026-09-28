@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase9" />
+  <meta name="application-version" content="5.3-phase10" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -13,6 +13,19 @@
       <div class="brand">
         <h1>Line Art Studio 5.3</h1>
         <p>Coverage-aware rendering with smooth direction fields and optional curved streamline strokes.</p>
+      </div>
+
+      <div class="section project-section">
+        <div class="label-row">
+          <span class="group-label">Project</span>
+          <span class="value">portable JSON</span>
+        </div>
+        <div class="project-actions">
+          <button class="secondary" id="openProjectBtn" type="button">Open Project</button>
+          <button class="secondary" id="saveProjectBtn" type="button">Save Project</button>
+        </div>
+        <input id="projectFileInput" type="file" accept=".json,.lidar-ink.json,application/json" hidden />
+        <div class="source-help" id="projectStatus">Saves settings and source references; scan caches stay separate.</div>
       </div>
 
       <div class="section history-section">
