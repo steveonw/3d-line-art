@@ -25,6 +25,9 @@ jobs:
       - name: Install Chromium for browser regressions
         run: python -m playwright install --with-deps chromium
 
+      - name: Generate reference fixtures
+        run: python scripts/make_reference_fixtures.py
+
       - name: Check frontend JavaScript syntax
         run: |
           node --check frontend/analysis_maps.js
