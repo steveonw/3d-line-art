@@ -789,23 +789,30 @@ Current mesh cap:
 
 ## 15. Important provenance / reuse notes
 
-Useful ideas were selectively borrowed or independently reimplemented from other repositories owned by the same author.
+The owner has explicitly confirmed that the `steveonw` GitHub repositories referenced by this project are their own repositories and are authorized source material for this application.
 
-Core references:
+**For the owner's repositories, do not treat repository-to-repository licensing uncertainty as a blocker.** Another AI may directly inspect, copy, adapt, refactor, or combine useful code from them when that produces a better implementation.
+
+Core owner-controlled references include:
 
 - `steveonw/lidar-engine` — LiDAR sensing engine lineage.
 - `steveonw/jubilant-funicular` — local-server/state/error-handling architecture ideas.
-- `steveonw/Math-tools` — mathematical field concepts.
-- `steveonw/lidar-numpy` — later confidence/multi-lens ideas.
-- `steveonw/lidar-probe` — later active-view selection idea.
-- `steveonw/LocalChatBox` — later desktop/runtime packaging ideas.
-- `steveonw/text-to-3d` — optional viewer/verification ideas only; not a core LLM dependency.
+- `steveonw/Math-tools` — mathematical/vector/geometry utilities and field concepts.
+- `steveonw/lidar-numpy` — confidence/multi-lens ideas.
+- `steveonw/lidar-probe` — active-view selection ideas.
+- `steveonw/LocalChatBox` — desktop/runtime packaging ideas.
+- `steveonw/text-to-3d` — viewer/geometry/verification ideas; still not a required LLM dependency.
+- `steveonw/other-tools` — procedural/hash/world-generation utilities may be reused directly where useful.
+- other `steveonw` repositories may also be mined for useful subsystems if they materially help a roadmap phase.
 
-Important:
+Reuse guidance:
 
-- Procedural/hash ideas inspired by `other-tools` were independently implemented because licensing there was not established.
-- Do not copy substantial source from an unlicensed repository.
-- Preserve notices for vendored or substantially reused licensed code.
+- Prefer the best implementation already present in the owner's repos instead of rewriting code merely to avoid cross-repo reuse.
+- It is acceptable to copy a focused subsystem and adapt it into this application.
+- Preserve the architectural rule: reuse useful subsystems, not whole applications blindly.
+- Keep tests and behavior invariants when transplanting code.
+- For code that is genuinely from a third party (including third-party code vendored inside an owner repo), preserve required notices/attribution and follow that third party's license terms.
+- Do not remove existing license or attribution notices from already vendored third-party components.
 
 ## 16. Original design principles
 
