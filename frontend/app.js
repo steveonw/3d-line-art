@@ -522,7 +522,6 @@
     );
     if (!restored) return false;
 
-    const beforeScan = scanSettingsSignature(settings);
     historyApplying = true;
     try {
       Object.assign(settings, normalizeRestoredSettings(restored.settings));
@@ -534,11 +533,7 @@
         applyRendererMaps(maps);
       }
 
-      if (sceneLoaded && beforeScan !== scanSettingsSignature(settings)) {
-        scanDirty = true;
-        scanSummary.textContent = 'settings changed';
-        scanBtn.textContent = 'Rescan LiDAR';
-      }
+      updateScanFreshness();
 
       if (highQualityStrokeStore) highQualityStale = true;
       updateExportNote();
@@ -546,7 +541,12 @@
       historyApplying = false;
     }
 
-    if (preview && sourceImage && projectSourceReady()) schedulePreview();
+    if (
+      preview &&
+      sourceImage &&
+      projectSourceReady() &&
+      !(sourceKind === 'lidar' && scanDirty)
+    ) schedulePreview();
     refreshButtons();
     return true;
   }
@@ -627,6 +627,7 @@
     }
 
     if (activeRender) stopRender(false);
+    ++loadSerial;
     clearTimeout(previewTimer);
     previewTimer = 0;
 
@@ -643,6 +644,8 @@
         applyRendererMaps(maps);
       }
 
+      updateScanFreshness();
+
       if (highQualityStrokeStore) highQualityStale = true;
       updateExportNote();
     } finally {
@@ -654,9 +657,17 @@
     history.saveNow(captureProjectState());
 
     if (projectSourceReady()) {
-      setProjectStatus(`Opened ${file.name}. Source reference is satisfied.`);
-      setStatus('Project opened. Rebuilding preview from the referenced source.', 0);
-      if (sourceImage) schedulePreview();
+      if (sourceKind === 'lidar' && scanDirty) {
+        setProjectStatus(
+          `Opened ${file.name}. Source matches, but the installed LiDAR scan is stale. Rescan LiDAR.`,
+          true
+        );
+        setStatus('Project opened. Rescan LiDAR to match the saved sensor settings.', 0);
+      } else {
+        setProjectStatus(`Opened ${file.name}. Source reference is satisfied.`);
+        setStatus('Project opened. Rebuilding preview from the referenced source.', 0);
+        if (sourceImage) schedulePreview();
+      }
     } else if (restored.source.kind === 'lidar') {
       setProjectStatus(
         `Opened ${file.name}. Load ${requiredSourceLabel(restored.source)} to reproduce the project.`,
@@ -789,10 +800,15 @@
   }
 
   function markScanControlsChanged(historyKey = null) {
-    scanDirty = true;
-    scanSummary.textContent = sceneLoaded ? 'settings changed' : 'single view';
-    scanBtn.textContent = 'Rescan LiDAR';
+    if (installedScanSignature && sourceKind === 'lidar') {
+      updateScanFreshness();
+    } else {
+      scanDirty = !!sceneLoaded;
+      scanSummary.textContent = sceneLoaded ? 'ready to scan' : 'single view';
+      scanBtn.textContent = 'Scan LiDAR';
+    }
     recordSettingsChange(historyKey);
+    refreshButtons();
   }
 
   function updateLidarArtControlAvailability(locked = false) {
