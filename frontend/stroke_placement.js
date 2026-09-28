@@ -98,7 +98,7 @@
     // Spacing is a meaningful preference, not an absolute veto. Strong
     // remaining coverage can still beat a clear but useless location, which
     // keeps the coverage grid as the final authority at high stroke densities.
-    const selectionScore = qualityScore + (spacingIsClear ? 0.38 : -0.16);
+    const selectionScore = qualityScore + (spacingIsClear ? 0.20 : -0.05);
 
     const importance = clamp(
       0.02 +
