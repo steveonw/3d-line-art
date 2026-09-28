@@ -79,11 +79,11 @@ server/
   errors.py
 ```
 
-- [ ] Bind to `127.0.0.1` by default
-- [ ] Serve the frontend from the Python process
-- [ ] Add central server state
-- [ ] Add serialized/locked expensive operations
-- [ ] Add consistent JSON errors and error IDs
+- [x] Bind to `127.0.0.1` by default
+- [x] Serve the frontend from the Python process
+- [x] Add central server state
+- [x] Add serialized/locked expensive operations
+- [x] Add consistent JSON errors and error IDs
 
 Initial API:
 
@@ -100,6 +100,8 @@ python run_studio.py
 ```
 
 opens the whole application.
+
+**Phase 2 validation:** Python compilation passes and the stdlib server test suite passes 6/6 tests covering health/state/reset, busy-write locking, static frontend serving, JSON 404 responses, and path-traversal blocking.
 
 ---
 
@@ -562,7 +564,7 @@ Use useful packaging/runtime-management ideas from `LocalChatBox` only after the
 ```text
 1. Existing renderer protected                 [x]
 2. Frontend cleaned up                         [x]
-3. Local server                                [ ]
+3. Local server                                [x]
 4. STL/OBJ -> LiDAR -> line art                [ ]
 ---------------------------------------------------
 FIRST MAJOR CHECKPOINT / v0.1
