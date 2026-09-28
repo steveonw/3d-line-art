@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase1';
+  const BUILD_VERSION = '5.3-phase3';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -77,6 +77,9 @@
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d', { alpha: false });
   const imageInput = document.getElementById('imageInput');
+  const modelInput = document.getElementById('modelInput');
+  const scanBtn = document.getElementById('scanBtn');
+  const modelStatus = document.getElementById('modelStatus');
   const presetSelect = document.getElementById('preset');
   const modeControl = document.getElementById('modeControl');
   const paletteSelect = document.getElementById('palette');
@@ -113,6 +116,9 @@
   let renderSerial = 0;
   let loadSerial = 0;
   let loadingImage = false;
+  let modelLoading = false;
+  let scanRunning = false;
+  let sceneLoaded = false;
   let activeRender = null;
 
   let displayStrokeStore = null;
@@ -341,9 +347,12 @@
     const highActive = activeRender?.kind === 'high';
     const exportBusy = exporter.isBusy();
     setHighQualityControlsLocked(highActive || exportBusy);
-    renderBtn.disabled = !sourceImage || loadingImage || highActive || exportBusy;
+    imageInput.disabled = highActive || exportBusy || scanRunning;
+    modelInput.disabled = highActive || exportBusy || modelLoading || scanRunning;
+    scanBtn.disabled = !sceneLoaded || modelLoading || scanRunning || active || exportBusy;
+    renderBtn.disabled = !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
     cancelBtn.disabled = !active;
-    const canSave = !active && !loadingImage && !exportBusy && !!getExportTarget();
+    const canSave = !active && !loadingImage && !scanRunning && !exportBusy && !!getExportTarget();
     saveBtn.disabled = !canSave;
     saveSvgBtn.disabled = !canSave;
     updateExportNote();
@@ -357,6 +366,55 @@
     }
   }
 
+  function installSource(newSourceCanvas, newPixels, maps, w, h, readyMessage) {
+    if (sourceCanvas && sourceCanvas !== newSourceCanvas) {
+      sourceCanvas.width = 0;
+      sourceCanvas.height = 0;
+    }
+
+    sourceCanvas = newSourceCanvas;
+    sourcePixels = newPixels;
+    luminance = maps.luminance;
+    edgeStrength = maps.edgeStrength;
+    colorInkNeed = maps.colorInkNeed;
+    strokeDirection = maps.strokeDirection;
+    directionCoherence = maps.directionCoherence;
+    sourceImage = { width: w, height: h };
+
+    renderer.setSource({
+      sourceImage,
+      sourcePixels,
+      luminance,
+      edgeStrength,
+      colorInkNeed,
+      strokeDirection,
+      directionCoherence
+    });
+
+    displayStrokeStore = null;
+    displayRenderMeta = null;
+    highQualityStrokeStore = null;
+    highQualityRenderMeta = null;
+    highQualityStale = false;
+
+    canvas.width = w;
+    canvas.height = h;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    canvas.setAttribute('aria-label', `Generated line-art preview, ${w} by ${h} pixels`);
+
+    emptyState.hidden = true;
+    canvasShell.hidden = false;
+    loadingImage = false;
+    scanRunning = false;
+    refreshButtons();
+    setStatus(readyMessage, 0);
+    startRender('preview');
+  }
+
   async function loadImageFile(file) {
     if (!file) return;
     const serial = ++loadSerial;
@@ -364,6 +422,7 @@
     clearTimeout(previewTimer);
     previewTimer = 0;
     loadingImage = true;
+    scanRunning = false;
     refreshButtons();
     setStatus('Loading image...', 0);
     setStats(0, 0, 0);
@@ -402,51 +461,14 @@
         return;
       }
 
-      if (sourceCanvas) {
-        sourceCanvas.width = 0;
-        sourceCanvas.height = 0;
-      }
-
-      sourceCanvas = newSourceCanvas;
-      sourcePixels = newPixels;
-      luminance = maps.luminance;
-      edgeStrength = maps.edgeStrength;
-      colorInkNeed = maps.colorInkNeed;
-      strokeDirection = maps.strokeDirection;
-      directionCoherence = maps.directionCoherence;
-      sourceImage = { width: w, height: h };
-
-      renderer.setSource({
-        sourceImage,
-        sourcePixels,
-        luminance,
-        edgeStrength,
-        colorInkNeed,
-        strokeDirection,
-        directionCoherence
-      });
-
-      displayStrokeStore = null;
-      displayRenderMeta = null;
-      highQualityStrokeStore = null;
-      highQualityRenderMeta = null;
-      highQualityStale = false;
-
-      canvas.width = w;
-      canvas.height = h;
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      canvas.setAttribute('aria-label', `Generated line-art preview, ${w} by ${h} pixels`);
-
-      emptyState.hidden = true;
-      canvasShell.hidden = false;
-      loadingImage = false;
-      refreshButtons();
-      setStatus(`Ready - ${w} x ${h}px. Building direction-aware preview...`, 0);
-      startRender('preview');
+      installSource(
+        newSourceCanvas,
+        newPixels,
+        maps,
+        w,
+        h,
+        `Ready - ${w} x ${h}px. Building direction-aware preview...`
+      );
     } catch (error) {
       bitmap?.close?.();
       if (newSourceCanvas && newSourceCanvas !== sourceCanvas) {
@@ -458,7 +480,7 @@
       loadingImage = false;
       refreshButtons();
       if (sourceImage) {
-        setStatus('Could not load that image. The previous image is still available.', 0);
+        setStatus('Could not load that image. The previous source is still available.', 0);
       } else {
         emptyState.hidden = false;
         canvasShell.hidden = true;
@@ -467,7 +489,119 @@
     }
   }
 
+  async function uploadModelFile(file) {
+    if (!file) return;
+    modelLoading = true;
+    sceneLoaded = false;
+    modelStatus.textContent = `Uploading ${file.name}...`;
+    refreshButtons();
 
+    try {
+      const result = await LidarClient.uploadScene(file);
+      const scene = result.scene;
+      sceneLoaded = true;
+      modelStatus.textContent =
+        `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
+      setStatus('3D model loaded. Run LiDAR scan to build drawing maps.', 0);
+    } catch (error) {
+      console.error(error);
+      sceneLoaded = false;
+      const suffix = error.errorId ? ` (${error.errorId})` : '';
+      modelStatus.textContent = `Model upload failed: ${error.message}${suffix}`;
+      setStatus('Could not load that 3D model.', 0);
+    } finally {
+      modelLoading = false;
+      refreshButtons();
+    }
+  }
+
+  async function runLidarScan() {
+    if (!sceneLoaded || scanRunning) return;
+
+    const serial = ++loadSerial;
+    stopRender(false);
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    scanRunning = true;
+    loadingImage = true;
+    refreshButtons();
+    setStatus('LiDAR scan running...', 0);
+    setStats(0, 0, 0);
+
+    let shadedCanvas = null;
+    try {
+      const response = await LidarClient.scan({
+        width: 320,
+        height: 240,
+        rays_per_pixel: 2,
+        seed: 42
+      });
+      const scan = response.scan;
+      setStatus('Loading LiDAR depth and geometry maps...', 0);
+      const images = await LidarClient.fetchScanMaps(scan);
+
+      if (serial !== loadSerial) {
+        for (const item of [images.shaded, images.depth, images.edge]) {
+          item.canvas.width = 0;
+          item.canvas.height = 0;
+        }
+        return;
+      }
+
+      shadedCanvas = images.shaded.canvas;
+      const maps = LineArtAnalysis.buildLidarAnalysisMaps(
+        images.shaded.imageData,
+        images.depth.imageData,
+        images.edge.imageData,
+        images.shaded.width,
+        images.shaded.height
+      );
+
+      images.depth.canvas.width = 0;
+      images.depth.canvas.height = 0;
+      images.edge.canvas.width = 0;
+      images.edge.canvas.height = 0;
+
+      modelStatus.textContent =
+        `${scan.scene?.name || '3D model'} - scan ${scan.scan_id}, ${Math.round(scan.coverage * 100)}% ray coverage`;
+
+      installSource(
+        shadedCanvas,
+        images.shaded.imageData,
+        maps,
+        images.shaded.width,
+        images.shaded.height,
+        `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`
+      );
+    } catch (error) {
+      console.error(error);
+      if (shadedCanvas && shadedCanvas !== sourceCanvas) {
+        shadedCanvas.width = 0;
+        shadedCanvas.height = 0;
+      }
+      if (serial !== loadSerial) return;
+      scanRunning = false;
+      loadingImage = false;
+      refreshButtons();
+      const suffix = error.errorId ? ` (${error.errorId})` : '';
+      setStatus(`LiDAR scan failed: ${error.message}${suffix}`, 0);
+    }
+  }
+
+  async function restoreServerScene() {
+    try {
+      const result = await LidarClient.getState();
+      const scene = result.state?.workspace?.scene;
+      if (scene?.loaded) {
+        sceneLoaded = true;
+        modelStatus.textContent =
+          `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
+        refreshButtons();
+      }
+    } catch (_) {
+      modelStatus.textContent = '3D mode requires the local Python server.';
+    }
+  }
 
   function schedulePreview() {
     if (!sourceImage || loadingImage) return;
@@ -610,8 +744,12 @@
   syncUI();
   refreshButtons();
   document.body.dataset.phase1Ready = 'true';
+  document.body.dataset.phase3Ready = 'true';
+  restoreServerScene();
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
+  modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
+  scanBtn.addEventListener('click', runLidarScan);
   presetSelect.addEventListener('change', () => {
     if (presetSelect.value !== 'custom') applyPreset(presetSelect.value);
   });
