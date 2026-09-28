@@ -21,6 +21,15 @@ DEFAULT_ELEVATION_DEG = 20.0
 DEFAULT_DISTANCE_SCALE = 3.0
 DEFAULT_FOV_DEG = 55.0
 
+FIXED_VIEW_ORDER = ("front", "back", "left", "right", "top")
+FIXED_VIEWS: dict[str, dict[str, Any]] = {
+    "front": {"label": "Front", "yaw_deg": 0.0, "elevation_deg": 20.0},
+    "back": {"label": "Back", "yaw_deg": 180.0, "elevation_deg": 20.0},
+    "left": {"label": "Left", "yaw_deg": 270.0, "elevation_deg": 20.0},
+    "right": {"label": "Right", "yaw_deg": 90.0, "elevation_deg": 20.0},
+    "top": {"label": "Top", "yaw_deg": 0.0, "elevation_deg": 80.0},
+}
+
 
 class LidarUnavailableError(RuntimeError):
     """Raised when optional LiDAR runtime dependencies are unavailable."""
@@ -619,14 +628,51 @@ class LidarBridge:
         self.state.put_cached_scan(cache_key, metadata, image_bytes)
         return self.maps_summary()
 
-    def maps_summary(self) -> dict[str, Any]:
-        scan = self.state.get_scan()
-        if scan is None:
-            raise ValueError("no LiDAR scan is available")
+    def scan_fixed_views(
+        self,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Scan the five deterministic Phase 12 views through the normal cache."""
+        base = dict(options or {})
+        views: dict[str, dict[str, Any]] = {}
+
+        for name in FIXED_VIEW_ORDER:
+            descriptor = FIXED_VIEWS[name]
+            view_options = dict(base)
+            view_options["yaw_deg"] = descriptor["yaw_deg"]
+            view_options["elevation_deg"] = descriptor["elevation_deg"]
+            scan = self.scan(view_options)
+            scan["view"] = {
+                "name": name,
+                "label": descriptor["label"],
+                "yaw_deg": descriptor["yaw_deg"],
+                "elevation_deg": descriptor["elevation_deg"],
+            }
+            views[name] = scan
+
+        return {
+            "order": list(FIXED_VIEW_ORDER),
+            "views": views,
+            "current_view": FIXED_VIEW_ORDER[-1],
+            "cache": self.state.scan_cache_stats(),
+        }
+
+    def maps_summary(self, scan_id: str | None = None) -> dict[str, Any]:
+        if scan_id:
+            scan = self.state.get_scan_by_id(scan_id)
+            if scan is None:
+                raise ScanIdMismatchError(
+                    f"requested scan {scan_id!r} is not available"
+                )
+        else:
+            scan = self.state.get_scan()
+            if scan is None:
+                raise ValueError("no LiDAR scan is available")
+
         metadata = dict(scan["metadata"])
-        scan_id = metadata["scan_id"]
+        resolved_scan_id = metadata["scan_id"]
         metadata["channels"] = {
-            name: f"/api/lidar/maps/{name}.png?scan_id={scan_id}"
+            name: f"/api/lidar/maps/{name}.png?scan_id={resolved_scan_id}"
             for name in ("shaded", "depth", "edge", "variance", "confidence")
         }
         metadata["cache"] = self.state.scan_cache_stats()
@@ -637,14 +683,13 @@ class LidarBridge:
         if channel not in allowed:
             raise ValueError(f"unknown LiDAR channel {channel!r}")
 
-        scan = self.state.get_scan()
-        if scan is None:
-            raise ValueError("no LiDAR scan is available")
-        current_scan_id = str(scan["metadata"].get("scan_id") or "")
-        if scan_id and scan_id != current_scan_id:
-            raise ScanIdMismatchError(
-                f"requested scan {scan_id!r} is no longer current"
-            )
+        if scan_id:
+            payload = self.state.get_scan_channel_for(scan_id, channel)
+            if payload is None:
+                raise ScanIdMismatchError(
+                    f"requested scan {scan_id!r} is not available"
+                )
+            return payload
 
         payload = self.state.get_scan_channel(channel)
         if payload is None:
