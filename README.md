@@ -626,6 +626,43 @@ Changing them never requires a LiDAR rescan and does not invalidate a cached sen
 
 CI includes a synthetic hard-mask renderer test that fails if any recorded stroke point escapes the occupied region, plus map tests that verify contour coverage increases useful density on a shallow depth ramp and confidence smoothing reduces a speckled confidence field.
 
+## Phase 12 fixed multi-view scanning
+
+Phase 12 adds a predictable five-view LiDAR pass while keeping every view independently available:
+
+```text
+Front  — yaw   0°, elevation 20°
+Back   — yaw 180°, elevation 20°
+Left   — yaw 270°, elevation 20°
+Right  — yaw  90°, elevation 20°
+Top    — yaw   0°, elevation 80°
+```
+
+Top uses 80° rather than 90° because the existing sensor elevation guard is 5–80°.
+
+**Scan 5 Views** sends one local API request. On the Python side each named camera still calls the normal single-view scan path, so every result uses the Phase 11 content-addressed cache. Repeating the same five-view scan can therefore reuse all five results without rerunning the LiDAR engine.
+
+Cached scans are addressable by `scan_id` while they remain in the bounded LRU. This keeps Front / Back / Left / Right / Top independently inspectable even after another view becomes the server's current scan.
+
+The browser keeps all five analysis-map sets in memory and provides two presentation modes:
+
+- **Current View** — inspect and render one named view at a time.
+- **Combined Views** — deterministically combine evidence from all five views into one 2D line-art field.
+
+Combined mode preserves strong ink, edge, depth, and confidence evidence; axial-blends direction fields; unions clean-background occupancy; and continues through the same Phase 11.5 contour/confidence/object-centered art mapping.
+
+This combined representation is intentionally a **2D evidence compositor**, not geometric registration or the later multi-view confidence-fusion system.
+
+**Per-view debug coloring** makes contribution provenance visible:
+
+- Current View colors strokes with that view's fixed debug color.
+- Combined Views colors each stroke from the dominant contributing view at its location.
+- Debug colors override normal black/color ink only while the option is enabled.
+
+Sensor freshness remains explicit. Fixed named views override interactive yaw/elevation, so changing those two single-view controls does not stale a completed five-view set. Resolution, rays per pixel, smart sampling, camera distance, field of view, sensor seed, or model identity do affect the fixed scans and will mark the set stale.
+
+Changing Current View, Combined Views, debug coloring, or any Phase 11.5 art-mapping control is browser-local and never triggers a raycast.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`

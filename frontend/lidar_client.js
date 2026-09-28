@@ -41,13 +41,23 @@
     return jsonResponse(response);
   }
 
+  async function scanFixedViews(options = {}) {
+    const response = await fetch('/api/lidar/multiview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options)
+    });
+    return jsonResponse(response);
+  }
+
   async function getState() {
     const response = await fetch('/api/state', { cache: 'no-store' });
     return jsonResponse(response);
   }
 
-  async function getMaps() {
-    const response = await fetch('/api/lidar/maps', { cache: 'no-store' });
+  async function getMaps(scanId = null) {
+    const suffix = scanId ? `?scan_id=${encodeURIComponent(scanId)}` : '';
+    const response = await fetch(`/api/lidar/maps${suffix}`, { cache: 'no-store' });
     return jsonResponse(response);
   }
 
@@ -101,6 +111,7 @@
   window.LidarClient = Object.freeze({
     uploadScene,
     scan,
+    scanFixedViews,
     getState,
     getMaps,
     fetchScanMaps

@@ -158,6 +158,33 @@ class StudioState:
         with self._state_lock:
             return self._scan_channels.get(name)
 
+    def get_scan_by_id(self, scan_id: str) -> dict[str, Any] | None:
+        with self._state_lock:
+            if (
+                self._scan_metadata is not None
+                and str(self._scan_metadata.get("scan_id") or "") == scan_id
+            ):
+                return {
+                    "metadata": deepcopy(self._scan_metadata),
+                    "channels": dict(self._scan_channels),
+                }
+
+            for cache_key, entry in list(self._scan_cache.items()):
+                if str(entry["metadata"].get("scan_id") or "") != scan_id:
+                    continue
+                self._scan_cache.move_to_end(cache_key)
+                return {
+                    "metadata": deepcopy(entry["metadata"]),
+                    "channels": dict(entry["channels"]),
+                }
+            return None
+
+    def get_scan_channel_for(self, scan_id: str, name: str) -> bytes | None:
+        scan = self.get_scan_by_id(scan_id)
+        if scan is None:
+            return None
+        return scan["channels"].get(name)
+
     def get_cached_scan(self, cache_key: str) -> dict[str, Any] | None:
         with self._state_lock:
             entry = self._scan_cache.get(cache_key)

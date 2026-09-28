@@ -15,15 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-11-5-lidar-art-polish
-PR:     #14 — Phase 11.5: polish LiDAR sensor-to-art mapping
-base:   phase-11-scan-cache
+branch: phase-12-fixed-multiview
+PR:     #15 — Phase 12: add fixed multi-view LiDAR scanning
+base:   phase-11-5-lidar-art-polish
 CI:     passed
 ```
 
-Resume from **Phase 12 — Fixed multi-view scanning**.
+Resume from **Phase 13 — Automatic view selection**.
 
-Do **not** start Phase 13 automatic view selection until Phase 12 is implemented, tested, committed, and green.
+Do **not** start Phase 14 confidence fusion until Phase 13 is implemented, tested, committed, and green.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -62,22 +62,24 @@ main
   ↓
 #13 phase-11-scan-cache
   ↓
-#14 phase-11-5-lidar-art-polish ← CURRENT HEAD
+#14 phase-11-5-lidar-art-polish
+  ↓
+#15 phase-12-fixed-multiview    ← CURRENT HEAD
 ```
 
-For Phase 12:
+For Phase 13:
 
-1. Branch from `phase-11-5-lidar-art-polish`.
+1. Branch from `phase-12-fixed-multiview`.
 2. Suggested branch name:
 
    ```text
-   phase-12-fixed-multiview
+   phase-13-auto-view-selection
    ```
 
 3. Open the new PR against:
 
    ```text
-   phase-11-5-lidar-art-polish
+   phase-12-fixed-multiview
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -166,6 +168,8 @@ Frontend smoke tests:
 ```bash
 node tests/frontend_maps_smoke.js
 node tests/frontend_lidar_polish_smoke.js
+node tests/frontend_multiview_smoke.js
+node tests/frontend_multiview_renderer_smoke.js
 node tests/frontend_randomness_smoke.js
 node tests/frontend_procedural_flow_smoke.js
 node tests/frontend_math_fields_smoke.js
@@ -651,37 +655,82 @@ Regression coverage includes:
 - Math emphasis measurably strengthens mathematical influence,
 - real Chromium verifies the LiDAR preset and Phase 11.5 controls issue no extra `/api/lidar/scan` request.
 
-## 12. Next task: Phase 12 — Fixed multi-view scanning
+## 12. Completed Phase 12 — Fixed multi-view scanning
 
-Roadmap scope:
+Phase 12 is complete.
+
+Fixed cameras:
 
 ```text
-Front
-Back
-Left
-Right
-Top
+Front  — yaw   0°, elevation 20°
+Back   — yaw 180°, elevation 20°
+Left   — yaw 270°, elevation 20°
+Right  — yaw  90°, elevation 20°
+Top    — yaw   0°, elevation 80°
+```
+
+Top uses 80° because the existing sensor elevation clamp ends at 80°.
+
+Implementation:
+
+- `POST /api/lidar/multiview` runs all five named views.
+- Every named view goes through the existing Phase 11 single-view scan/cache path.
+- Cached scans are retrievable by `scan_id` while retained in the bounded LRU.
+- The browser holds all five independent map sets after a fixed multi-view scan.
+- Current View switches among Front / Back / Left / Right / Top without a scan.
+- Combined Views deterministically combines the five 2D evidence maps.
+- Per-view debug coloring is applied at stroke-render time and survives black-ink mode.
+- Phase 11.5 art mapping remains the common mapping path for every view and for combined mode.
+- Project/autosave state stores:
+  - `lidar.multiViewMode`,
+  - `lidar.multiViewCurrent`,
+  - `lidar.multiViewDebugColors`.
+
+Combined mode is intentionally a **2D evidence compositor**. It is not object-space registration and is not Phase 14 confidence fusion.
+
+Freshness rules:
+
+- fixed views ignore interactive single-view yaw/elevation,
+- changing yaw/elevation does not stale a fixed multi-view set,
+- resolution / rays-per-pixel / smart sampling / camera distance / FOV / sensor seed / model identity do stale it,
+- changing Current View / Combined mode / debug coloring / art mapping never raycasts.
+
+Validation includes:
+
+- real cube generation of all five fixed cameras,
+- five cache entries on first pass,
+- repeat five-view scan succeeds with LiDAR engine loading deliberately disabled,
+- Front remains independently retrievable after Top is current,
+- archived metadata and PNG channels work by `scan_id`,
+- deterministic browser-side combined evidence and contribution coloring,
+- recorded stroke RGB proves debug attribution reaches renderer output,
+- portable project state round-trips the Phase 12 controls,
+- real Chromium verifies local view switching/combining/debugging and cached replay.
+
+## 12.5. Next task: Phase 13 — Automatic view selection
+
+Roadmap concept:
+
+```text
+scan
+  -> measure weak coverage
+  -> choose another useful camera
+  -> scan again
+  -> stop at target coverage
 ```
 
 Requirements:
 
-- keep each scan independently inspectable,
-- add current-view mode,
-- add combined-view mode,
-- add per-view debug coloring.
+- add coverage scoring,
+- generate candidate cameras,
+- avoid nearly duplicate viewpoints,
+- choose the most useful next view,
+- add an Auto Scan button,
+- add stopping criteria.
 
-Phase 12 should build **on top of the Phase 11 scan cache**, not replace it.
+Use the owner's `steveonw/lidar-probe` active-perception ideas where useful. Phase 13 should reuse the Phase 11 cache and Phase 12 named/inspectable scan representation rather than introducing another sensor pipeline.
 
-Recommended direction:
-
-- define stable named camera/view descriptors,
-- request each view through the existing cached single-view scan path,
-- store the resulting scan identity/cache key per view,
-- do not immediately collapse the five scans into one opaque result,
-- preserve current-view selection and independent channel inspection,
-- add a browser-side or server-side combined representation only after individual views are retained.
-
-Important: Phase 12 is fixed predictable multi-view only. Do not start automatic candidate-camera selection or active perception; that remains Phase 13.
+Important: do not implement Phase 14 confidence fusion during Phase 13. Auto Scan should decide **which views to acquire**; confidence fusion remains the later step that combines sensor confidence across viewpoints.
 
 ## 13. Determinism and behavior invariants
 
@@ -835,10 +884,10 @@ For every major phase:
 Start here:
 
 ```text
-Phase 12 — Fixed multi-view scanning
+Phase 13 — Automatic view selection
 ```
 
-Branch from `phase-11-5-lidar-art-polish` and base the Phase 12 PR on `phase-11-5-lidar-art-polish`.
+Branch from `phase-12-fixed-multiview` and base the Phase 13 PR on `phase-12-fixed-multiview`.
 
 First inspect:
 
@@ -846,15 +895,17 @@ First inspect:
 server/state.py
 server/lidar_bridge.py
 server/api.py
+frontend/multiview.js
 frontend/app.js
 frontend/lidar_client.js
 tests/test_lidar_bridge.py
+tests/frontend_multiview_smoke.js
 tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Preserve the Phase 11 cache key/LRU behavior **and** the Phase 11.5 browser-side art mapping. Fixed views should request/reuse cached single-view scans rather than creating a second unrelated sensor pipeline. Each view's maps should still flow through the same contour/confidence/background/object-center art mapping instead of forking another renderer path.
+Preserve the Phase 11 content-addressed LRU cache, the Phase 11.5 common art-mapping path, and Phase 12's independently inspectable scan IDs/view sets.
 
-Implement Front / Back / Left / Right / Top with independent inspectability, then current-view and combined-view modes.
+Use coverage scoring and candidate-camera selection to choose additional useful viewpoints. Avoid nearly duplicate cameras and define deterministic stopping criteria.
 
-Do not touch Phase 13 automatic view selection.
+Do not touch Phase 14 confidence fusion.

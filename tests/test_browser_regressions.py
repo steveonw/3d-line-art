@@ -252,6 +252,94 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertEqual(len(scan_requests), 2)
 
+    def test_fixed_multiview_is_inspectable_combinable_and_cached(self) -> None:
+        project = self.write_project("cube-multiview.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.page.set_input_files("#modelInput", str(CUBE_OBJ))
+        self.page.wait_for_function("!document.getElementById('scanMultiBtn').disabled")
+
+        multiview_requests = []
+        single_scan_requests = []
+        self.page.on(
+            "request",
+            lambda request: (
+                multiview_requests.append(request.url)
+                if request.url.endswith("/api/lidar/multiview")
+                else (
+                    single_scan_requests.append(request.url)
+                    if request.url.endswith("/api/lidar/scan")
+                    else None
+                )
+            ),
+        )
+
+        self.page.click("#scanMultiBtn")
+        self.page.wait_for_function(
+            "document.getElementById('multiViewSummary').textContent.includes('Front ready')"
+            " && document.getElementById('multiViewSummary').textContent.includes('Top ready')"
+            " && !document.getElementById('scanMultiBtn').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+        self.assertEqual(len(multiview_requests), 1)
+        self.assertEqual(len(single_scan_requests), 0)
+        self.assertFalse(self.is_disabled("#multiViewMode"))
+        self.assertFalse(self.is_disabled("#multiViewCurrent"))
+        self.assertIn("Current: Front", self.text("#multiViewSummary"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+        before = len(multiview_requests)
+        self.page.select_option("#multiViewCurrent", "back")
+        self.page.wait_for_function(
+            "document.getElementById('multiViewSummary').textContent.includes('Current: Back')"
+        )
+        self.assertEqual(len(multiview_requests), before)
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+
+        self.page.select_option("#multiViewMode", "combined")
+        self.page.wait_for_function(
+            "document.getElementById('multiViewSummary').textContent.startsWith('Combined')"
+        )
+        self.assertEqual(len(multiview_requests), before)
+        self.assertTrue(self.is_disabled("#multiViewCurrent"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+        self.page.check("#multiViewDebugColors")
+        self.assertEqual(len(multiview_requests), before)
+        self.assertTrue(self.page.is_checked("#multiViewDebugColors"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+        # Single-view orbit/elevation controls do not affect fixed named cameras.
+        self.page.fill("#cameraYaw", "137")
+        self.page.dispatch_event("#cameraYaw", "input")
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+
+        # Shared sensor controls do affect all five fixed views.
+        self.page.fill("#cameraDistance", "3.6")
+        self.page.dispatch_event("#cameraDistance", "input")
+        self.assertIn("Scan stale", self.text("#scanSummary"))
+        self.assertTrue(self.is_disabled("#renderBtn"))
+
+        # Restore the shared setting and repeat the five-view request. Every
+        # fixed view should be served from the Phase 11 scan cache.
+        self.page.fill("#cameraDistance", "3")
+        self.page.dispatch_event("#cameraDistance", "input")
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+        self.page.click("#scanMultiBtn")
+        self.page.wait_for_function(
+            "document.getElementById('multiViewSummary').textContent.includes('Front cached')"
+            " && document.getElementById('multiViewSummary').textContent.includes('Back cached')"
+            " && document.getElementById('multiViewSummary').textContent.includes('Left cached')"
+            " && document.getElementById('multiViewSummary').textContent.includes('Right cached')"
+            " && document.getElementById('multiViewSummary').textContent.includes('Top cached')"
+            " && !document.getElementById('scanMultiBtn').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertEqual(len(multiview_requests), 2)
+        self.assertEqual(len(single_scan_requests), 0)
+        self.assertIn("Scan cached", self.text("#scanSummary"))
+
     def test_art_preset_change_reuses_current_scan_without_scan_request(self) -> None:
         project = self.write_project("cube-art-reuse.lidar-ink.json")
         self.open_app()

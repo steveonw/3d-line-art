@@ -19,6 +19,7 @@
     let strokeMask = null;
     let eligibleIndices = null;
     let fieldCenter = null;
+    let debugColorMap = null;
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
     function blend(a, b, t) { return a + (b - a) * t; }
@@ -517,7 +518,13 @@
       const pointCount = buildStrokePath(renderState, c, len, path);
     
       let r = 12, g = 12, b = 12;
-      if (s.mode !== 'black') {
+      if (debugColorMap) {
+        const idx = (c.y * sourceImage.width + c.x) * 3;
+        r = debugColorMap[idx];
+        g = debugColorMap[idx + 1];
+        b = debugColorMap[idx + 2];
+        ctx.strokeStyle = rgbStyle(renderState, r, g, b);
+      } else if (s.mode !== 'black') {
         const idx = (c.y * sourceImage.width + c.x) * 4;
         const d = sourcePixels.data;
         applyPaletteTo(renderState.colorScratch, d[idx], d[idx + 1], d[idx + 2], s);
@@ -555,6 +562,7 @@
       strokeMask = next.strokeMask || null;
       eligibleIndices = next.eligibleIndices || null;
       fieldCenter = next.fieldCenter || null;
+      debugColorMap = next.debugColorMap || null;
     }
 
     return Object.freeze({

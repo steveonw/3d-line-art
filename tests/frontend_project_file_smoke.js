@@ -44,7 +44,8 @@ const defaults = {
     wave: 0,
     rose: 0,
     cardioid: 0,
-    logSpiral: 0
+    logSpiral: 0,
+    mathEmphasis: 1
   },
   lidar: {
     scanResolution: '320x240',
@@ -57,7 +58,14 @@ const defaults = {
     densitySource: 'tone',
     directionSource: 'mixed',
     geometryEdgeStrength: 1,
-    depthInfluence: 0.75
+    depthInfluence: 0.75,
+    depthContourStrength: 0,
+    confidenceSmoothing: 0,
+    cleanBackground: false,
+    objectCenteredFields: false,
+    multiViewMode: 'current',
+    multiViewCurrent: 'front',
+    multiViewDebugColors: false
   }
 };
 
@@ -72,7 +80,8 @@ const settings = {
     surface: 0.75,
     depth: 0.5,
     vortex: 0.3,
-    logSpiral: 0.15
+    logSpiral: 0.15,
+    mathEmphasis: 2.2
   },
   lidar: {
     ...defaults.lidar,
@@ -86,7 +95,14 @@ const settings = {
     densitySource: 'depthChange',
     directionSource: 'depthTangent',
     geometryEdgeStrength: 1.6,
-    depthInfluence: 0.9
+    depthInfluence: 0.9,
+    depthContourStrength: 0.8,
+    confidenceSmoothing: 0.65,
+    cleanBackground: true,
+    objectCenteredFields: true,
+    multiViewMode: 'combined',
+    multiViewCurrent: 'right',
+    multiViewDebugColors: true
   }
 };
 
@@ -119,8 +135,16 @@ assert(reopened.settings.palette === 'cool', 'palette did not round-trip');
 assert(reopened.settings.seed === 777, 'seed did not round-trip');
 assert(reopened.settings.procedural.turbulence === 0.65, 'procedural settings did not round-trip');
 assert(reopened.settings.flowMixer.vortex === 0.3, 'flow mixer did not round-trip');
+assert(reopened.settings.flowMixer.mathEmphasis === 2.2, 'math emphasis did not round-trip');
 assert(reopened.settings.lidar.cameraYaw === 132, 'camera did not round-trip');
 assert(reopened.settings.lidar.smartSampling === true, 'LiDAR settings did not round-trip');
+assert(reopened.settings.lidar.depthContourStrength === 0.8, 'contour coverage did not round-trip');
+assert(reopened.settings.lidar.confidenceSmoothing === 0.65, 'confidence smoothing did not round-trip');
+assert(reopened.settings.lidar.cleanBackground === true, 'clean background did not round-trip');
+assert(reopened.settings.lidar.objectCenteredFields === true, 'object-centered fields did not round-trip');
+assert(reopened.settings.lidar.multiViewMode === 'combined', 'multi-view mode did not round-trip');
+assert(reopened.settings.lidar.multiViewCurrent === 'right', 'current fixed view did not round-trip');
+assert(reopened.settings.lidar.multiViewDebugColors === true, 'debug view colors did not round-trip');
 assert(reopened.export.pngScale === '4', 'export settings did not round-trip');
 assert(reopened.source.name === source.name, 'source reference did not round-trip');
 
