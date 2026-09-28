@@ -122,6 +122,23 @@ The Phase 4 confidence map is a single-view sensor-confidence proxy derived from
 - **Architectural Scan** — geometry-edge density with restrained/quantized direction
 - **Uncertain Scribble** — looser, lower-opacity, high-noise mixed flow
 
+## Phase 5 stable seeded randomness
+
+The renderer no longer uses a single sequential PRNG stream for stroke placement and local direction noise.
+
+Instead:
+
+- `frontend/random_field.js` provides stateless `randomAt(x, y, seed, channel)` and `randomForIndex(index, seed, channel)` helpers.
+- each stroke index owns its candidate-position and length-jitter samples,
+- local direction noise is derived from the stroke's coordinates plus seed,
+- changing path complexity does not consume random numbers that shift later stroke candidates,
+- changing only the requested high-quality line count preserves the already-existing stroke prefix,
+- preview opacity/weight amplification no longer changes coverage decisions, so preview geometry stays stable.
+
+This is an independent implementation of the coordinate-stable randomness idea referenced in the roadmap; it does not copy code from `other-tools`.
+
+The existing **Seed** field controls this deterministic variation. **New Variation** still generates a new seed intentionally.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -211,6 +228,12 @@ Run the frontend LiDAR-map smoke test:
 node tests/frontend_maps_smoke.js
 ```
 
-GitHub Actions also runs JavaScript syntax checks plus the real cube-OBJ -> LiDAR integration test.
+Run the deterministic-randomness regression test:
+
+```bash
+node tests/frontend_randomness_smoke.js
+```
+
+GitHub Actions also runs JavaScript syntax checks, deterministic prefix/repeatability checks, and the real cube-OBJ -> LiDAR integration test.
 
 See `ROADMAP.md` for the staged build plan.

@@ -25,6 +25,7 @@ jobs:
       - name: Check frontend JavaScript syntax
         run: |
           node --check frontend/analysis_maps.js
+          node --check frontend/random_field.js
           node --check frontend/line_renderer.js
           node --check frontend/export.js
           node --check frontend/lidar_client.js
@@ -32,6 +33,9 @@ jobs:
 
       - name: Run frontend LiDAR smoke test
         run: node tests/frontend_maps_smoke.js
+
+      - name: Run stable randomness smoke test
+        run: node tests/frontend_randomness_smoke.js
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v

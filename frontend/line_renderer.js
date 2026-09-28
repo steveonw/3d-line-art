@@ -16,6 +16,9 @@
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
     function blend(a, b, t) { return a + (b - a) * t; }
 
+    const RandomField = window.LineArtRandom;
+    if (!RandomField) throw new Error('LineArtRandom must load before line_renderer.js');
+
     const limitedPalette = [
       [28, 30, 33],
       [219, 79, 70],
@@ -25,20 +28,28 @@
       [230, 226, 210]
     ];
 
-    function strokeCandidate(rnd, renderSettings, renderState, out) {
+    function strokeCandidate(renderSettings, renderState, out) {
       const w = sourceImage.width;
       const h = sourceImage.height;
       const coverage = renderState.coverage;
       const coverageWidth = renderState.coverageWidth;
+      const strokeIndex = renderState.drawn | 0;
+      const seed = renderState.seed >>> 0;
       let bestScore = -Infinity;
-    
+
+      // Each stroke index owns its candidate samples. Local path/noise choices
+      // cannot consume RNG state and shift where later strokes are proposed.
       for (let attempt = 0; attempt < 4; attempt++) {
-        const x = 1 + Math.floor(rnd() * Math.max(1, w - 2));
-        const y = 1 + Math.floor(rnd() * Math.max(1, h - 2));
+        const channel = attempt * 4;
+        const ux = RandomField.randomForIndex(strokeIndex, seed, channel);
+        const uy = RandomField.randomForIndex(strokeIndex, seed, channel + 1);
+        const scoreJitter = RandomField.randomForIndex(strokeIndex, seed, channel + 2);
+        const x = 1 + Math.floor(ux * Math.max(1, w - 2));
+        const y = 1 + Math.floor(uy * Math.max(1, h - 2));
         const idx = y * w + x;
         const darkness = 1 - luminance[idx] / 255;
         const edge = edgeStrength[idx] / 255;
-    
+
         // In black mode the target is tonal darkness. In color mode, use the
         // per-channel distance from white so pale colors still ask for ink.
         const targetInk = renderSettings.mode === 'color' ? colorInkNeed[idx] : darkness;
@@ -47,7 +58,7 @@
         const cellIndex = cellY * coverageWidth + cellX;
         const existingInk = coverage[cellIndex];
         const remainingNeed = Math.max(0, targetInk - existingInk);
-    
+
         // Coverage is the dominant term: once an area has enough ink it loses
         // the sampling lottery. Edges remain attractive so contours stay crisp.
         const importance = clamp(
@@ -55,7 +66,7 @@
           0.02,
           1
         );
-        const score = importance + rnd() * (1 - renderSettings.sampleBias);
+        const score = importance + scoreJitter * (1 - renderSettings.sampleBias);
         if (score > bestScore) {
           bestScore = score;
           out.x = x;
@@ -200,7 +211,7 @@
       return angle;
     }
     
-    function fieldAngleAt(x, y, reference, renderSettings, rnd) {
+    function fieldAngleAt(x, y, reference, renderSettings, renderState, channel) {
       const w = sourceImage.width;
       const h = sourceImage.height;
       const ix = clamp(Math.round(x), 0, w - 1);
@@ -214,21 +225,32 @@
         angle = alignTangent(angle, reference);
       }
       const noiseScale = coherence >= 0.30 ? (0.18 + coherence * 0.30) : 0.16;
-      angle += (rnd() - 0.5) * renderSettings.directionNoise * noiseScale;
+      const localNoise = RandomField.signedRandomAt(
+        x,
+        y,
+        renderState.seed,
+        channel + (renderState.drawn | 0) * 17
+      );
+      angle += localNoise * 0.5 * renderSettings.directionNoise * noiseScale;
       return angle;
     }
     
     function buildStrokePath(renderState, candidate, length, out) {
       const s = renderState.settings;
-      const rnd = renderState.rnd;
       const flow = clamp(s.flowStrength, 0, 1);
     
       // Flow = 0 exactly preserves the 5.2 straight-stroke behavior.
       if (flow <= 0.001) {
         let angle = candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4;
+        const localNoise = RandomField.signedRandomAt(
+          candidate.x,
+          candidate.y,
+          renderState.seed,
+          101 + (renderState.drawn | 0) * 17
+        );
         angle += candidate.coherence >= 0.30
-          ? (rnd() - 0.5) * s.directionNoise * (0.55 + candidate.coherence * 0.45)
-          : (rnd() - 0.5) * (0.10 + s.directionNoise * 0.22);
+          ? localNoise * 0.5 * s.directionNoise * (0.55 + candidate.coherence * 0.45)
+          : localNoise * 0.5 * (0.10 + s.directionNoise * 0.22);
         if (s.angleQuantize > 0) angle = Math.round(angle / s.angleQuantize) * s.angleQuantize;
         const half = length * 0.5;
         out[0] = candidate.x - Math.cos(angle) * half;
@@ -254,7 +276,7 @@
       let bAngle = (candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4) + Math.PI;
       let backCount = 1;
       for (let i = 0; i < leftSteps; i++) {
-        const local = fieldAngleAt(bx, by, bAngle, s, rnd);
+        const local = fieldAngleAt(bx, by, bAngle, s, renderState, 200 + i);
         bAngle += (local - bAngle) * flow;
         let nx = bx + Math.cos(bAngle) * stepLength;
         let ny = by + Math.sin(bAngle) * stepLength;
@@ -271,7 +293,7 @@
       let fAngle = candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4;
       let fwdCount = 1;
       for (let i = 0; i < rightSteps; i++) {
-        const local = fieldAngleAt(fx, fy, fAngle, s, rnd);
+        const local = fieldAngleAt(fx, fy, fAngle, s, renderState, 300 + i);
         fAngle += (local - fAngle) * flow;
         let nx = fx + Math.cos(fAngle) * stepLength;
         let ny = fy + Math.sin(fAngle) * stepLength;
@@ -328,16 +350,25 @@
     
     function drawOneStroke(renderState) {
       const s = renderState.settings;
-      const rnd = renderState.rnd;
-      const c = strokeCandidate(rnd, s, renderState, renderState.candidate);
+      const c = strokeCandidate(s, renderState, renderState.candidate);
       const importance = c.importance;
-      const len = s.strokeLength * (0.40 + importance * 0.95) * (0.72 + rnd() * 0.56);
-      const weight = Math.max(0.12, s.strokeWeight * (0.34 + importance * 0.88) * renderState.previewWeightMultiplier);
-      const alpha = clamp(
-        s.opacity * renderState.previewOpacityMultiplier * (0.28 + importance * 0.83),
+      const lengthJitter = RandomField.randomForIndex(
+        renderState.drawn | 0,
+        renderState.seed,
+        64
+      );
+      const len = s.strokeLength * (0.40 + importance * 0.95) * (0.72 + lengthJitter * 0.56);
+
+      // Preview amplification affects appearance, not the coverage solver. This
+      // keeps the candidate prefix stable when only requested line count changes.
+      const baseWeight = Math.max(0.12, s.strokeWeight * (0.34 + importance * 0.88));
+      const weight = baseWeight * renderState.previewWeightMultiplier;
+      const baseAlpha = clamp(
+        s.opacity * (0.28 + importance * 0.83),
         0.02,
         1
       );
+      const alpha = clamp(baseAlpha * renderState.previewOpacityMultiplier, 0.02, 1);
       const alphaByte = Math.round(alpha * 255);
     
       const path = renderState.pathScratch;
@@ -361,7 +392,7 @@
       for (let p = 1; p < pointCount; p++) ctx.lineTo(path[p * 2], path[p * 2 + 1]);
       ctx.stroke();
     
-      depositPathCoverage(renderState, path, pointCount, alphaByte / 255, weight);
+      depositPathCoverage(renderState, path, pointCount, baseAlpha, baseWeight);
       recordStroke(renderState.strokes, path, pointCount, weight, r, g, b, alphaByte);
     }
 

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase4';
+  const BUILD_VERSION = '5.3-phase5';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -215,17 +215,6 @@
   function blend(a, b, t) { return a + (b - a) * t; }
   function formatCount(v) { return Math.round(v).toLocaleString(); }
   function nextFrame() { return new Promise(resolve => requestAnimationFrame(resolve)); }
-
-  function mulberry32(seed) {
-    let a = seed >>> 0;
-    return function random() {
-      a |= 0;
-      a = a + 0x6D2B79F5 | 0;
-      let t = Math.imul(a ^ a >>> 15, 1 | a);
-      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-      return ((t ^ t >>> 14) >>> 0) / 4294967296;
-    };
-  }
 
   function normalizeSeed(v) {
     let n = Math.floor(Number(v));
@@ -834,7 +823,7 @@
       drawn: 0,
       startedAt: performance.now(),
       settings: renderSettings,
-      rnd: mulberry32(seed),
+      seed,
       strokes: renderer.createStrokeStore(target),
       candidate: {
         x: 0, y: 0, darkness: 0, targetInk: 0, remainingNeed: 0, edge: 0,
@@ -915,6 +904,7 @@
   document.body.dataset.phase1Ready = 'true';
   document.body.dataset.phase3Ready = 'true';
   document.body.dataset.phase4Ready = 'true';
+  document.body.dataset.phase5Ready = 'true';
   syncLidarControls();
   restoreServerScene();
 
