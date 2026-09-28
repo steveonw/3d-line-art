@@ -4,6 +4,8 @@ const vm = require('vm');
 const projectCode = fs.readFileSync('frontend/project_state.js', 'utf8');
 const html = fs.readFileSync('frontend/index.html', 'utf8');
 const app = fs.readFileSync('frontend/app.js', 'utf8');
+const sampleProjectText = fs.readFileSync('samples/cube.lidar-ink.json', 'utf8');
+const sampleObjSize = fs.statSync('samples/cube.obj').size;
 
 const context = { window: {} };
 vm.createContext(context);
@@ -180,6 +182,12 @@ assert(
   Project.restore({ ...project, format: 'other-project' }, defaults) === null,
   'foreign project formats should be rejected'
 );
+
+const sampleProject = Project.deserialize(sampleProjectText, defaults, { pngScale: '2' });
+assert(sampleProject, 'checked-in cube project should parse');
+assert(sampleProject.source.kind === 'lidar', 'sample project should reference a LiDAR model');
+assert(sampleProject.source.name === 'cube.obj', 'sample project should reference cube.obj');
+assert(sampleProject.source.size === sampleObjSize, 'sample project size should match samples/cube.obj');
 
 for (const id of ['openProjectBtn', 'saveProjectBtn', 'projectFileInput', 'projectStatus']) {
   assert(html.includes(`id="${id}"`), `missing project UI control ${id}`);
