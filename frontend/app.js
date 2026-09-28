@@ -495,6 +495,122 @@
     applyProjectSnapshot(snapshot);
   }
 
+  function setProjectStatus(message, warning = false) {
+    projectStatus.textContent = message;
+    projectStatus.classList.toggle('warning', !!warning);
+  }
+
+  function requiredSourceLabel(reference = requiredSourceReference) {
+    if (!reference || reference.kind === 'none') return 'source';
+    const kind = reference.kind === 'lidar' ? '3D model' : 'image';
+    return reference.name ? `${kind} "${reference.name}"` : kind;
+  }
+
+  function saveProjectFile() {
+    const snapshot = captureProjectState();
+    const documentState = {
+      ...snapshot,
+      meta: {
+        appVersion: BUILD_VERSION,
+        savedAt: new Date().toISOString()
+      }
+    };
+    const json = LineArtProjectState.serialize(documentState, { pretty: true });
+    const blob = new Blob([json + '\n'], { type: 'application/json;charset=utf-8' });
+
+    if (projectDownloadUrl) URL.revokeObjectURL(projectDownloadUrl);
+    projectDownloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const filename = LineArtProjectState.projectFileName(snapshot.source);
+    anchor.href = projectDownloadUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setProjectStatus(`Saved ${filename}`);
+  }
+
+  async function openProjectFile(file) {
+    if (!file) return;
+    projectFileInput.value = '';
+
+    if (file.size > PROJECT_FILE_MAX_BYTES) {
+      setProjectStatus('Project file is too large. Expected a settings-only JSON file under 1 MB.', true);
+      return;
+    }
+
+    let restored;
+    try {
+      const text = await file.text();
+      restored = LineArtProjectState.deserialize(
+        text,
+        DEFAULT_SETTINGS,
+        DEFAULT_EXPORT_SETTINGS
+      );
+    } catch (_) {
+      restored = null;
+    }
+
+    if (!restored) {
+      setProjectStatus('Could not open that project: unsupported or invalid LiDAR Ink project JSON.', true);
+      return;
+    }
+
+    if (activeRender) stopRender(false);
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+
+    historyApplying = true;
+    try {
+      Object.assign(settings, normalizeRestoredSettings(restored.settings));
+      pngScaleSelect.value = restored.export.pngScale;
+      restoredSourceHint = restored.source;
+      requiredSourceReference = restored.source.kind === 'none' ? null : restored.source;
+      syncUI();
+
+      if (projectSourceReady() && sourceKind === 'lidar' && lidarSourceMaps) {
+        const maps = composeCurrentLidarMaps();
+        applyRendererMaps(maps);
+      }
+
+      if (highQualityStrokeStore) highQualityStale = true;
+      updateExportNote();
+    } finally {
+      historyApplying = false;
+    }
+
+    history.initialize(captureProjectState());
+    historyReady = true;
+    history.saveNow(captureProjectState());
+
+    if (projectSourceReady()) {
+      setProjectStatus(`Opened ${file.name}. Source reference is satisfied.`);
+      setStatus('Project opened. Rebuilding preview from the referenced source.', 0);
+      if (sourceImage) schedulePreview();
+    } else if (restored.source.kind === 'lidar') {
+      setProjectStatus(
+        `Opened ${file.name}. Load ${requiredSourceLabel(restored.source)} to reproduce the project.`,
+        true
+      );
+      setStatus(`Project settings loaded. Waiting for ${requiredSourceLabel(restored.source)}.`, 0);
+      await restoreServerScene();
+      if (projectSourceReady()) {
+        setProjectStatus(`Opened ${file.name}. Referenced LiDAR source restored from the local server.`);
+      }
+    } else if (restored.source.kind === 'image') {
+      setProjectStatus(
+        `Opened ${file.name}. Reselect ${requiredSourceLabel(restored.source)} to reproduce the project.`,
+        true
+      );
+      setStatus(`Project settings loaded. Waiting for ${requiredSourceLabel(restored.source)}.`, 0);
+    } else {
+      setProjectStatus(`Opened ${file.name}. No source is referenced.`);
+      setStatus('Project settings loaded.', 0);
+    }
+
+    refreshButtons();
+  }
+
 
   const scanControlEls = [
     scanResolution, raysPerPixel, smartSampling,
