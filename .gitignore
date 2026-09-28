@@ -1,0 +1,6 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# LiDAR Ink Studio local runtime data
+.lidar-ink/
