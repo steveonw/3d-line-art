@@ -915,18 +915,32 @@
     const highActive = activeRender?.kind === 'high';
     const exportBusy = exporter.isBusy();
     const uiLocked = highActive || exportBusy || scanRunning;
+    const sourceReady = projectSourceReady();
+    const modelReady = projectModelReady();
+
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
+    openProjectBtn.disabled = uiLocked || modelLoading;
+    saveProjectBtn.disabled = highActive || exportBusy || scanRunning || modelLoading;
+
     scanControlEls.forEach(el => {
-      el.disabled = !sceneLoaded || modelLoading || scanRunning || highActive || exportBusy;
+      el.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || highActive || exportBusy;
     });
-    scanBtn.disabled = !sceneLoaded || modelLoading || scanRunning || active || exportBusy;
-    renderBtn.disabled = !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
+    scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
+    renderBtn.disabled = !sourceReady || !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
     cancelBtn.disabled = !active;
-    const canSave = !active && !loadingImage && !scanRunning && !exportBusy && !!getExportTarget();
+
+    const canSave =
+      sourceReady &&
+      !active &&
+      !loadingImage &&
+      !scanRunning &&
+      !exportBusy &&
+      !!getExportTarget();
     saveBtn.disabled = !canSave;
     saveSvgBtn.disabled = !canSave;
+
     historyUiLocked = highActive || exportBusy || scanRunning || modelLoading;
     renderHistoryStatus(history.status());
     updateExportNote();
