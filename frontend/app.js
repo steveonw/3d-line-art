@@ -1147,8 +1147,21 @@
   buildSliders();
   applyPreset('finePencil', false);
   settings.seed = normalizeSeed(seedInput.value);
+
+  const autosavedSnapshot = history.restoreAutosave();
+  const restoredProject = autosavedSnapshot
+    ? LineArtProjectState.restore(autosavedSnapshot, DEFAULT_SETTINGS)
+    : null;
+  if (restoredProject) {
+    Object.assign(settings, normalizeRestoredSettings(restoredProject.settings));
+    restoredSourceHint = restoredProject.source;
+  }
+
   syncUI();
+  history.initialize(captureProjectState());
+  historyReady = true;
   refreshButtons();
+
   document.body.dataset.phase1Ready = 'true';
   document.body.dataset.phase3Ready = 'true';
   document.body.dataset.phase4Ready = 'true';
@@ -1156,35 +1169,46 @@
   document.body.dataset.phase6Ready = 'true';
   document.body.dataset.phase7Ready = 'true';
   document.body.dataset.phase8Ready = 'true';
-  syncLidarControls();
-  syncProceduralControls();
-  syncFlowMixerControls();
-  restoreServerScene();
+  document.body.dataset.phase9Ready = 'true';
+
+  restoreServerScene().then(restoredKind => {
+    if (restoredKind) return;
+    if (restoredSourceHint?.kind === 'image') {
+      const name = restoredSourceHint.name ? ` "${restoredSourceHint.name}"` : '';
+      setStatus(`Settings restored from autosave. Reselect image${name} to restore the source.`, 0);
+    } else if (restoredSourceHint?.kind === 'lidar') {
+      setStatus('Settings restored from autosave. Reload the 3D model if the local server was restarted.', 0);
+    } else if (restoredProject) {
+      setStatus('Settings restored from local autosave.', 0);
+    }
+  });
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
   scanBtn.addEventListener('click', runLidarScan);
+  undoBtn.addEventListener('click', undoSettings);
+  redoBtn.addEventListener('click', redoSettings);
 
   scanResolution.addEventListener('change', () => {
     settings.lidar.scanResolution = scanResolution.value;
-    markScanControlsChanged();
+    markScanControlsChanged('lidar:scanResolution');
     refreshButtons();
   });
   raysPerPixel.addEventListener('change', () => {
     settings.lidar.raysPerPixel = Number(raysPerPixel.value);
-    markScanControlsChanged();
+    markScanControlsChanged('lidar:raysPerPixel');
     refreshButtons();
   });
   smartSampling.addEventListener('change', () => {
     settings.lidar.smartSampling = smartSampling.checked;
-    markScanControlsChanged();
+    markScanControlsChanged('lidar:smartSampling');
   });
 
   function bindScanRange(element, key, output, formatter) {
     element.addEventListener('input', () => {
       settings.lidar[key] = Number(element.value);
       output.textContent = formatter(settings.lidar[key]);
-      markScanControlsChanged();
+      markScanControlsChanged(`lidar:${key}`);
     });
   }
   bindScanRange(cameraYaw, 'cameraYaw', cameraYawValue, value => `${Math.round(value)}°`);
@@ -1194,22 +1218,23 @@
 
   densitySource.addEventListener('change', () => {
     settings.lidar.densitySource = densitySource.value;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:densitySource' });
   });
   directionSource.addEventListener('change', () => {
     settings.lidar.directionSource = directionSource.value;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:directionSource' });
   });
   geometryEdgeStrength.addEventListener('input', () => {
     settings.lidar.geometryEdgeStrength = Number(geometryEdgeStrength.value);
     geometryEdgeStrengthValue.textContent = `${Math.round(settings.lidar.geometryEdgeStrength * 100)}%`;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:geometryEdgeStrength' });
   });
   depthInfluence.addEventListener('input', () => {
     settings.lidar.depthInfluence = Number(depthInfluence.value);
     depthInfluenceValue.textContent = `${Math.round(settings.lidar.depthInfluence * 100)}%`;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:depthInfluence' });
   });
+
   presetSelect.addEventListener('change', () => {
     if (presetSelect.value !== 'custom') applyPreset(presetSelect.value);
   });
@@ -1222,36 +1247,36 @@
   paletteSelect.addEventListener('change', () => {
     settings.palette = paletteSelect.value;
     syncPaletteAvailability();
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'palette');
     schedulePreview();
   });
 
-  lineCountRange.addEventListener('input', () => setLineCount(lineCountRange.value));
-  lineCountNumber.addEventListener('change', () => setLineCount(lineCountNumber.value));
+  lineCountRange.addEventListener('input', () => setLineCount(lineCountRange.value, true, 'lineCount'));
+  lineCountNumber.addEventListener('change', () => setLineCount(lineCountNumber.value, true, 'lineCount'));
 
   document.querySelector('.quick-counts').addEventListener('click', e => {
     const btn = e.target.closest('button[data-count]');
-    if (btn) setLineCount(Number(btn.dataset.count));
+    if (btn) setLineCount(Number(btn.dataset.count), true, 'lineCount');
   });
 
   flowScale.addEventListener('input', () => {
     settings.procedural.scale = Number(flowScale.value);
     flowScaleValue.textContent = `${Math.round(settings.procedural.scale)} px`;
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'procedural:scale');
     schedulePreview();
   });
 
   flowTurbulence.addEventListener('input', () => {
     settings.procedural.turbulence = Number(flowTurbulence.value);
     flowTurbulenceValue.textContent = `${Math.round(settings.procedural.turbulence * 100)}%`;
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'procedural:turbulence');
     schedulePreview();
   });
 
   flowOctaves.addEventListener('input', () => {
     settings.procedural.octaves = Number(flowOctaves.value);
     flowOctavesValue.textContent = String(settings.procedural.octaves);
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'procedural:octaves');
     schedulePreview();
   });
 
@@ -1260,7 +1285,7 @@
     control.input.addEventListener('input', () => {
       settings.flowMixer[def.key] = Number(control.input.value);
       control.value.textContent = `${Math.round(settings.flowMixer[def.key] * 100)}%`;
-      markSettingsChanged(true);
+      markSettingsChanged(true, `mixer:${def.key}`);
       schedulePreview();
     });
   }
@@ -1268,15 +1293,28 @@
   seedInput.addEventListener('change', () => {
     settings.seed = normalizeSeed(seedInput.value);
     seedInput.value = settings.seed;
-    markSettingsChanged(false);
+    markSettingsChanged(false, 'seed');
     schedulePreview();
   });
 
   variationBtn.addEventListener('click', () => {
     settings.seed = randomSeed();
     seedInput.value = settings.seed;
-    markSettingsChanged(false);
+    markSettingsChanged(false, null);
     schedulePreview();
+  });
+
+  document.addEventListener('keydown', event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redoSettings();
+      else undoSettings();
+    } else if (key === 'y') {
+      event.preventDefault();
+      redoSettings();
+    }
   });
 
   renderBtn.addEventListener('click', () => startRender('high'));
@@ -1285,6 +1323,7 @@
   saveSvgBtn.addEventListener('click', exporter.saveSvg);
 
   window.addEventListener('pagehide', () => {
+    history.dispose({ flush: true });
     exporter.dispose();
     if (sourceCanvas) {
       sourceCanvas.width = 0;
