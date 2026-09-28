@@ -560,8 +560,8 @@ Use useful packaging/runtime-management ideas from `LocalChatBox` only after the
 # Milestone summary
 
 ```text
-1. Existing renderer protected                 [ ]
-2. Frontend cleaned up                         [ ]
+1. Existing renderer protected                 [x]
+2. Frontend cleaned up                         [x]
 3. Local server                                [ ]
 4. STL/OBJ -> LiDAR -> line art                [ ]
 ---------------------------------------------------
