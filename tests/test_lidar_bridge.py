@@ -8,6 +8,8 @@ from unittest import mock
 from PIL import Image
 
 from server.lidar_bridge import (
+    FIXED_VIEW_ORDER,
+    FIXED_VIEWS,
     LidarBridge,
     ScanIdMismatchError,
     _float_option,
@@ -156,6 +158,67 @@ f 1 2 3
         self.assertEqual(current["name"], previous["name"])
         self.assertEqual(current["sha256"], previous["sha256"])
         self.assertIsNotNone(state.get_scene_object())
+
+    def test_fixed_multiview_uses_named_cached_single_view_scans(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        options = {
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "seed": 19,
+            "smart_sampling": False,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+        }
+
+        first = bridge.scan_fixed_views(options)
+        self.assertEqual(first["order"], list(FIXED_VIEW_ORDER))
+        self.assertEqual(set(first["views"]), set(FIXED_VIEW_ORDER))
+        self.assertEqual(state.scan_cache_stats()["entries"], 5)
+
+        first_ids = {}
+        for name in FIXED_VIEW_ORDER:
+            scan = first["views"][name]
+            descriptor = FIXED_VIEWS[name]
+            first_ids[name] = scan["scan_id"]
+            self.assertFalse(scan["cache_hit"])
+            self.assertEqual(scan["view"]["name"], name)
+            self.assertEqual(scan["camera"]["yaw_deg"], descriptor["yaw_deg"])
+            self.assertEqual(
+                scan["camera"]["elevation_deg"],
+                descriptor["elevation_deg"],
+            )
+
+        # The final current scan is Top, but earlier fixed views must remain
+        # independently inspectable from the bounded Phase 11 cache.
+        front_depth = bridge.channel_png(
+            "depth",
+            scan_id=first["views"]["front"]["scan_id"],
+        )
+        self.assertTrue(front_depth.startswith(b"\x89PNG\r\n\x1a\n"))
+        front_summary = bridge.maps_summary(
+            scan_id=first["views"]["front"]["scan_id"]
+        )
+        self.assertEqual(front_summary["scan_id"], first["views"]["front"]["scan_id"])
+
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=AssertionError(
+                "repeat fixed multi-view should come entirely from scan cache"
+            ),
+        ):
+            second = bridge.scan_fixed_views(options)
+
+        for name in FIXED_VIEW_ORDER:
+            self.assertTrue(second["views"][name]["cache_hit"])
+            self.assertEqual(second["views"][name]["scan_id"], first_ids[name])
+
+        stats = state.scan_cache_stats()
+        self.assertEqual(stats["entries"], 5)
+        self.assertEqual(stats["misses"], 5)
+        self.assertEqual(stats["hits"], 5)
 
     def test_identical_scan_reuses_cache_without_engine(self) -> None:
         state = StudioState()
