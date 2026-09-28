@@ -962,7 +962,7 @@
     h,
     readyMessage,
     kind = 'image',
-    name = null
+    reference = null
   ) {
     if (sourceCanvas && sourceCanvas !== newSourceCanvas) {
       sourceCanvas.width = 0;
@@ -973,8 +973,22 @@
     sourcePixels = newPixels;
     sourceImage = { width: w, height: h };
     sourceKind = kind;
-    sourceName = name || null;
-    restoredSourceHint = null;
+    sourceReference = reference && typeof reference === 'object'
+      ? { ...reference, kind }
+      : { kind, name: typeof reference === 'string' ? reference : null };
+    sourceName = sourceReference.name || null;
+
+    if (
+      requiredSourceReference &&
+      LineArtProjectState.sourceMatches(requiredSourceReference, sourceReference)
+    ) {
+      requiredSourceReference = null;
+      restoredSourceHint = null;
+      setProjectStatus('Referenced source loaded. Project is ready.');
+    } else if (!requiredSourceReference) {
+      restoredSourceHint = null;
+    }
+
     if (kind !== 'lidar') lidarSourceMaps = null;
     applyRendererMaps(maps);
 
@@ -999,9 +1013,16 @@
     scanRunning = false;
     updateLidarArtControlAvailability(false);
     refreshButtons();
-    setStatus(readyMessage, 0);
     autosaveCurrentState();
-    startRender('preview');
+    if (projectSourceReady()) {
+      setStatus(readyMessage, 0);
+      startRender('preview');
+    } else {
+      const needed = requiredSourceLabel();
+      setProjectStatus(`This source does not match the project. Load ${needed}.`, true);
+      setStatus(`Source loaded, but the project is waiting for ${needed}.`, 0);
+      refreshButtons();
+    }
   }
 
   async function loadImageFile(file) {
@@ -1058,7 +1079,7 @@
         h,
         `Ready - ${w} x ${h}px. Building direction-aware preview...`,
         'image',
-        file.name
+        fileSourceReference(file, 'image')
       );
     } catch (error) {
       bitmap?.close?.();
@@ -1091,12 +1112,26 @@
       const result = await LidarClient.uploadScene(file);
       const scene = result.scene;
       sceneLoaded = true;
+      modelReference = fileSourceReference(file, 'lidar');
       scanDirty = true;
       scanBtn.textContent = 'Scan LiDAR';
       scanSummary.textContent = 'ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
-      setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
+
+      if (!projectModelReady()) {
+        const needed = requiredSourceLabel();
+        setProjectStatus(`Loaded model does not match this project. Load ${needed}.`, true);
+        setStatus(`Model loaded, but the project is waiting for ${needed}.`, 0);
+      } else {
+        setProjectStatus(
+          requiredSourceReference
+            ? 'Referenced model loaded. Run LiDAR to reproduce the project.'
+            : '3D model loaded.'
+        );
+        setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
+      }
+      autosaveCurrentState();
     } catch (error) {
       console.error(error);
       sceneLoaded = false;
@@ -1172,7 +1207,10 @@
         images.shaded.height,
         `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
         'lidar',
-        scan.scene?.name || '3D model'
+        modelReference || {
+          kind: 'lidar',
+          name: scan.scene?.name || '3D model'
+        }
       );
     } catch (error) {
       console.error(error);
