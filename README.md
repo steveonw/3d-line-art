@@ -598,6 +598,34 @@ Returning camera/sensor controls to a previously cached configuration and scanni
 
 The cache design borrows the useful content-addressed / byte-accounted / bounded-eviction pattern from the owner's `Read-Aloud-Main` repository. A separate in-flight request table is unnecessary here because the local server already serializes expensive write/scan operations.
 
+## Phase 11.5 LiDAR art mapping polish
+
+Phase 11.5 improves how the existing single-view LiDAR evidence becomes line art. It does **not** add another sensor pass and does not change the Phase 11 scan-cache key.
+
+New browser-side controls:
+
+- **Contour coverage** — blends the original local depth-gradient density with deterministic iso-depth bands so smooth surfaces still produce readable contour structure.
+- **Confidence smoothing** — masked smoothing of the confidence map to reduce cell-scale speckle without bleeding confidence into no-hit background.
+- **Clean known-empty background** — uses the depth no-hit mask as a hard stroke mask. Candidate points are restricted to occupied pixels and straight/curved stroke paths stop at the occupancy boundary.
+- **Center math fields on scanned object** — derives the projected object's centroid and scale from occupied depth pixels and uses that origin for Radial, Vortex, Spiral, Rose, Cardioid, and Log Spiral fields.
+- **Math emphasis** — scales mathematical-field weights relative to the base surface field so subtle polar fields can read more clearly.
+
+Backward compatibility is intentional: the new project settings default to the pre-11.5 behavior when absent. The LiDAR-specific presets opt into the new polish settings so new preset-driven work benefits immediately.
+
+These settings are art-only:
+
+```text
+Contour coverage
+Confidence smoothing
+Clean background
+Object-centered fields
+Math emphasis
+```
+
+Changing them never requires a LiDAR rescan and does not invalidate a cached sensor result.
+
+CI includes a synthetic hard-mask renderer test that fails if any recorded stroke point escapes the occupied region, plus map tests that verify contour coverage increases useful density on a shallow depth ramp and confidence smoothing reduces a speckled confidence field.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
