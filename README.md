@@ -2,6 +2,12 @@
 
 This repository is being developed in small roadmap phases.
 
+For AI/maintainer continuation notes, current stacked-PR state, invariants, and the exact next task, read:
+
+```text
+AI_HANDOFF.md
+```
+
 The original single-file Line Art Studio reference build is kept at:
 
 ```text
