@@ -169,7 +169,7 @@ class StudioState:
                     "channels": dict(self._scan_channels),
                 }
 
-            for cache_key, entry in self._scan_cache.items():
+            for cache_key, entry in list(self._scan_cache.items()):
                 if str(entry["metadata"].get("scan_id") or "") != scan_id:
                     continue
                 self._scan_cache.move_to_end(cache_key)
