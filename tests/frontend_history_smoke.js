@@ -125,6 +125,15 @@ history.record(s3, { coalesceKey: 'lineCount' });
 assert(!history.status().canRedo, 'new edit after undo should truncate redo branch');
 assert(history.current().settings.lineCount === 53000, 'branch edit should become current');
 
+const beforeSourceReplace = history.status().length;
+const sourceUpdated = Project.create(
+  { ...defaults, lineCount: 53000 },
+  { kind: 'image', name: 'reference.png' }
+);
+history.replaceCurrent(sourceUpdated, { autosave: false });
+assert(history.status().length === beforeSourceReplace, 'source hint update should not create undo step');
+assert(history.current().source.name === 'reference.png', 'current source hint did not update');
+
 now += 1000;
 history.record(s4, { coalesceKey: 'opacity' });
 assert(history.status().autosaveState === 'pending', 'edit should schedule autosave');
