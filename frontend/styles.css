@@ -401,3 +401,35 @@
       cursor: pointer;
       user-select: none;
     }
+
+    .history-section {
+      padding-top: 12px;
+    }
+
+    .history-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .history-actions .secondary {
+      min-height: 36px;
+      padding: 8px 10px;
+      background: var(--soft);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      font-weight: 700;
+    }
+
+    #autosaveStatus[data-state="saved"] {
+      color: #416044;
+    }
+
+    #autosaveStatus[data-state="pending"] {
+      color: #765f2b;
+    }
+
+    #autosaveStatus[data-state="error"] {
+      color: #8a3d32;
+      font-weight: 700;
+    }
