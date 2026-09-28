@@ -17,7 +17,7 @@ Current development head as of 2026-09-28:
 ```text
 branch: phase-10-stabilization
 PR:     #12 — Phase 10 stabilization: fix project and LiDAR state regressions
-base:   phase-10-stabilization
+base:   phase-10-project-files
 CI:     passed
 ```
 
@@ -75,7 +75,7 @@ For Phase 11:
 3. Open the new PR against:
 
    ```text
-   phase-10-project-files
+   phase-10-stabilization
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -469,6 +469,21 @@ A post-review stabilization pass also fixed:
 Real browser regressions now cover the confirmed state-machine bugs in CI.
 
 Scan binaries are **not** inside the project JSON yet.
+
+### Reference-render review findings
+
+A Playwright-driven reference-render bundle supplied after Phase 10 found one additional sensor/render issue and gave us stronger regression fixtures.
+
+Key findings now incorporated:
+
+- imported mesh winding must not control shaded tone,
+- visible hit normals are oriented against incoming ray direction before channel computation and shading,
+- the repository's inward-wound `samples/cube.obj` is a permanent regression fixture for this,
+- repeated real-browser high-quality renders with identical source/settings/seed must produce byte-identical PNG output within the same runtime,
+- large historical PNG goldens are kept out of CI; their hashes/provenance live in `tests/reference/phase10_reference_manifest.json`,
+- reproducible trefoil/torus/still-life/ripple/image fixtures can be generated with `scripts/make_reference_fixtures.py`.
+
+The reference review also observed future art-quality opportunities (not Phase 10 blockers): depth-contour density can become sparse on smooth surfaces, confidence-driven density can show cell-scale speckle, and canvas-centered math fields may read better later if optionally centered on the projected object.
 
 ## 9. Current HTTP API
 
