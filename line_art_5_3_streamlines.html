@@ -1,0 +1,1792 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Line Art Studio 5.3</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #ececec;
+      --panel: #ffffff;
+      --ink: #171717;
+      --muted: #6f6f6f;
+      --line: #d8d8d8;
+      --soft: #f6f6f6;
+      --accent: #171717;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    }
+
+    body { min-height: 100vh; }
+
+    button, input, select { font: inherit; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+    }
+
+    .panel {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .brand { margin-bottom: 18px; }
+    .brand h1 { margin: 0 0 5px; font-size: 22px; letter-spacing: -0.02em; }
+    .brand p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+    .section {
+      padding: 15px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .brand + .section { border-top: 0; padding-top: 0; }
+
+    .label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 7px;
+    }
+
+    label, .group-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .value {
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="file"], select, input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 8px;
+      min-height: 38px;
+      padding: 8px 10px;
+    }
+
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+    .range-number {
+      display: grid;
+      grid-template-columns: 1fr 110px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #variationBtn {
+      min-height: 38px;
+      padding: 8px 10px;
+      background: var(--soft);
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    .quick-counts {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 5px;
+      margin-top: 8px;
+    }
+
+    .quick-counts button {
+      padding: 6px 3px;
+      font-size: 11px;
+      background: var(--soft);
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .segmented button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 8px;
+    }
+
+    .segmented button.active {
+      background: var(--ink);
+      color: white;
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+    }
+
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .actions .primary {
+      grid-column: 1 / -1;
+      padding: 11px 12px;
+      background: var(--ink);
+      color: white;
+      font-weight: 700;
+    }
+
+    .actions .secondary {
+      padding: 10px 12px;
+      background: var(--soft);
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    .progress-wrap {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .progress-track {
+      height: 7px;
+      background: #dfdfdf;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 7px 0 6px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--ink);
+      transition: width 80ms linear;
+    }
+
+    #status {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+      min-height: 34px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: 1.35fr 0.75fr 0.75fr;
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .stat {
+      min-width: 0;
+      padding: 7px 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 7px;
+    }
+
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 2px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .export-note {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .export-note.warning {
+      color: #8a4b12;
+      font-weight: 700;
+    }
+
+    .workspace {
+      min-width: 0;
+      padding: 24px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      overflow: auto;
+    }
+
+    .stage {
+      min-width: min(100%, 560px);
+      min-height: 420px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .canvas-shell {
+      display: inline-flex;
+      background: white;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.13);
+      border-radius: 4px;
+      overflow: hidden;
+      max-width: 100%;
+    }
+
+    canvas {
+      display: block;
+      max-width: min(100%, 1100px);
+      height: auto;
+      background: white;
+    }
+
+    .empty {
+      width: min(680px, 100%);
+      min-height: 420px;
+      border: 1px dashed #bcbcbc;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      background: rgba(255,255,255,0.45);
+      padding: 30px;
+    }
+
+    .empty strong { display: block; color: var(--ink); margin-bottom: 6px; }
+
+    @media (max-width: 800px) {
+      .app { grid-template-columns: 1fr; }
+      .panel { border-right: 0; border-bottom: 1px solid var(--line); }
+      .workspace { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <div class="brand">
+        <h1>Line Art Studio 5.3</h1>
+        <p>Coverage-aware rendering with smooth direction fields and optional curved streamline strokes.</p>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="imageInput">Image</label></div>
+        <input id="imageInput" type="file" accept="image/*" />
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="preset">Style preset</label></div>
+        <select id="preset">
+          <option value="finePencil">Fine Pencil</option>
+          <option value="softSketch">Soft Sketch</option>
+          <option value="denseScribble">Dense Scribble</option>
+          <option value="colorThreads">Color Threads</option>
+          <option value="architectural">Architectural</option>
+          <option value="chaotic">Chaotic</option>
+          <option value="custom" disabled>Custom</option>
+        </select>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><span class="group-label">Mode</span></div>
+        <div class="segmented" id="modeControl" role="group" aria-label="Line color mode">
+          <button type="button" data-mode="color" class="active" aria-pressed="true">Color</button>
+          <button type="button" data-mode="black" aria-pressed="false">Black</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="palette">Palette</label></div>
+        <select id="palette">
+          <option value="original">Original</option>
+          <option value="muted">Muted</option>
+          <option value="warm">Warm</option>
+          <option value="cool">Cool</option>
+          <option value="monochrome">Monochrome</option>
+          <option value="limited">Limited Palette</option>
+        </select>
+      </div>
+
+      <div class="section">
+        <div class="label-row">
+          <label for="lineCountRange">Line Count</label>
+          <span class="value" id="lineCountDisplay">50,000</span>
+        </div>
+        <div class="range-number">
+          <input id="lineCountRange" type="range" min="1000" max="400000" step="1000" value="50000" />
+          <input id="lineCountNumber" type="number" min="1000" max="400000" step="1000" value="50000" />
+        </div>
+        <div class="quick-counts">
+          <button type="button" data-count="25000">25k</button>
+          <button type="button" data-count="50000">50k</button>
+          <button type="button" data-count="100000">100k</button>
+          <button type="button" data-count="200000">200k</button>
+          <button type="button" data-count="400000">400k</button>
+        </div>
+      </div>
+
+      <div class="section" id="sliders"></div>
+
+      <div class="section">
+        <div class="label-row">
+          <label for="seedInput">Seed</label>
+          <span class="value">repeatable variation</span>
+        </div>
+        <div class="range-number">
+          <input id="seedInput" type="number" min="1" max="4294967295" step="1" value="2841" />
+          <button class="secondary" id="variationBtn" type="button">New Variation</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="pngScale">PNG export size</label><span class="value">replays vector strokes</span></div>
+        <select id="pngScale" style="margin-bottom:10px">
+          <option value="1">1× — canvas size</option>
+          <option value="2" selected>2× — high resolution</option>
+          <option value="4">4× — print size</option>
+        </select>
+        <div class="actions">
+          <button class="primary" id="renderBtn" type="button" disabled>Render High Quality</button>
+          <button class="secondary" id="saveBtn" type="button" disabled>Save PNG</button>
+          <button class="secondary" id="saveSvgBtn" type="button" disabled>Save SVG</button>
+          <button class="secondary" id="cancelBtn" type="button" disabled>Cancel Render</button>
+        </div>
+        <div class="progress-wrap">
+          <div id="status" aria-live="polite">Upload an image to begin.</div>
+          <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+          <div class="stats">
+            <div class="stat"><span>Lines</span><strong id="statLines">0</strong></div>
+            <div class="stat"><span>Progress</span><strong id="statPercent">0%</strong></div>
+            <div class="stat"><span>Time</span><strong id="statTime">0.0s</strong></div>
+          </div>
+          <div class="export-note" id="exportNote">Exports use the last completed high-quality render when available.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="stage" id="stage">
+        <div class="empty" id="emptyState">
+          <div><strong>No image loaded</strong>Choose an image, select a style, then render.</div>
+        </div>
+        <div class="canvas-shell" id="canvasShell" hidden>
+          <canvas id="canvas" width="900" height="600" role="img" aria-label="Generated line-art preview"></canvas>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+(() => {
+  'use strict';
+
+  const MAX_IMAGE_SIDE = 1100;
+  const FRAME_BUDGET_MS = 11;
+  const PREVIEW_MAX_LINES = 15000;
+  const PREVIEW_DEBOUNCE_MS = 200;
+  const UINT32_MAX = 4294967295;
+  const SVG_WARNING_LINES = 100000;
+  const COVERAGE_CELL = 3;
+  const MAX_STREAM_POINTS = 6;
+
+  const settings = {
+    preset: 'finePencil',
+    mode: 'color',
+    palette: 'original',
+    lineCount: 50000,
+    strokeLength: 7,
+    strokeWeight: 1.0,
+    detail: 1.9,
+    opacity: 0.55,
+    colorStrength: 1.0,
+    paletteStrength: 1.0,
+    directionNoise: 0.22,
+    angleQuantize: 0,
+    sampleBias: 0.70,
+    flowStrength: 0.65,
+    seed: 2841
+  };
+
+  const presets = {
+    finePencil: {
+      mode: 'black', palette: 'original', lineCount: 70000, strokeLength: 5.5,
+      strokeWeight: 0.75, detail: 2.2, opacity: 0.42, colorStrength: 1.0,
+      paletteStrength: 1.0, directionNoise: 0.16, angleQuantize: 0, sampleBias: 0.78, flowStrength: 0.78
+    },
+    softSketch: {
+      mode: 'black', palette: 'muted', lineCount: 42000, strokeLength: 8.5,
+      strokeWeight: 0.85, detail: 1.45, opacity: 0.28, colorStrength: 1.0,
+      paletteStrength: 0.7, directionNoise: 0.35, angleQuantize: 0, sampleBias: 0.62, flowStrength: 0.62
+    },
+    denseScribble: {
+      mode: 'black', palette: 'original', lineCount: 140000, strokeLength: 6.5,
+      strokeWeight: 0.95, detail: 1.65, opacity: 0.30, colorStrength: 1.0,
+      paletteStrength: 1.0, directionNoise: 0.62, angleQuantize: 0, sampleBias: 0.72, flowStrength: 0.48
+    },
+    colorThreads: {
+      mode: 'color', palette: 'original', lineCount: 90000, strokeLength: 12,
+      strokeWeight: 1.05, detail: 1.55, opacity: 0.48, colorStrength: 1.25,
+      paletteStrength: 1.0, directionNoise: 0.25, angleQuantize: 0, sampleBias: 0.67, flowStrength: 0.90
+    },
+    architectural: {
+      mode: 'black', palette: 'monochrome', lineCount: 60000, strokeLength: 11,
+      strokeWeight: 0.85, detail: 2.6, opacity: 0.52, colorStrength: 1.0,
+      paletteStrength: 1.0, directionNoise: 0.08, angleQuantize: Math.PI / 4, sampleBias: 0.80, flowStrength: 0.18
+    },
+    chaotic: {
+      mode: 'color', palette: 'limited', lineCount: 105000, strokeLength: 15,
+      strokeWeight: 1.15, detail: 1.15, opacity: 0.36, colorStrength: 1.35,
+      paletteStrength: 0.9, directionNoise: 1.15, angleQuantize: 0, sampleBias: 0.55, flowStrength: 0.72
+    }
+  };
+
+  const sliderDefs = [
+    { key: 'strokeLength', label: 'Stroke Length', min: 2, max: 24, step: 0.5, format: v => Number(v).toFixed(1) },
+    { key: 'strokeWeight', label: 'Stroke Weight', min: 0.2, max: 3.0, step: 0.05, format: v => Number(v).toFixed(2) },
+    { key: 'detail', label: 'Detail', min: 0.5, max: 4.0, step: 0.05, format: v => Number(v).toFixed(2) },
+    { key: 'opacity', label: 'Opacity', min: 0.05, max: 1.0, step: 0.01, format: v => Math.round(Number(v) * 100) + '%' },
+    { key: 'colorStrength', label: 'Color Strength', min: 0, max: 2.0, step: 0.05, format: v => Number(v).toFixed(2) },
+    { key: 'paletteStrength', label: 'Palette Strength', min: 0, max: 1.0, step: 0.05, format: v => Math.round(Number(v) * 100) + '%' },
+    { key: 'flowStrength', label: 'Stroke Flow', min: 0, max: 1.0, step: 0.05, format: v => Math.round(Number(v) * 100) + '%' }
+  ];
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const imageInput = document.getElementById('imageInput');
+  const presetSelect = document.getElementById('preset');
+  const modeControl = document.getElementById('modeControl');
+  const paletteSelect = document.getElementById('palette');
+  const lineCountRange = document.getElementById('lineCountRange');
+  const lineCountNumber = document.getElementById('lineCountNumber');
+  const lineCountDisplay = document.getElementById('lineCountDisplay');
+  const slidersRoot = document.getElementById('sliders');
+  const seedInput = document.getElementById('seedInput');
+  const variationBtn = document.getElementById('variationBtn');
+  const renderBtn = document.getElementById('renderBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const saveSvgBtn = document.getElementById('saveSvgBtn');
+  const pngScaleSelect = document.getElementById('pngScale');
+  const statusEl = document.getElementById('status');
+  const progressBar = document.getElementById('progressBar');
+  const statLines = document.getElementById('statLines');
+  const statPercent = document.getElementById('statPercent');
+  const statTime = document.getElementById('statTime');
+  const exportNote = document.getElementById('exportNote');
+  const emptyState = document.getElementById('emptyState');
+  const canvasShell = document.getElementById('canvasShell');
+
+  let sourceImage = null;
+  let sourceCanvas = null;
+  let sourcePixels = null;
+  let luminance = null;
+  let edgeStrength = null;
+  let colorInkNeed = null;
+  let strokeDirection = null;
+  let directionCoherence = null;
+
+  let previewTimer = 0;
+  let renderSerial = 0;
+  let loadSerial = 0;
+  let loadingImage = false;
+  let activeRender = null;
+
+  let displayStrokeStore = null;
+  let displayRenderMeta = null;
+  let highQualityStrokeStore = null;
+  let highQualityRenderMeta = null;
+  let highQualityStale = false;
+
+  let svgExporting = false;
+  let pngExporting = false;
+  let lastDownloadUrl = null;
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function blend(a, b, t) { return a + (b - a) * t; }
+  function formatCount(v) { return Math.round(v).toLocaleString(); }
+  function nextFrame() { return new Promise(resolve => requestAnimationFrame(resolve)); }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${Math.round(bytes)} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function estimateSvgBytes(store, meta) {
+    if (!store || !meta) return 0;
+    const basePerStroke = meta.settings.mode === 'black' ? 31 : 39;
+    const extraPoints = Math.max(0, (store.totalPoints || store.count * 2) - store.count * 2);
+    return 1800 + store.count * basePerStroke + extraPoints * 12;
+  }
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function random() {
+      a |= 0;
+      a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function normalizeSeed(v) {
+    let n = Math.floor(Number(v));
+    if (!Number.isFinite(n)) n = 1;
+    n = clamp(n, 1, UINT32_MAX);
+    return n >>> 0 || 1;
+  }
+
+  function randomSeed() {
+    if (globalThis.crypto?.getRandomValues) {
+      const a = new Uint32Array(1);
+      crypto.getRandomValues(a);
+      return a[0] || 1;
+    }
+    return ((Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0) || 1;
+  }
+
+  function markSettingsChanged(markPreset = true) {
+    if (markPreset && settings.preset !== 'custom') {
+      settings.preset = 'custom';
+      presetSelect.value = 'custom';
+    }
+    if (highQualityStrokeStore) highQualityStale = true;
+    updateExportNote();
+  }
+
+  function buildSliders() {
+    slidersRoot.innerHTML = '';
+    for (const def of sliderDefs) {
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '14px';
+      wrap.innerHTML = `
+        <div class="label-row">
+          <label for="${def.key}">${def.label}</label>
+          <span class="value" id="${def.key}Value"></span>
+        </div>
+        <input id="${def.key}" type="range" min="${def.min}" max="${def.max}" step="${def.step}" />
+      `;
+      slidersRoot.appendChild(wrap);
+      const input = wrap.querySelector('input');
+      input.addEventListener('input', () => {
+        settings[def.key] = Number(input.value);
+        updateSliderValue(def);
+        markSettingsChanged(true);
+        schedulePreview();
+      });
+    }
+  }
+
+  function updateSliderValue(def) {
+    const input = document.getElementById(def.key);
+    const value = document.getElementById(def.key + 'Value');
+    input.value = settings[def.key];
+    value.textContent = def.format(settings[def.key]);
+  }
+
+  function syncPaletteAvailability() {
+    const isColor = settings.mode === 'color';
+    paletteSelect.disabled = !isColor;
+    document.getElementById('colorStrength').disabled = !isColor;
+    document.getElementById('paletteStrength').disabled = !isColor || settings.palette === 'original';
+  }
+
+  function syncModeButtons() {
+    for (const btn of modeControl.querySelectorAll('button')) {
+      const active = btn.dataset.mode === settings.mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
+
+  function syncUI() {
+    presetSelect.value = settings.preset;
+    paletteSelect.value = settings.palette;
+    lineCountRange.value = settings.lineCount;
+    lineCountNumber.value = settings.lineCount;
+    lineCountDisplay.textContent = formatCount(settings.lineCount);
+    seedInput.value = settings.seed;
+    for (const def of sliderDefs) updateSliderValue(def);
+    syncModeButtons();
+    syncPaletteAvailability();
+  }
+
+  function applyPreset(name, preview = true) {
+    if (!presets[name]) return;
+    Object.assign(settings, presets[name]);
+    settings.preset = name;
+    if (highQualityStrokeStore) highQualityStale = true;
+    syncUI();
+    updateExportNote();
+    if (preview) schedulePreview();
+  }
+
+  function setLineCount(value, preview = true) {
+    const normalized = clamp(Math.round(Number(value) / 1000) * 1000, 1000, 400000);
+    settings.lineCount = normalized;
+    lineCountRange.value = normalized;
+    lineCountNumber.value = normalized;
+    lineCountDisplay.textContent = formatCount(normalized);
+    markSettingsChanged(true);
+    if (preview) schedulePreview();
+  }
+
+  function setMode(mode, preview = true) {
+    settings.mode = mode === 'black' ? 'black' : 'color';
+    syncModeButtons();
+    syncPaletteAvailability();
+    markSettingsChanged(true);
+    if (preview) schedulePreview();
+  }
+
+  function setStatus(message, percent = null) {
+    statusEl.textContent = message;
+    if (percent !== null) {
+      const p = clamp(percent, 0, 100);
+      progressBar.style.width = p.toFixed(1) + '%';
+      statPercent.textContent = Math.round(p) + '%';
+    }
+  }
+
+  function setStats(lines = 0, percent = 0, seconds = 0) {
+    statLines.textContent = formatCount(lines);
+    statPercent.textContent = Math.round(clamp(percent, 0, 100)) + '%';
+    statTime.textContent = `${Math.max(0, seconds).toFixed(1)}s`;
+  }
+
+  function getExportTarget() {
+    if (highQualityStrokeStore && highQualityRenderMeta) {
+      return { store: highQualityStrokeStore, meta: highQualityRenderMeta, kind: 'high' };
+    }
+    if (displayStrokeStore && displayRenderMeta) {
+      return { store: displayStrokeStore, meta: displayRenderMeta, kind: displayRenderMeta.kind };
+    }
+    return null;
+  }
+
+  function updateExportNote() {
+    const target = getExportTarget();
+    exportNote.classList.remove('warning');
+    if (!target) {
+      exportNote.textContent = 'Exports use the last completed high-quality render when available.';
+      return;
+    }
+
+    const estimate = formatBytes(estimateSvgBytes(target.store, target.meta));
+    const large = target.store.count > SVG_WARNING_LINES;
+    const stale = target.kind === 'high' && highQualityStale;
+    const sourceText = target.kind === 'high'
+      ? `last high-quality render (${formatCount(target.store.count)} lines)`
+      : `current preview (${formatCount(target.store.count)} lines)`;
+
+    if (stale) {
+      exportNote.textContent = `Settings changed. Save still exports the ${sourceText}. Estimated SVG: ${estimate}.`;
+    } else {
+      exportNote.textContent = `Save exports the ${sourceText}. Estimated SVG: ${estimate}.`;
+    }
+    if (large) {
+      exportNote.classList.add('warning');
+      exportNote.textContent += ' Large SVGs can be slow in vector editors.';
+    }
+  }
+
+  function setHighQualityControlsLocked(locked) {
+    imageInput.disabled = locked;
+    presetSelect.disabled = locked;
+    lineCountRange.disabled = locked;
+    lineCountNumber.disabled = locked;
+    seedInput.disabled = locked;
+    variationBtn.disabled = locked;
+    pngScaleSelect.disabled = locked;
+    document.querySelectorAll('.quick-counts button').forEach(btn => btn.disabled = locked);
+    modeControl.querySelectorAll('button').forEach(btn => btn.disabled = locked);
+    sliderDefs.forEach(def => {
+      const el = document.getElementById(def.key);
+      if (el) el.disabled = locked;
+    });
+    if (locked) paletteSelect.disabled = true;
+    else syncPaletteAvailability();
+  }
+
+  function refreshButtons() {
+    const active = !!activeRender;
+    const highActive = activeRender?.kind === 'high';
+    const exportBusy = svgExporting || pngExporting;
+    setHighQualityControlsLocked(highActive || exportBusy);
+    renderBtn.disabled = !sourceImage || loadingImage || highActive || exportBusy;
+    cancelBtn.disabled = !active;
+    const canSave = !active && !loadingImage && !exportBusy && !!getExportTarget();
+    saveBtn.disabled = !canSave;
+    saveSvgBtn.disabled = !canSave;
+    updateExportNote();
+  }
+
+  async function decodeBitmap(file) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch (_) {
+      return await createImageBitmap(file);
+    }
+  }
+
+  function boxBlurFloat(source, w, h, radius, output, temp) {
+    const diameter = radius * 2 + 1;
+
+    // Horizontal moving-window pass with clamped edges.
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      let sum = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const sx = Math.max(0, Math.min(w - 1, k));
+        sum += source[row + sx];
+      }
+      temp[row] = sum / diameter;
+
+      for (let x = 1; x < w; x++) {
+        const removeX = Math.max(0, Math.min(w - 1, x - radius - 1));
+        const addX = Math.max(0, Math.min(w - 1, x + radius));
+        sum += source[row + addX] - source[row + removeX];
+        temp[row + x] = sum / diameter;
+      }
+    }
+
+    // Vertical moving-window pass with clamped edges.
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const sy = Math.max(0, Math.min(h - 1, k));
+        sum += temp[sy * w + x];
+      }
+      output[x] = sum / diameter;
+
+      for (let y = 1; y < h; y++) {
+        const removeY = Math.max(0, Math.min(h - 1, y - radius - 1));
+        const addY = Math.max(0, Math.min(h - 1, y + radius));
+        sum += temp[addY * w + x] - temp[removeY * w + x];
+        output[y * w + x] = sum / diameter;
+      }
+    }
+  }
+
+  function smoothTensorField(field, w, h, radius, passes, temp, scratch) {
+    let input = field;
+    let output = scratch;
+    for (let pass = 0; pass < passes; pass++) {
+      boxBlurFloat(input, w, h, radius, output, temp);
+      const swap = input;
+      input = output;
+      output = swap;
+    }
+    if (input !== field) field.set(input);
+  }
+
+  function buildAnalysisMaps(imageData, w, h) {
+    const sharp = new Uint8Array(w * h);
+    const colorNeed = new Float32Array(w * h);
+    const d = imageData.data;
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      sharp[p] = Math.round(r * 0.2126 + g * 0.7152 + b * 0.0722);
+      // White = 0 ink need. Pale but colorful pixels still ask for marks.
+      colorNeed[p] = Math.max(255 - r, 255 - g, 255 - b) / 255;
+    }
+
+    // A small pre-blur suppresses JPEG grain and single-pixel texture before
+    // computing edge direction.
+    const tempLum = new Float32Array(w * h);
+    const blur = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const xl = x > 0 ? x - 1 : 0;
+        const xr = x + 1 < w ? x + 1 : w - 1;
+        tempLum[row + x] = (sharp[row + xl] + sharp[row + x] + sharp[row + xr]) / 3;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      const yu = y > 0 ? y - 1 : 0;
+      const yd = y + 1 < h ? y + 1 : h - 1;
+      const row = y * w;
+      const rowU = yu * w;
+      const rowD = yd * w;
+      for (let x = 0; x < w; x++) {
+        blur[row + x] = (tempLum[rowU + x] + tempLum[row + x] + tempLum[rowD + x]) / 3;
+      }
+    }
+
+    const count = w * h;
+    const edgeMap = new Uint8Array(count);
+    const jxx = new Float32Array(count);
+    const jxy = new Float32Array(count);
+    const jyy = new Float32Array(count);
+
+    // Sobel gradient, immediately converted into structure-tensor terms.
+    for (let y = 0; y < h; y++) {
+      const yu = y > 0 ? y - 1 : 0;
+      const yd = y + 1 < h ? y + 1 : h - 1;
+      const row = y * w;
+      const rowU = yu * w;
+      const rowD = yd * w;
+      for (let x = 0; x < w; x++) {
+        const xl = x > 0 ? x - 1 : 0;
+        const xr = x + 1 < w ? x + 1 : w - 1;
+
+        const a00 = blur[rowU + xl], a01 = blur[rowU + x], a02 = blur[rowU + xr];
+        const a10 = blur[row + xl],  a12 = blur[row + xr];
+        const a20 = blur[rowD + xl], a21 = blur[rowD + x], a22 = blur[rowD + xr];
+
+        const gx = -a00 + a02 - 2 * a10 + 2 * a12 - a20 + a22;
+        const gy = -a00 - 2 * a01 - a02 + a20 + 2 * a21 + a22;
+        const idx = row + x;
+        jxx[idx] = gx * gx;
+        jxy[idx] = gx * gy;
+        jyy[idx] = gy * gy;
+        edgeMap[idx] = Math.min(255, Math.round(Math.hypot(gx, gy) * 0.25));
+      }
+    }
+
+    // Smooth the tensor over a wider neighborhood. Two radius-4 passes give
+    // nearby strokes a shared local flow without erasing important contours.
+    const tensorTemp = new Float32Array(count);
+    const tensorScratch = new Float32Array(count);
+    const TENSOR_RADIUS = 4;
+    const TENSOR_PASSES = 2;
+    smoothTensorField(jxx, w, h, TENSOR_RADIUS, TENSOR_PASSES, tensorTemp, tensorScratch);
+    smoothTensorField(jxy, w, h, TENSOR_RADIUS, TENSOR_PASSES, tensorTemp, tensorScratch);
+    smoothTensorField(jyy, w, h, TENSOR_RADIUS, TENSOR_PASSES, tensorTemp, tensorScratch);
+
+    const direction = new Float32Array(count);
+    const coherence = new Uint8Array(count);
+    for (let i = 0; i < count; i++) {
+      const xx = jxx[i];
+      const xy = jxy[i];
+      const yy = jyy[i];
+      // Principal gradient orientation + 90 degrees gives the local tangent.
+      direction[i] = 0.5 * Math.atan2(2 * xy, xx - yy) + Math.PI / 2;
+      const denom = xx + yy + 1e-6;
+      const coh = Math.hypot(xx - yy, 2 * xy) / denom;
+      coherence[i] = Math.round(clamp(coh, 0, 1) * 255);
+    }
+
+    return {
+      luminance: sharp,
+      edgeStrength: edgeMap,
+      colorInkNeed: colorNeed,
+      strokeDirection: direction,
+      directionCoherence: coherence
+    };
+  }
+
+  async function loadImageFile(file) {
+    if (!file) return;
+    const serial = ++loadSerial;
+    stopRender(false);
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    loadingImage = true;
+    refreshButtons();
+    setStatus('Loading image...', 0);
+    setStats(0, 0, 0);
+
+    let bitmap = null;
+    let newSourceCanvas = null;
+    try {
+      bitmap = await decodeBitmap(file);
+      if (serial !== loadSerial) {
+        bitmap.close?.();
+        return;
+      }
+
+      const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+      const w = Math.max(2, Math.round(bitmap.width * scale));
+      const h = Math.max(2, Math.round(bitmap.height * scale));
+
+      newSourceCanvas = document.createElement('canvas');
+      newSourceCanvas.width = w;
+      newSourceCanvas.height = h;
+      const newSourceCtx = newSourceCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
+      newSourceCtx.fillStyle = '#ffffff';
+      newSourceCtx.fillRect(0, 0, w, h);
+      newSourceCtx.drawImage(bitmap, 0, 0, w, h);
+      bitmap.close?.();
+      bitmap = null;
+
+      const newPixels = newSourceCtx.getImageData(0, 0, w, h);
+      setStatus('Analyzing edges and stroke flow...', 0);
+      await nextFrame();
+      const maps = buildAnalysisMaps(newPixels, w, h);
+
+      if (serial !== loadSerial) {
+        newSourceCanvas.width = 0;
+        newSourceCanvas.height = 0;
+        return;
+      }
+
+      if (sourceCanvas) {
+        sourceCanvas.width = 0;
+        sourceCanvas.height = 0;
+      }
+
+      sourceCanvas = newSourceCanvas;
+      sourcePixels = newPixels;
+      luminance = maps.luminance;
+      edgeStrength = maps.edgeStrength;
+      colorInkNeed = maps.colorInkNeed;
+      strokeDirection = maps.strokeDirection;
+      directionCoherence = maps.directionCoherence;
+      sourceImage = { width: w, height: h };
+
+      displayStrokeStore = null;
+      displayRenderMeta = null;
+      highQualityStrokeStore = null;
+      highQualityRenderMeta = null;
+      highQualityStale = false;
+
+      canvas.width = w;
+      canvas.height = h;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      canvas.setAttribute('aria-label', `Generated line-art preview, ${w} by ${h} pixels`);
+
+      emptyState.hidden = true;
+      canvasShell.hidden = false;
+      loadingImage = false;
+      refreshButtons();
+      setStatus(`Ready - ${w} x ${h}px. Building direction-aware preview...`, 0);
+      startRender('preview');
+    } catch (error) {
+      bitmap?.close?.();
+      if (newSourceCanvas && newSourceCanvas !== sourceCanvas) {
+        newSourceCanvas.width = 0;
+        newSourceCanvas.height = 0;
+      }
+      if (serial !== loadSerial) return;
+      console.error(error);
+      loadingImage = false;
+      refreshButtons();
+      if (sourceImage) {
+        setStatus('Could not load that image. The previous image is still available.', 0);
+      } else {
+        emptyState.hidden = false;
+        canvasShell.hidden = true;
+        setStatus('Could not load that image.', 0);
+      }
+    }
+  }
+
+  function strokeCandidate(rnd, renderSettings, renderState, out) {
+    const w = sourceImage.width;
+    const h = sourceImage.height;
+    const coverage = renderState.coverage;
+    const coverageWidth = renderState.coverageWidth;
+    let bestScore = -Infinity;
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const x = 1 + Math.floor(rnd() * Math.max(1, w - 2));
+      const y = 1 + Math.floor(rnd() * Math.max(1, h - 2));
+      const idx = y * w + x;
+      const darkness = 1 - luminance[idx] / 255;
+      const edge = edgeStrength[idx] / 255;
+
+      // In black mode the target is tonal darkness. In color mode, use the
+      // per-channel distance from white so pale colors still ask for ink.
+      const targetInk = renderSettings.mode === 'color' ? colorInkNeed[idx] : darkness;
+      const cellX = Math.floor(x / COVERAGE_CELL);
+      const cellY = Math.floor(y / COVERAGE_CELL);
+      const cellIndex = cellY * coverageWidth + cellX;
+      const existingInk = coverage[cellIndex];
+      const remainingNeed = Math.max(0, targetInk - existingInk);
+
+      // Coverage is the dominant term: once an area has enough ink it loses
+      // the sampling lottery. Edges remain attractive so contours stay crisp.
+      const importance = clamp(
+        0.02 + remainingNeed * 0.85 + edge * 0.25 * renderSettings.detail,
+        0.02,
+        1
+      );
+      const score = importance + rnd() * (1 - renderSettings.sampleBias);
+      if (score > bestScore) {
+        bestScore = score;
+        out.x = x;
+        out.y = y;
+        out.darkness = darkness;
+        out.targetInk = targetInk;
+        out.remainingNeed = remainingNeed;
+        out.edge = edge;
+        out.cellIndex = cellIndex;
+        out.direction = strokeDirection[idx];
+        out.coherence = directionCoherence[idx] / 255;
+        out.importance = importance;
+        out.score = score;
+      }
+    }
+    return out;
+  }
+
+  function depositCoverage(renderState, x1, y1, x2, y2, alpha, weight) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distance = Math.hypot(dx, dy);
+    // Walk roughly once per coverage cell, not once per pixel. This keeps
+    // coverage-aware 400k renders affordable.
+    const steps = Math.max(1, Math.ceil(distance / COVERAGE_CELL));
+    const amount = alpha * Math.min(1, Math.max(0.15, weight)) / COVERAGE_CELL;
+    const gw = renderState.coverageWidth;
+    const gh = renderState.coverageHeight;
+    const coverage = renderState.coverage;
+    let lastCell = -1;
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = x1 + dx * t;
+      const py = y1 + dy * t;
+      const cx = Math.floor(px / COVERAGE_CELL);
+      const cy = Math.floor(py / COVERAGE_CELL);
+      if (cx < 0 || cy < 0 || cx >= gw || cy >= gh) continue;
+      const cell = cy * gw + cx;
+      if (cell === lastCell) continue;
+      coverage[cell] += amount;
+      lastCell = cell;
+    }
+  }
+
+  const limitedPalette = [
+    [28, 30, 33],
+    [219, 79, 70],
+    [239, 181, 70],
+    [67, 132, 162],
+    [116, 139, 93],
+    [230, 226, 210]
+  ];
+
+  function applyPaletteTo(out, r, g, b, renderSettings) {
+    const gray = r * 0.299 + g * 0.587 + b * 0.114;
+    const saturation = renderSettings.colorStrength;
+    const br = clamp(gray + (r - gray) * saturation, 0, 255);
+    const bg = clamp(gray + (g - gray) * saturation, 0, 255);
+    const bb = clamp(gray + (b - gray) * saturation, 0, 255);
+
+    let pr = br, pg = bg, pb = bb;
+    switch (renderSettings.palette) {
+      case 'muted':
+        pr = blend(br, gray * 0.96 + 18, 0.55);
+        pg = blend(bg, gray * 0.94 + 18, 0.55);
+        pb = blend(bb, gray * 0.90 + 20, 0.58);
+        break;
+      case 'warm':
+        pr = clamp(br * 1.10 + 12, 0, 255);
+        pg = clamp(bg * 1.01 + 3, 0, 255);
+        pb = clamp(bb * 0.82, 0, 255);
+        break;
+      case 'cool':
+        pr = clamp(br * 0.84, 0, 255);
+        pg = clamp(bg * 1.02 + 4, 0, 255);
+        pb = clamp(bb * 1.14 + 10, 0, 255);
+        break;
+      case 'monochrome': {
+        const t = gray / 255;
+        pr = 28 + t * 188;
+        pg = 35 + t * 188;
+        pb = 42 + t * 192;
+        break;
+      }
+      case 'limited': {
+        let best = limitedPalette[0];
+        let bestD = Infinity;
+        for (let i = 0; i < limitedPalette.length; i++) {
+          const p = limitedPalette[i];
+          const dr = br - p[0], dg = bg - p[1], db = bb - p[2];
+          const dist = dr * dr + dg * dg + db * db;
+          if (dist < bestD) { bestD = dist; best = p; }
+        }
+        pr = best[0]; pg = best[1]; pb = best[2];
+        break;
+      }
+      case 'original':
+      default:
+        break;
+    }
+
+    const strength = renderSettings.palette === 'original' ? 0 : renderSettings.paletteStrength;
+    out[0] = Math.round(clamp(blend(br, pr, strength), 0, 255));
+    out[1] = Math.round(clamp(blend(bg, pg, strength), 0, 255));
+    out[2] = Math.round(clamp(blend(bb, pb, strength), 0, 255));
+    return out;
+  }
+
+  function createStrokeStore(capacity) {
+    return {
+      capacity,
+      count: 0,
+      totalPoints: 0,
+      points: new Float32Array(capacity * MAX_STREAM_POINTS * 2),
+      pointCounts: new Uint8Array(capacity),
+      widths: new Float32Array(capacity),
+      rgba: new Uint8Array(capacity * 4)
+    };
+  }
+
+  function recordStroke(store, points, pointCount, width, r, g, b, alphaByte) {
+    const i = store.count;
+    if (i >= store.capacity) return;
+    const base = i * MAX_STREAM_POINTS * 2;
+    const ci = i * 4;
+    const count = clamp(pointCount | 0, 2, MAX_STREAM_POINTS);
+    for (let p = 0; p < count * 2; p++) store.points[base + p] = points[p];
+    store.pointCounts[i] = count;
+    store.widths[i] = width;
+    store.rgba[ci] = r;
+    store.rgba[ci + 1] = g;
+    store.rgba[ci + 2] = b;
+    store.rgba[ci + 3] = alphaByte;
+    store.totalPoints += count;
+    store.count++;
+  }
+
+  function rgbStyle(renderState, r, g, b) {
+    const key = (r << 16) | (g << 8) | b;
+    const cached = renderState.colorCache.get(key);
+    if (cached) return cached;
+    const style = `rgb(${r},${g},${b})`;
+    if (renderState.colorCache.size < 8192) renderState.colorCache.set(key, style);
+    return style;
+  }
+
+  function alignTangent(angle, reference) {
+    while (angle - reference > Math.PI / 2) angle -= Math.PI;
+    while (angle - reference < -Math.PI / 2) angle += Math.PI;
+    return angle;
+  }
+
+  function fieldAngleAt(x, y, reference, renderSettings, rnd) {
+    const w = sourceImage.width;
+    const h = sourceImage.height;
+    const ix = clamp(Math.round(x), 0, w - 1);
+    const iy = clamp(Math.round(y), 0, h - 1);
+    const idx = iy * w + ix;
+    const coherence = directionCoherence[idx] / 255;
+    let angle = coherence >= 0.30 ? strokeDirection[idx] : Math.PI / 4;
+    angle = alignTangent(angle, reference);
+    if (renderSettings.angleQuantize > 0) {
+      angle = Math.round(angle / renderSettings.angleQuantize) * renderSettings.angleQuantize;
+      angle = alignTangent(angle, reference);
+    }
+    const noiseScale = coherence >= 0.30 ? (0.18 + coherence * 0.30) : 0.16;
+    angle += (rnd() - 0.5) * renderSettings.directionNoise * noiseScale;
+    return angle;
+  }
+
+  function buildStrokePath(renderState, candidate, length, out) {
+    const s = renderState.settings;
+    const rnd = renderState.rnd;
+    const flow = clamp(s.flowStrength, 0, 1);
+
+    // Flow = 0 exactly preserves the 5.2 straight-stroke behavior.
+    if (flow <= 0.001) {
+      let angle = candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4;
+      angle += candidate.coherence >= 0.30
+        ? (rnd() - 0.5) * s.directionNoise * (0.55 + candidate.coherence * 0.45)
+        : (rnd() - 0.5) * (0.10 + s.directionNoise * 0.22);
+      if (s.angleQuantize > 0) angle = Math.round(angle / s.angleQuantize) * s.angleQuantize;
+      const half = length * 0.5;
+      out[0] = candidate.x - Math.cos(angle) * half;
+      out[1] = candidate.y - Math.sin(angle) * half;
+      out[2] = candidate.x + Math.cos(angle) * half;
+      out[3] = candidate.y + Math.sin(angle) * half;
+      return 2;
+    }
+
+    // 3-5 short steps create a curved streamline while keeping each stroke
+    // compact enough to remain pencil-like and cheap to export as SVG.
+    const segments = clamp(3 + Math.round(flow * 2), 3, 5);
+    const leftSteps = Math.floor(segments / 2);
+    const rightSteps = segments - leftSteps;
+    const stepLength = length / segments;
+    const back = renderState.backScratch;
+    const fwd = renderState.fwdScratch;
+
+    back[0] = candidate.x; back[1] = candidate.y;
+    fwd[0] = candidate.x; fwd[1] = candidate.y;
+
+    let bx = candidate.x, by = candidate.y;
+    let bAngle = (candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4) + Math.PI;
+    let backCount = 1;
+    for (let i = 0; i < leftSteps; i++) {
+      const local = fieldAngleAt(bx, by, bAngle, s, rnd);
+      bAngle += (local - bAngle) * flow;
+      let nx = bx + Math.cos(bAngle) * stepLength;
+      let ny = by + Math.sin(bAngle) * stepLength;
+      const clampedX = clamp(nx, 0, sourceImage.width - 1);
+      const clampedY = clamp(ny, 0, sourceImage.height - 1);
+      back[backCount * 2] = clampedX;
+      back[backCount * 2 + 1] = clampedY;
+      backCount++;
+      bx = clampedX; by = clampedY;
+      if (clampedX !== nx || clampedY !== ny) break;
+    }
+
+    let fx = candidate.x, fy = candidate.y;
+    let fAngle = candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4;
+    let fwdCount = 1;
+    for (let i = 0; i < rightSteps; i++) {
+      const local = fieldAngleAt(fx, fy, fAngle, s, rnd);
+      fAngle += (local - fAngle) * flow;
+      let nx = fx + Math.cos(fAngle) * stepLength;
+      let ny = fy + Math.sin(fAngle) * stepLength;
+      const clampedX = clamp(nx, 0, sourceImage.width - 1);
+      const clampedY = clamp(ny, 0, sourceImage.height - 1);
+      fwd[fwdCount * 2] = clampedX;
+      fwd[fwdCount * 2 + 1] = clampedY;
+      fwdCount++;
+      fx = clampedX; fy = clampedY;
+      if (clampedX !== nx || clampedY !== ny) break;
+    }
+
+    let pointCount = 0;
+    for (let i = backCount - 1; i >= 1; i--) {
+      out[pointCount * 2] = back[i * 2];
+      out[pointCount * 2 + 1] = back[i * 2 + 1];
+      pointCount++;
+    }
+    out[pointCount * 2] = candidate.x;
+    out[pointCount * 2 + 1] = candidate.y;
+    pointCount++;
+    for (let i = 1; i < fwdCount && pointCount < MAX_STREAM_POINTS; i++) {
+      out[pointCount * 2] = fwd[i * 2];
+      out[pointCount * 2 + 1] = fwd[i * 2 + 1];
+      pointCount++;
+    }
+    return Math.max(2, pointCount);
+  }
+
+  function depositPathCoverage(renderState, points, pointCount, alpha, weight) {
+    const gw = renderState.coverageWidth;
+    const gh = renderState.coverageHeight;
+    const coverage = renderState.coverage;
+    const amount = alpha * Math.min(1, Math.max(0.15, weight)) / COVERAGE_CELL;
+    let lastCell = -1;
+
+    for (let p = 0; p < pointCount - 1; p++) {
+      const x1 = points[p * 2], y1 = points[p * 2 + 1];
+      const x2 = points[(p + 1) * 2], y2 = points[(p + 1) * 2 + 1];
+      const dx = x2 - x1, dy = y2 - y1;
+      const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / COVERAGE_CELL));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx = Math.floor((x1 + dx * t) / COVERAGE_CELL);
+        const cy = Math.floor((y1 + dy * t) / COVERAGE_CELL);
+        if (cx < 0 || cy < 0 || cx >= gw || cy >= gh) continue;
+        const cell = cy * gw + cx;
+        if (cell === lastCell) continue;
+        coverage[cell] += amount;
+        lastCell = cell;
+      }
+    }
+  }
+
+  function drawOneStroke(renderState) {
+    const s = renderState.settings;
+    const rnd = renderState.rnd;
+    const c = strokeCandidate(rnd, s, renderState, renderState.candidate);
+    const importance = c.importance;
+    const len = s.strokeLength * (0.40 + importance * 0.95) * (0.72 + rnd() * 0.56);
+    const weight = Math.max(0.12, s.strokeWeight * (0.34 + importance * 0.88) * renderState.previewWeightMultiplier);
+    const alpha = clamp(
+      s.opacity * renderState.previewOpacityMultiplier * (0.28 + importance * 0.83),
+      0.02,
+      1
+    );
+    const alphaByte = Math.round(alpha * 255);
+
+    const path = renderState.pathScratch;
+    const pointCount = buildStrokePath(renderState, c, len, path);
+
+    let r = 12, g = 12, b = 12;
+    if (s.mode !== 'black') {
+      const idx = (c.y * sourceImage.width + c.x) * 4;
+      const d = sourcePixels.data;
+      applyPaletteTo(renderState.colorScratch, d[idx], d[idx + 1], d[idx + 2], s);
+      r = renderState.colorScratch[0];
+      g = renderState.colorScratch[1];
+      b = renderState.colorScratch[2];
+      ctx.strokeStyle = rgbStyle(renderState, r, g, b);
+    }
+
+    ctx.globalAlpha = alphaByte / 255;
+    ctx.lineWidth = weight;
+    ctx.beginPath();
+    ctx.moveTo(path[0], path[1]);
+    for (let p = 1; p < pointCount; p++) ctx.lineTo(path[p * 2], path[p * 2 + 1]);
+    ctx.stroke();
+
+    depositPathCoverage(renderState, path, pointCount, alphaByte / 255, weight);
+    recordStroke(renderState.strokes, path, pointCount, weight, r, g, b, alphaByte);
+  }
+
+  function schedulePreview() {
+    if (!sourceImage || loadingImage) return;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      previewTimer = 0;
+      startRender('preview');
+    }, PREVIEW_DEBOUNCE_MS);
+  }
+
+  function stopRender(showStatus = true) {
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    renderSerial++;
+    if (activeRender) {
+      const pct = activeRender.target ? activeRender.drawn / activeRender.target * 100 : 0;
+      const seconds = (performance.now() - activeRender.startedAt) / 1000;
+      if (showStatus) setStatus(`Cancelled at ${formatCount(activeRender.drawn)} lines. Previous completed export is still available.`, pct);
+      setStats(activeRender.drawn, pct, seconds);
+    }
+    activeRender = null;
+    ctx.globalAlpha = 1;
+    refreshButtons();
+  }
+
+  function startRender(kind) {
+    if (!sourceImage || loadingImage) return;
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+
+    const serial = ++renderSerial;
+    const isPreview = kind === 'preview';
+    const renderSettings = { ...settings };
+    const target = isPreview ? Math.min(renderSettings.lineCount, PREVIEW_MAX_LINES) : renderSettings.lineCount;
+    const seed = normalizeSeed(renderSettings.seed);
+
+    let previewOpacityMultiplier = 1;
+    let previewWeightMultiplier = 1;
+    if (isPreview && target > 0 && renderSettings.lineCount > target) {
+      const ratio = renderSettings.lineCount / target;
+      const baseOpacity = clamp(renderSettings.opacity, 0.001, 0.999);
+      const equivalentOpacity = 1 - Math.pow(1 - baseOpacity, ratio);
+      previewOpacityMultiplier = clamp(equivalentOpacity / baseOpacity, 1, 3.6);
+      previewWeightMultiplier = clamp(Math.pow(ratio, 0.06), 1, 1.25);
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (renderSettings.mode === 'black') ctx.strokeStyle = '#0c0c0c';
+
+    const coverageWidth = Math.ceil(canvas.width / COVERAGE_CELL);
+    const coverageHeight = Math.ceil(canvas.height / COVERAGE_CELL);
+
+    activeRender = {
+      serial,
+      kind,
+      target,
+      drawn: 0,
+      startedAt: performance.now(),
+      settings: renderSettings,
+      rnd: mulberry32(seed),
+      strokes: createStrokeStore(target),
+      candidate: {
+        x: 0, y: 0, darkness: 0, targetInk: 0, remainingNeed: 0, edge: 0,
+        cellIndex: 0, direction: 0, coherence: 0, importance: 0, score: 0
+      },
+      coverageWidth,
+      coverageHeight,
+      coverage: new Float32Array(coverageWidth * coverageHeight),
+      colorScratch: new Uint16Array(3),
+      colorCache: new Map(),
+      pathScratch: new Float32Array(MAX_STREAM_POINTS * 2),
+      backScratch: new Float32Array(MAX_STREAM_POINTS * 2),
+      fwdScratch: new Float32Array(MAX_STREAM_POINTS * 2),
+      previewOpacityMultiplier,
+      previewWeightMultiplier
+    };
+
+    refreshButtons();
+    const label = isPreview ? 'Preview' : 'High quality';
+    setStatus(`${label}: rendering ${formatCount(target)} lines...`, 0);
+    setStats(0, 0, 0);
+    requestAnimationFrame(() => renderFrame(serial));
+  }
+
+  function renderFrame(serial) {
+    const rs = activeRender;
+    if (!rs || rs.serial !== serial || serial !== renderSerial) return;
+
+    const frameStart = performance.now();
+    let frameLines = 0;
+    const remaining = rs.target - rs.drawn;
+    const softCap = Math.min(remaining, 9000);
+
+    while (frameLines < softCap && rs.drawn < rs.target) {
+      drawOneStroke(rs);
+      rs.drawn++;
+      frameLines++;
+      if ((frameLines & 31) === 0 && performance.now() - frameStart >= FRAME_BUDGET_MS) break;
+    }
+
+    const pct = rs.target ? rs.drawn / rs.target * 100 : 100;
+    const seconds = (performance.now() - rs.startedAt) / 1000;
+    const label = rs.kind === 'preview' ? 'Preview' : 'High quality';
+    setStatus(`${label}: ${formatCount(rs.drawn)} / ${formatCount(rs.target)} lines`, pct);
+    setStats(rs.drawn, pct, seconds);
+
+    if (rs.drawn >= rs.target) {
+      ctx.globalAlpha = 1;
+      const meta = {
+        kind: rs.kind,
+        width: canvas.width,
+        height: canvas.height,
+        settings: { ...rs.settings },
+        elapsed: seconds
+      };
+      displayStrokeStore = rs.strokes;
+      displayRenderMeta = meta;
+      if (rs.kind === 'high') {
+        highQualityStrokeStore = rs.strokes;
+        highQualityRenderMeta = meta;
+        highQualityStale = false;
+      }
+      activeRender = null;
+      setStatus(`${label} done - ${formatCount(rs.drawn)} strokes.`, 100);
+      setStats(rs.drawn, 100, seconds);
+      refreshButtons();
+      return;
+    }
+
+    requestAnimationFrame(() => renderFrame(serial));
+  }
+
+  function filenameStem(meta) {
+    if (!meta) return 'line-art';
+    const suffix = meta.kind === 'preview' ? 'preview' : meta.settings.lineCount;
+    return `line-art-${suffix}-seed-${meta.settings.seed}`;
+  }
+
+  function triggerDownload(blob, filename) {
+    if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
+    lastDownloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = lastDownloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function replayStoreFrame(drawCtx, store, state, deadlineMs) {
+    const points = store.points;
+    const counts = store.pointCounts;
+    const widths = store.widths;
+    const rgba = store.rgba;
+    let processed = 0;
+    while (state.index < store.count && processed < 7000) {
+      const i = state.index;
+      const base = i * MAX_STREAM_POINTS * 2;
+      const ci = i * 4;
+      const r = rgba[ci], gg = rgba[ci + 1], b = rgba[ci + 2];
+      const key = (r << 16) | (gg << 8) | b;
+      let style = state.colorCache.get(key);
+      if (!style) {
+        style = `rgb(${r},${gg},${b})`;
+        if (state.colorCache.size < 8192) state.colorCache.set(key, style);
+      }
+      drawCtx.strokeStyle = style;
+      drawCtx.globalAlpha = rgba[ci + 3] / 255;
+      drawCtx.lineWidth = widths[i];
+      drawCtx.beginPath();
+      drawCtx.moveTo(points[base], points[base + 1]);
+      const count = counts[i];
+      for (let p = 1; p < count; p++) drawCtx.lineTo(points[base + p * 2], points[base + p * 2 + 1]);
+      drawCtx.stroke();
+      state.index++;
+      processed++;
+      if ((processed & 31) === 0 && performance.now() >= deadlineMs) break;
+    }
+  }
+
+  function savePng() {
+    if (activeRender || svgExporting || pngExporting) return;
+    const target = getExportTarget();
+    if (!target) return;
+
+    const store = target.store;
+    const meta = target.meta;
+    const scale = clamp(Number(pngScaleSelect.value) || 1, 1, 4);
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(meta.width * scale));
+    out.height = Math.max(1, Math.round(meta.height * scale));
+    const outCtx = out.getContext('2d', { alpha: false });
+    outCtx.fillStyle = '#ffffff';
+    outCtx.fillRect(0, 0, out.width, out.height);
+    outCtx.scale(scale, scale);
+    outCtx.lineCap = 'round';
+    outCtx.lineJoin = 'round';
+
+    const state = { index: 0, colorCache: new Map() };
+    const started = performance.now();
+    const stem = filenameStem(meta);
+    pngExporting = true;
+    refreshButtons();
+    setStatus(`Preparing ${scale}x PNG - 0 / ${formatCount(store.count)} strokes`, 0);
+    setStats(0, 0, 0);
+
+    function frame() {
+      const deadline = performance.now() + FRAME_BUDGET_MS;
+      replayStoreFrame(outCtx, store, state, deadline);
+      const pct = store.count ? state.index / store.count * 100 : 100;
+      const seconds = (performance.now() - started) / 1000;
+      setStatus(`Preparing ${scale}x PNG - ${formatCount(state.index)} / ${formatCount(store.count)} strokes`, pct);
+      setStats(state.index, pct, seconds);
+
+      if (state.index < store.count) {
+        requestAnimationFrame(frame);
+        return;
+      }
+
+      outCtx.globalAlpha = 1;
+      setStatus(`Encoding ${scale}x PNG...`, 100);
+      out.toBlob(blob => {
+        if (blob) triggerDownload(blob, `${stem}-${scale}x.png`);
+        out.width = 0;
+        out.height = 0;
+        pngExporting = false;
+        const totalSeconds = (performance.now() - started) / 1000;
+        setStatus(blob ? `PNG ready - ${scale}x export complete.` : 'PNG export failed.', 100);
+        setStats(store.count, 100, totalSeconds);
+        refreshButtons();
+      }, 'image/png');
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  function compactNumber(v, digits = 1) {
+    const n = Number(v.toFixed(digits));
+    return Object.is(n, -0) ? '0' : String(n);
+  }
+
+  function quantizeByte(v, step) {
+    return clamp(Math.round(v / step) * step, 0, 255);
+  }
+
+  function saveSvg() {
+    if (activeRender || svgExporting || pngExporting) return;
+    const target = getExportTarget();
+    if (!target) return;
+
+    const store = target.store;
+    const meta = target.meta;
+    const count = store.count;
+    const estimate = estimateSvgBytes(store, meta);
+
+    if (count > SVG_WARNING_LINES) {
+      const ok = window.confirm(
+        `This SVG contains ${formatCount(count)} editable paths and is estimated around ${formatBytes(estimate)}. ` +
+        'Large vector files can be slow or unstable in Illustrator, Inkscape, and browsers. Continue?'
+      );
+      if (!ok) return;
+    }
+
+    const points = store.points;
+    const counts = store.pointCounts;
+    const widths = store.widths;
+    const rgba = store.rgba;
+    const styleMap = new Map();
+    const styleRules = [];
+    const pathChunks = [];
+    let chunk = '';
+    let index = 0;
+    const exportStart = performance.now();
+    const stem = filenameStem(meta);
+
+    svgExporting = true;
+    refreshButtons();
+    setStatus(`Preparing SVG - 0 / ${formatCount(count)} strokes`, 0);
+    setStats(0, 0, 0);
+
+    function classFor(i) {
+      const ci = i * 4;
+      const w = Math.max(0.1, Math.round(widths[i] * 10) / 10);
+      const a = Math.max(8, quantizeByte(rgba[ci + 3], 8));
+      let r = 12, gg = 12, b = 12;
+      if (meta.settings.mode !== 'black') {
+        r = quantizeByte(rgba[ci], 8);
+        gg = quantizeByte(rgba[ci + 1], 8);
+        b = quantizeByte(rgba[ci + 2], 8);
+      }
+      const key = `${r},${gg},${b},${a},${w}`;
+      let cls = styleMap.get(key);
+      if (!cls) {
+        cls = 's' + styleMap.size.toString(36);
+        styleMap.set(key, cls);
+        styleRules.push(`.${cls}{stroke:rgb(${r},${gg},${b});stroke-width:${compactNumber(w, 1)};stroke-opacity:${compactNumber(a / 255, 3)}}`);
+      }
+      return cls;
+    }
+
+    function exportFrame() {
+      const frameStart = performance.now();
+      let processed = 0;
+
+      while (index < count && processed < 7000) {
+        const base = index * MAX_STREAM_POINTS * 2;
+        const cls = classFor(index);
+        const pointCount = counts[index];
+        let d = `M${compactNumber(points[base])} ${compactNumber(points[base + 1])}`;
+        for (let p = 1; p < pointCount; p++) {
+          d += `L${compactNumber(points[base + p * 2])} ${compactNumber(points[base + p * 2 + 1])}`;
+        }
+        chunk += `<path class="${cls}" d="${d}"/>\n`;
+        index++;
+        processed++;
+
+        if (chunk.length > 65536) {
+          pathChunks.push(chunk);
+          chunk = '';
+        }
+        if ((processed & 31) === 0 && performance.now() - frameStart >= FRAME_BUDGET_MS) break;
+      }
+
+      const pct = count ? index / count * 100 : 100;
+      const seconds = (performance.now() - exportStart) / 1000;
+      setStatus(`Preparing SVG - ${formatCount(index)} / ${formatCount(count)} strokes`, pct);
+      setStats(index, pct, seconds);
+
+      if (index < count) {
+        requestAnimationFrame(exportFrame);
+        return;
+      }
+
+      if (chunk) pathChunks.push(chunk);
+      const header =
+        `<?xml version="1.0" encoding="UTF-8"?>\n` +
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${meta.width}" height="${meta.height}" viewBox="0 0 ${meta.width} ${meta.height}">\n` +
+        `<rect width="${meta.width}" height="${meta.height}" fill="#ffffff"/>\n` +
+        `<style>${styleRules.join('')}</style>\n` +
+        `<g fill="none" stroke-linecap="round" stroke-linejoin="round">\n`;
+      const footer = '</g>\n</svg>\n';
+      const blob = new Blob([header, ...pathChunks, footer], { type: 'image/svg+xml;charset=utf-8' });
+      triggerDownload(blob, `${stem}.svg`);
+      svgExporting = false;
+      const totalSeconds = (performance.now() - exportStart) / 1000;
+      setStatus(`SVG ready - ${formatCount(count)} editable paths, ${formatBytes(blob.size)}.`, 100);
+      setStats(count, 100, totalSeconds);
+      refreshButtons();
+    }
+
+    requestAnimationFrame(exportFrame);
+  }
+
+  buildSliders();
+  applyPreset('finePencil', false);
+  settings.seed = normalizeSeed(seedInput.value);
+  syncUI();
+  refreshButtons();
+
+  imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
+  presetSelect.addEventListener('change', () => {
+    if (presetSelect.value !== 'custom') applyPreset(presetSelect.value);
+  });
+
+  modeControl.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-mode]');
+    if (btn) setMode(btn.dataset.mode);
+  });
+
+  paletteSelect.addEventListener('change', () => {
+    settings.palette = paletteSelect.value;
+    syncPaletteAvailability();
+    markSettingsChanged(true);
+    schedulePreview();
+  });
+
+  lineCountRange.addEventListener('input', () => setLineCount(lineCountRange.value));
+  lineCountNumber.addEventListener('change', () => setLineCount(lineCountNumber.value));
+
+  document.querySelector('.quick-counts').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-count]');
+    if (btn) setLineCount(Number(btn.dataset.count));
+  });
+
+  seedInput.addEventListener('change', () => {
+    settings.seed = normalizeSeed(seedInput.value);
+    seedInput.value = settings.seed;
+    markSettingsChanged(false);
+    schedulePreview();
+  });
+
+  variationBtn.addEventListener('click', () => {
+    settings.seed = randomSeed();
+    seedInput.value = settings.seed;
+    markSettingsChanged(false);
+    schedulePreview();
+  });
+
+  renderBtn.addEventListener('click', () => startRender('high'));
+  cancelBtn.addEventListener('click', () => stopRender(true));
+  saveBtn.addEventListener('click', savePng);
+  saveSvgBtn.addEventListener('click', saveSvg);
+
+  window.addEventListener('pagehide', () => {
+    if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
+    if (sourceCanvas) {
+      sourceCanvas.width = 0;
+      sourceCanvas.height = 0;
+    }
+  });
+})();
+
+  </script>
+</body>
+</html>
