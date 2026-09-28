@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase11.5" />
+  <meta name="application-version" content="5.3-phase12" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -107,7 +107,34 @@
 
         <div class="source-actions">
           <button class="secondary" id="scanBtn" type="button" disabled>Scan LiDAR</button>
+          <button class="secondary" id="scanMultiBtn" type="button" disabled>Scan 5 Views</button>
         </div>
+
+        <div class="control-grid">
+          <label class="control-field" for="multiViewMode">
+            <span>Multi-view mode</span>
+            <select id="multiViewMode" disabled>
+              <option value="current" selected>Current View</option>
+              <option value="combined">Combined Views</option>
+            </select>
+          </label>
+          <label class="control-field" for="multiViewCurrent">
+            <span>Current view</span>
+            <select id="multiViewCurrent" disabled>
+              <option value="front">Front</option>
+              <option value="back">Back</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+              <option value="top">Top</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="checkbox-row" for="multiViewDebugColors">
+          <input id="multiViewDebugColors" type="checkbox" disabled />
+          <span>Per-view debug coloring</span>
+        </label>
+        <div class="source-help" id="multiViewSummary">No fixed multi-view scan loaded.</div>
       </div>
 
       <div class="section lidar-section" id="lidarArtControls">
@@ -358,6 +385,7 @@
   </div>
 
   <script src="analysis_maps.js"></script>
+  <script src="multiview.js"></script>
   <script src="random_field.js"></script>
   <script src="procedural_flow.js"></script>
   <script src="math_fields.js"></script>
