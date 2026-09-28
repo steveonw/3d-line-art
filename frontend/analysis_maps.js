@@ -153,7 +153,66 @@
     };
   }
 
+
+  function buildLidarAnalysisMaps(shadedData, depthData, edgeData, w, h) {
+    const base = buildAnalysisMaps(shadedData, w, h);
+    const count = w * h;
+    const edgeMap = new Uint8Array(count);
+    const direction = new Float32Array(base.strokeDirection);
+    const coherence = new Uint8Array(base.directionCoherence);
+    const depth = new Float32Array(count);
+
+    const dd = depthData.data;
+    const ed = edgeData.data;
+    for (let p = 0, i = 0; p < count; p++, i += 4) {
+      const rawDepth = dd[i];
+      depth[p] = rawDepth > 0 ? (rawDepth - 1) / 254 : 0;
+      edgeMap[p] = ed[i];
+    }
+
+    function depthAt(x, y, fallback) {
+      if (x < 0 || y < 0 || x >= w || y >= h) return fallback;
+      const value = depth[y * w + x];
+      return value > 0 ? value : fallback;
+    }
+
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const idx = row + x;
+        const center = depth[idx];
+        if (center <= 0) continue;
+
+        const left = depthAt(x - 1, y, center);
+        const right = depthAt(x + 1, y, center);
+        const up = depthAt(x, y - 1, center);
+        const down = depthAt(x, y + 1, center);
+        const gx = right - left;
+        const gy = down - up;
+        const magnitude = Math.hypot(gx, gy);
+
+        if (magnitude > 1e-5) {
+          direction[idx] = Math.atan2(gy, gx) + Math.PI / 2;
+          const depthCoherence = clamp(magnitude * 20, 0, 1);
+          const imageCoherence = coherence[idx] / 255;
+          coherence[idx] = Math.round(
+            Math.max(depthCoherence, imageCoherence * 0.45) * 255
+          );
+        }
+      }
+    }
+
+    return {
+      luminance: base.luminance,
+      edgeStrength: edgeMap,
+      colorInkNeed: base.colorInkNeed,
+      strokeDirection: direction,
+      directionCoherence: coherence
+    };
+  }
+
   window.LineArtAnalysis = Object.freeze({
-    buildAnalysisMaps
+    buildAnalysisMaps,
+    buildLidarAnalysisMaps
   });
 })();
