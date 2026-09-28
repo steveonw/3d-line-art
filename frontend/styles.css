@@ -315,3 +315,73 @@
   font-size: 11px;
   line-height: 1.4;
 }
+
+    .lidar-section {
+      background: linear-gradient(180deg, rgba(0,0,0,0.018), transparent);
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .control-field {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+
+    .control-field > span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .control-field select {
+      min-height: 34px;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+
+    .compact-slider {
+      margin-top: 10px;
+    }
+
+    .compact-slider .label-row {
+      margin-bottom: 2px;
+    }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: start;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .check-row input {
+      margin-top: 2px;
+    }
+
+    .check-row strong {
+      display: block;
+      font-size: 11px;
+    }
+
+    .check-row small {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 400;
+      line-height: 1.35;
+    }

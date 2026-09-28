@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase3';
+  const BUILD_VERSION = '5.3-phase4';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -28,7 +28,20 @@
     angleQuantize: 0,
     sampleBias: 0.70,
     flowStrength: 0.65,
-    seed: 2841
+    seed: 2841,
+    lidar: {
+      scanResolution: '320x240',
+      raysPerPixel: 2,
+      smartSampling: false,
+      cameraYaw: 45,
+      cameraElevation: 20,
+      cameraDistance: 3.0,
+      cameraFov: 55,
+      densitySource: 'tone',
+      directionSource: 'mixed',
+      geometryEdgeStrength: 1.0,
+      depthInfluence: 0.75
+    }
   };
 
   const presets = {
@@ -61,6 +74,36 @@
       mode: 'color', palette: 'limited', lineCount: 105000, strokeLength: 15,
       strokeWeight: 1.15, detail: 1.15, opacity: 0.36, colorStrength: 1.35,
       paletteStrength: 0.9, directionNoise: 1.15, angleQuantize: 0, sampleBias: 0.55, flowStrength: 0.72
+    },
+    technicalPencil: {
+      mode: 'black', palette: 'monochrome', lineCount: 85000, strokeLength: 5.5,
+      strokeWeight: 0.68, detail: 2.8, opacity: 0.46, colorStrength: 1.0,
+      paletteStrength: 1.0, directionNoise: 0.10, angleQuantize: 0, sampleBias: 0.82, flowStrength: 0.82,
+      lidar: { densitySource: 'tone', directionSource: 'mixed', geometryEdgeStrength: 1.55, depthInfluence: 0.72 }
+    },
+    depthContours: {
+      mode: 'black', palette: 'monochrome', lineCount: 95000, strokeLength: 9,
+      strokeWeight: 0.65, detail: 1.7, opacity: 0.36, colorStrength: 1.0,
+      paletteStrength: 1.0, directionNoise: 0.05, angleQuantize: 0, sampleBias: 0.84, flowStrength: 0.96,
+      lidar: { densitySource: 'depthChange', directionSource: 'depthTangent', geometryEdgeStrength: 0.45, depthInfluence: 1.0 }
+    },
+    sensorSketch: {
+      mode: 'black', palette: 'muted', lineCount: 70000, strokeLength: 7.5,
+      strokeWeight: 0.82, detail: 2.0, opacity: 0.38, colorStrength: 1.0,
+      paletteStrength: 0.75, directionNoise: 0.28, angleQuantize: 0, sampleBias: 0.72, flowStrength: 0.78,
+      lidar: { densitySource: 'confidence', directionSource: 'mixed', geometryEdgeStrength: 1.05, depthInfluence: 0.68 }
+    },
+    architecturalScan: {
+      mode: 'black', palette: 'monochrome', lineCount: 72000, strokeLength: 11,
+      strokeWeight: 0.80, detail: 3.0, opacity: 0.50, colorStrength: 1.0,
+      paletteStrength: 1.0, directionNoise: 0.06, angleQuantize: Math.PI / 4, sampleBias: 0.84, flowStrength: 0.28,
+      lidar: { densitySource: 'geometryEdge', directionSource: 'mixed', geometryEdgeStrength: 1.85, depthInfluence: 0.38 }
+    },
+    uncertainScribble: {
+      mode: 'black', palette: 'muted', lineCount: 110000, strokeLength: 6.5,
+      strokeWeight: 0.92, detail: 1.65, opacity: 0.27, colorStrength: 1.0,
+      paletteStrength: 0.65, directionNoise: 0.92, angleQuantize: 0, sampleBias: 0.60, flowStrength: 0.56,
+      lidar: { densitySource: 'tone', directionSource: 'mixed', geometryEdgeStrength: 0.85, depthInfluence: 0.48 }
     }
   };
 
@@ -80,6 +123,24 @@
   const modelInput = document.getElementById('modelInput');
   const scanBtn = document.getElementById('scanBtn');
   const modelStatus = document.getElementById('modelStatus');
+  const scanSummary = document.getElementById('scanSummary');
+  const scanResolution = document.getElementById('scanResolution');
+  const raysPerPixel = document.getElementById('raysPerPixel');
+  const smartSampling = document.getElementById('smartSampling');
+  const cameraYaw = document.getElementById('cameraYaw');
+  const cameraYawValue = document.getElementById('cameraYawValue');
+  const cameraElevation = document.getElementById('cameraElevation');
+  const cameraElevationValue = document.getElementById('cameraElevationValue');
+  const cameraDistance = document.getElementById('cameraDistance');
+  const cameraDistanceValue = document.getElementById('cameraDistanceValue');
+  const cameraFov = document.getElementById('cameraFov');
+  const cameraFovValue = document.getElementById('cameraFovValue');
+  const densitySource = document.getElementById('densitySource');
+  const directionSource = document.getElementById('directionSource');
+  const geometryEdgeStrength = document.getElementById('geometryEdgeStrength');
+  const geometryEdgeStrengthValue = document.getElementById('geometryEdgeStrengthValue');
+  const depthInfluence = document.getElementById('depthInfluence');
+  const depthInfluenceValue = document.getElementById('depthInfluenceValue');
   const presetSelect = document.getElementById('preset');
   const modeControl = document.getElementById('modeControl');
   const paletteSelect = document.getElementById('palette');
@@ -119,6 +180,9 @@
   let modelLoading = false;
   let scanRunning = false;
   let sceneLoaded = false;
+  let sourceKind = 'none';
+  let lidarSourceMaps = null;
+  let scanDirty = false;
   let activeRender = null;
 
   let displayStrokeStore = null;
@@ -177,6 +241,97 @@
       return a[0] || 1;
     }
     return ((Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0) || 1;
+  }
+
+
+  const scanControlEls = [
+    scanResolution, raysPerPixel, smartSampling,
+    cameraYaw, cameraElevation, cameraDistance, cameraFov
+  ];
+  const lidarArtControlEls = [
+    densitySource, directionSource, geometryEdgeStrength, depthInfluence
+  ];
+
+  function syncLidarControls() {
+    const s = settings.lidar;
+    scanResolution.value = s.scanResolution;
+    raysPerPixel.value = String(s.raysPerPixel);
+    smartSampling.checked = !!s.smartSampling;
+    cameraYaw.value = s.cameraYaw;
+    cameraElevation.value = s.cameraElevation;
+    cameraDistance.value = s.cameraDistance;
+    cameraFov.value = s.cameraFov;
+    densitySource.value = s.densitySource;
+    directionSource.value = s.directionSource;
+    geometryEdgeStrength.value = s.geometryEdgeStrength;
+    depthInfluence.value = s.depthInfluence;
+    cameraYawValue.textContent = `${Math.round(s.cameraYaw)}°`;
+    cameraElevationValue.textContent = `${Math.round(s.cameraElevation)}°`;
+    cameraDistanceValue.textContent = `${Number(s.cameraDistance).toFixed(1)}×`;
+    cameraFovValue.textContent = `${Math.round(s.cameraFov)}°`;
+    geometryEdgeStrengthValue.textContent = `${Math.round(s.geometryEdgeStrength * 100)}%`;
+    depthInfluenceValue.textContent = `${Math.round(s.depthInfluence * 100)}%`;
+  }
+
+  function readScanControls() {
+    const [width, height] = settings.lidar.scanResolution.split('x').map(Number);
+    return {
+      width,
+      height,
+      rays_per_pixel: settings.lidar.raysPerPixel,
+      smart_sampling: settings.lidar.smartSampling,
+      yaw_deg: settings.lidar.cameraYaw,
+      elevation_deg: settings.lidar.cameraElevation,
+      distance_scale: settings.lidar.cameraDistance,
+      fov_deg: settings.lidar.cameraFov,
+      seed: 42
+    };
+  }
+
+  function applyRendererMaps(maps) {
+    luminance = maps.luminance;
+    edgeStrength = maps.edgeStrength;
+    colorInkNeed = maps.colorInkNeed;
+    strokeDirection = maps.strokeDirection;
+    directionCoherence = maps.directionCoherence;
+    renderer.setSource({
+      sourceImage,
+      sourcePixels,
+      luminance,
+      edgeStrength,
+      colorInkNeed,
+      strokeDirection,
+      directionCoherence
+    });
+  }
+
+  function composeCurrentLidarMaps() {
+    if (!lidarSourceMaps) return null;
+    return LineArtAnalysis.composeLidarAnalysisMaps(lidarSourceMaps, {
+      densitySource: settings.lidar.densitySource,
+      directionSource: settings.lidar.directionSource,
+      geometryEdgeStrength: settings.lidar.geometryEdgeStrength,
+      depthInfluence: settings.lidar.depthInfluence
+    });
+  }
+
+  function recomposeLidarSource({ preview = true, markPreset = true } = {}) {
+    if (sourceKind !== 'lidar' || !lidarSourceMaps || !sourceImage) return;
+    const maps = composeCurrentLidarMaps();
+    applyRendererMaps(maps);
+    markSettingsChanged(markPreset);
+    if (preview) schedulePreview();
+  }
+
+  function markScanControlsChanged() {
+    scanDirty = true;
+    scanSummary.textContent = sceneLoaded ? 'settings changed' : 'single view';
+    scanBtn.textContent = 'Rescan LiDAR';
+  }
+
+  function updateLidarArtControlAvailability(locked = false) {
+    const available = sourceKind === 'lidar' && !!lidarSourceMaps && !locked;
+    lidarArtControlEls.forEach(el => { el.disabled = !available; });
   }
 
   function markSettingsChanged(markPreset = true) {
@@ -241,16 +396,24 @@
     lineCountDisplay.textContent = formatCount(settings.lineCount);
     seedInput.value = settings.seed;
     for (const def of sliderDefs) updateSliderValue(def);
+    syncLidarControls();
     syncModeButtons();
     syncPaletteAvailability();
   }
 
   function applyPreset(name, preview = true) {
-    if (!presets[name]) return;
-    Object.assign(settings, presets[name]);
+    const preset = presets[name];
+    if (!preset) return;
+    const { lidar, ...art } = preset;
+    Object.assign(settings, art);
+    if (lidar) Object.assign(settings.lidar, lidar);
     settings.preset = name;
     if (highQualityStrokeStore) highQualityStale = true;
     syncUI();
+    if (sourceKind === 'lidar' && lidarSourceMaps) {
+      const maps = composeCurrentLidarMaps();
+      applyRendererMaps(maps);
+    }
     updateExportNote();
     if (preview) schedulePreview();
   }
@@ -338,6 +501,7 @@
       const el = document.getElementById(def.key);
       if (el) el.disabled = locked;
     });
+    updateLidarArtControlAvailability(locked);
     if (locked) paletteSelect.disabled = true;
     else syncPaletteAvailability();
   }
@@ -346,9 +510,13 @@
     const active = !!activeRender;
     const highActive = activeRender?.kind === 'high';
     const exportBusy = exporter.isBusy();
-    setHighQualityControlsLocked(highActive || exportBusy);
-    imageInput.disabled = highActive || exportBusy || scanRunning;
-    modelInput.disabled = highActive || exportBusy || modelLoading || scanRunning;
+    const uiLocked = highActive || exportBusy || scanRunning;
+    setHighQualityControlsLocked(uiLocked);
+    imageInput.disabled = uiLocked;
+    modelInput.disabled = uiLocked || modelLoading;
+    scanControlEls.forEach(el => {
+      el.disabled = !sceneLoaded || modelLoading || scanRunning || highActive || exportBusy;
+    });
     scanBtn.disabled = !sceneLoaded || modelLoading || scanRunning || active || exportBusy;
     renderBtn.disabled = !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
     cancelBtn.disabled = !active;
@@ -366,7 +534,7 @@
     }
   }
 
-  function installSource(newSourceCanvas, newPixels, maps, w, h, readyMessage) {
+  function installSource(newSourceCanvas, newPixels, maps, w, h, readyMessage, kind = 'image') {
     if (sourceCanvas && sourceCanvas !== newSourceCanvas) {
       sourceCanvas.width = 0;
       sourceCanvas.height = 0;
@@ -374,22 +542,10 @@
 
     sourceCanvas = newSourceCanvas;
     sourcePixels = newPixels;
-    luminance = maps.luminance;
-    edgeStrength = maps.edgeStrength;
-    colorInkNeed = maps.colorInkNeed;
-    strokeDirection = maps.strokeDirection;
-    directionCoherence = maps.directionCoherence;
     sourceImage = { width: w, height: h };
-
-    renderer.setSource({
-      sourceImage,
-      sourcePixels,
-      luminance,
-      edgeStrength,
-      colorInkNeed,
-      strokeDirection,
-      directionCoherence
-    });
+    sourceKind = kind;
+    if (kind !== 'lidar') lidarSourceMaps = null;
+    applyRendererMaps(maps);
 
     displayStrokeStore = null;
     displayRenderMeta = null;
@@ -410,6 +566,7 @@
     canvasShell.hidden = false;
     loadingImage = false;
     scanRunning = false;
+    updateLidarArtControlAvailability(false);
     refreshButtons();
     setStatus(readyMessage, 0);
     startRender('preview');
@@ -467,7 +624,8 @@
         maps,
         w,
         h,
-        `Ready - ${w} x ${h}px. Building direction-aware preview...`
+        `Ready - ${w} x ${h}px. Building direction-aware preview...`,
+        'image'
       );
     } catch (error) {
       bitmap?.close?.();
@@ -500,9 +658,12 @@
       const result = await LidarClient.uploadScene(file);
       const scene = result.scene;
       sceneLoaded = true;
+      scanDirty = true;
+      scanBtn.textContent = 'Scan LiDAR';
+      scanSummary.textContent = 'ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
-      setStatus('3D model loaded. Run LiDAR scan to build drawing maps.', 0);
+      setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
     } catch (error) {
       console.error(error);
       sceneLoaded = false;
@@ -530,18 +691,14 @@
 
     let shadedCanvas = null;
     try {
-      const response = await LidarClient.scan({
-        width: 320,
-        height: 240,
-        rays_per_pixel: 2,
-        seed: 42
-      });
+      const options = readScanControls();
+      const response = await LidarClient.scan(options);
       const scan = response.scan;
-      setStatus('Loading LiDAR depth and geometry maps...', 0);
+      setStatus('Loading LiDAR depth, edge, variance, and confidence maps...', 0);
       const images = await LidarClient.fetchScanMaps(scan);
 
       if (serial !== loadSerial) {
-        for (const item of [images.shaded, images.depth, images.edge]) {
+        for (const item of Object.values(images)) {
           item.canvas.width = 0;
           item.canvas.height = 0;
         }
@@ -549,21 +706,30 @@
       }
 
       shadedCanvas = images.shaded.canvas;
-      const maps = LineArtAnalysis.buildLidarAnalysisMaps(
+      lidarSourceMaps = LineArtAnalysis.buildLidarSourceMaps(
         images.shaded.imageData,
         images.depth.imageData,
         images.edge.imageData,
+        images.variance.imageData,
+        images.confidence.imageData,
         images.shaded.width,
         images.shaded.height
       );
+      const maps = composeCurrentLidarMaps();
 
-      images.depth.canvas.width = 0;
-      images.depth.canvas.height = 0;
-      images.edge.canvas.width = 0;
-      images.edge.canvas.height = 0;
+      for (const [name, item] of Object.entries(images)) {
+        if (name !== 'shaded') {
+          item.canvas.width = 0;
+          item.canvas.height = 0;
+        }
+      }
 
+      scanDirty = false;
+      scanBtn.textContent = 'Rescan LiDAR';
+      const smartText = scan.smart_sampling ? ' · smart' : '';
+      scanSummary.textContent = `${scan.width}×${scan.height}${smartText}`;
       modelStatus.textContent =
-        `${scan.scene?.name || '3D model'} - scan ${scan.scan_id}, ${Math.round(scan.coverage * 100)}% ray coverage`;
+        `${scan.scene?.name || '3D model'} - ${Math.round(scan.coverage * 100)}% ray coverage · orbit ${Math.round(scan.camera?.yaw_deg ?? 0)}°`;
 
       installSource(
         shadedCanvas,
@@ -571,7 +737,8 @@
         maps,
         images.shaded.width,
         images.shaded.height,
-        `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`
+        `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
+        'lidar'
       );
     } catch (error) {
       console.error(error);
@@ -594,6 +761,8 @@
       const scene = result.state?.workspace?.scene;
       if (scene?.loaded) {
         sceneLoaded = true;
+        scanDirty = true;
+        scanSummary.textContent = 'ready to scan';
         modelStatus.textContent =
           `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
         refreshButtons();
@@ -745,11 +914,59 @@
   refreshButtons();
   document.body.dataset.phase1Ready = 'true';
   document.body.dataset.phase3Ready = 'true';
+  document.body.dataset.phase4Ready = 'true';
+  syncLidarControls();
   restoreServerScene();
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
   scanBtn.addEventListener('click', runLidarScan);
+
+  scanResolution.addEventListener('change', () => {
+    settings.lidar.scanResolution = scanResolution.value;
+    markScanControlsChanged();
+    refreshButtons();
+  });
+  raysPerPixel.addEventListener('change', () => {
+    settings.lidar.raysPerPixel = Number(raysPerPixel.value);
+    markScanControlsChanged();
+    refreshButtons();
+  });
+  smartSampling.addEventListener('change', () => {
+    settings.lidar.smartSampling = smartSampling.checked;
+    markScanControlsChanged();
+  });
+
+  function bindScanRange(element, key, output, formatter) {
+    element.addEventListener('input', () => {
+      settings.lidar[key] = Number(element.value);
+      output.textContent = formatter(settings.lidar[key]);
+      markScanControlsChanged();
+    });
+  }
+  bindScanRange(cameraYaw, 'cameraYaw', cameraYawValue, value => `${Math.round(value)}°`);
+  bindScanRange(cameraElevation, 'cameraElevation', cameraElevationValue, value => `${Math.round(value)}°`);
+  bindScanRange(cameraDistance, 'cameraDistance', cameraDistanceValue, value => `${Number(value).toFixed(1)}×`);
+  bindScanRange(cameraFov, 'cameraFov', cameraFovValue, value => `${Math.round(value)}°`);
+
+  densitySource.addEventListener('change', () => {
+    settings.lidar.densitySource = densitySource.value;
+    recomposeLidarSource();
+  });
+  directionSource.addEventListener('change', () => {
+    settings.lidar.directionSource = directionSource.value;
+    recomposeLidarSource();
+  });
+  geometryEdgeStrength.addEventListener('input', () => {
+    settings.lidar.geometryEdgeStrength = Number(geometryEdgeStrength.value);
+    geometryEdgeStrengthValue.textContent = `${Math.round(settings.lidar.geometryEdgeStrength * 100)}%`;
+    recomposeLidarSource();
+  });
+  depthInfluence.addEventListener('input', () => {
+    settings.lidar.depthInfluence = Number(depthInfluence.value);
+    depthInfluenceValue.textContent = `${Math.round(settings.lidar.depthInfluence * 100)}%`;
+    recomposeLidarSource();
+  });
   presetSelect.addEventListener('change', () => {
     if (presetSelect.value !== 'custom') applyPreset(presetSelect.value);
   });
@@ -799,5 +1016,6 @@
       sourceCanvas.width = 0;
       sourceCanvas.height = 0;
     }
+    lidarSourceMaps = null;
   });
 })();

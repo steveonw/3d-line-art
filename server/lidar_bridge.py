@@ -1,8 +1,9 @@
-"""Minimal Phase 3 bridge between the local server and the vendored LiDAR engine."""
+"""Phase 4 bridge between the local server and the vendored LiDAR engine."""
 
 from __future__ import annotations
 
 import io
+import math
 import os
 import tempfile
 import uuid
@@ -13,11 +14,14 @@ DEFAULT_WIDTH = 320
 DEFAULT_HEIGHT = 240
 DEFAULT_RAYS_PER_PIXEL = 2
 DEFAULT_SEED = 42
+DEFAULT_YAW_DEG = 45.0
+DEFAULT_ELEVATION_DEG = 20.0
+DEFAULT_DISTANCE_SCALE = 3.0
+DEFAULT_FOV_DEG = 55.0
 
 
 class LidarUnavailableError(RuntimeError):
     """Raised when optional LiDAR runtime dependencies are unavailable."""
-
 
 
 def _patch_engine_for_mesh_scenes(engine) -> None:
@@ -93,11 +97,7 @@ def _load_engine():
 
 
 def _parse_obj(engine, text: str, *, piece_id: int = 1000):
-    """Minimal Wavefront OBJ -> engine Mesh.
-
-    Adapted from steveonw/lidar-engine's browser studio. Polygon faces are fan
-    triangulated; texture and normal indices are ignored.
-    """
+    """Minimal Wavefront OBJ -> engine Mesh."""
     np = engine.np
     vertices = []
     faces = []
@@ -192,20 +192,35 @@ def _png_bytes(image) -> bytes:
     return buffer.getvalue()
 
 
+def _normalize_channel(engine, values, *, mask=None):
+    np = engine.np
+    arr = np.asarray(values, dtype=np.float64)
+    valid = np.isfinite(arr)
+    if mask is not None:
+        valid &= np.asarray(mask, dtype=bool)
+    normalized = np.zeros_like(arr, dtype=np.float64)
+    if np.any(valid):
+        lo, hi = np.percentile(arr[valid], [2, 98])
+        if hi <= lo + 1e-12:
+            normalized[valid] = 1.0
+        else:
+            normalized[valid] = np.clip((arr[valid] - lo) / (hi - lo), 0.0, 1.0)
+    return normalized
+
+
+def _grayscale_image(engine, values):
+    np = engine.np
+    Image = engine.Image
+    pixels = np.round(np.clip(values, 0.0, 1.0) * 255).astype(np.uint8)
+    return Image.fromarray(pixels, mode="L").convert("RGB")
+
+
 def _depth_image(engine, depth):
     np = engine.np
     Image = engine.Image
     arr = np.asarray(depth, dtype=np.float64)
     mask = np.isfinite(arr) & (arr > 0)
-    normalized = np.zeros_like(arr, dtype=np.float64)
-
-    if mask.any():
-        values = arr[mask]
-        lo, hi = np.percentile(values, [2, 98])
-        if hi <= lo + 1e-12:
-            normalized[mask] = 1.0
-        else:
-            normalized[mask] = np.clip((arr[mask] - lo) / (hi - lo), 0.0, 1.0)
+    normalized = _normalize_channel(engine, arr, mask=mask)
 
     # Reserve zero for "no hit"; valid depth occupies 1..255.
     pixels = np.zeros(arr.shape, dtype=np.uint8)
@@ -213,14 +228,34 @@ def _depth_image(engine, depth):
     return Image.fromarray(pixels, mode="L").convert("RGB")
 
 
-def _edge_image(engine, edge):
+def _confidence_map(engine, channels, rays_per_pixel: int):
+    """Continuous sensor-confidence proxy from support, coherence, and depth stability."""
     np = engine.np
-    Image = engine.Image
-    pixels = np.round(np.clip(edge, 0.0, 1.0) * 255).astype(np.uint8)
-    return Image.fromarray(pixels, mode="L").convert("RGB")
+    hits = np.asarray(channels["hit_count"], dtype=np.float64)
+    has_hit = hits > 0
+    support = np.clip(hits / max(float(rays_per_pixel), 1.0), 0.0, 1.0)
+
+    variance = np.asarray(channels["depth_variance"], dtype=np.float64)
+    variance_norm = _normalize_channel(engine, variance, mask=has_hit)
+
+    beam = np.asarray(
+        channels.get("beam_coherence", np.ones_like(hits)),
+        dtype=np.float64,
+    )
+    beam = np.clip(beam, 0.0, 1.0)
+
+    confidence = np.sqrt(np.clip(support * beam, 0.0, 1.0))
+    confidence *= 1.0 - 0.75 * variance_norm
+    return np.where(has_hit, np.clip(confidence, 0.0, 1.0), 0.0)
 
 
-def _int_option(options: dict[str, Any], key: str, default: int, low: int, high: int) -> int:
+def _int_option(
+    options: dict[str, Any],
+    key: str,
+    default: int,
+    low: int,
+    high: int,
+) -> int:
     raw = options.get(key, default)
     try:
         value = int(raw)
@@ -229,8 +264,82 @@ def _int_option(options: dict[str, Any], key: str, default: int, low: int, high:
     return max(low, min(high, value))
 
 
+def _float_option(
+    options: dict[str, Any],
+    key: str,
+    default: float,
+    low: float,
+    high: float,
+) -> float:
+    raw = options.get(key, default)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{key} must be a number") from error
+    if not math.isfinite(value):
+        raise ValueError(f"{key} must be finite")
+    return max(low, min(high, value))
+
+
+def _bool_option(options: dict[str, Any], key: str, default: bool) -> bool:
+    raw = options.get(key, default)
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off", ""}:
+            return False
+    raise ValueError(f"{key} must be a boolean")
+
+
+def _camera_for_options(
+    engine,
+    scene,
+    *,
+    width: int,
+    height: int,
+    yaw_deg: float,
+    elevation_deg: float,
+    distance_scale: float,
+    fov_deg: float,
+):
+    np = engine.np
+    bounds = engine.scene_bounds(scene)
+    center = np.asarray(bounds["center"], dtype=np.float64)
+    span = np.asarray(bounds["span"], dtype=np.float64)
+    radius = max(float(np.linalg.norm(span)) * 0.5, 0.5)
+
+    yaw = math.radians(yaw_deg)
+    elevation = math.radians(elevation_deg)
+    horizontal = math.cos(elevation)
+    direction = np.array(
+        [
+            math.sin(yaw) * horizontal,
+            math.sin(elevation),
+            math.cos(yaw) * horizontal,
+        ],
+        dtype=np.float64,
+    )
+    position = center + direction * radius * distance_scale
+
+    return engine.Camera(
+        position=position,
+        target=center,
+        up=np.array([0.0, 1.0, 0.0], dtype=np.float64),
+        fov_deg=fov_deg,
+        width=width,
+        height=height,
+        lens="pinhole",
+        sampling_mode="halton",
+    )
+
+
 class LidarBridge:
-    """Owns mesh loading and single-view LiDAR scans for Phase 3."""
+    """Owns mesh loading and configurable single-view LiDAR scans for Phase 4."""
 
     def __init__(self, state) -> None:
         self.state = state
@@ -247,7 +356,7 @@ class LidarBridge:
         if triangle_count > MAX_TRIANGLES:
             raise ValueError(
                 f"mesh has {triangle_count:,} triangles; "
-                f"Phase 3 limit is {MAX_TRIANGLES:,}"
+                f"Phase 4 limit is {MAX_TRIANGLES:,}"
             )
 
         mesh = _normalize_mesh(engine, mesh)
@@ -281,17 +390,40 @@ class LidarBridge:
             4,
         )
         seed = _int_option(options, "seed", DEFAULT_SEED, 1, 2_147_483_647)
+        smart_sampling = _bool_option(options, "smart_sampling", False)
+        yaw_deg = _float_option(options, "yaw_deg", DEFAULT_YAW_DEG, 0.0, 360.0)
+        elevation_deg = _float_option(
+            options,
+            "elevation_deg",
+            DEFAULT_ELEVATION_DEG,
+            5.0,
+            80.0,
+        )
+        distance_scale = _float_option(
+            options,
+            "distance_scale",
+            DEFAULT_DISTANCE_SCALE,
+            1.4,
+            6.0,
+        )
+        fov_deg = _float_option(options, "fov_deg", DEFAULT_FOV_DEG, 25.0, 90.0)
 
-        camera = engine.make_camera_for_preset(
+        camera = _camera_for_options(
+            engine,
             scene,
-            "compact_diagnostic",
             width=width,
             height=height,
+            yaw_deg=yaw_deg,
+            elevation_deg=elevation_deg,
+            distance_scale=distance_scale,
+            fov_deg=fov_deg,
         )
-        burst = engine.fire_burst(
+        sample_count = width * height * rays_per_pixel
+        burst_fn = engine.scout_then_fill if smart_sampling else engine.fire_burst
+        burst = burst_fn(
             camera,
             scene,
-            n_samples=width * height * rays_per_pixel,
+            n_samples=sample_count,
             seed=seed,
             beam_profile="gaussian",
             beam_width=0.35,
@@ -313,7 +445,15 @@ class LidarBridge:
             bg="#ffffff",
         )
         depth = _depth_image(engine, channels["depth_per_pixel"])
-        edge = _edge_image(engine, channels["edge_score_geom"])
+        edge = _grayscale_image(engine, channels["edge_score_geom"])
+        variance_norm = _normalize_channel(
+            engine,
+            channels["depth_variance"],
+            mask=channels["hit_count"] > 0,
+        )
+        variance = _grayscale_image(engine, variance_norm)
+        confidence_values = _confidence_map(engine, channels, rays_per_pixel)
+        confidence = _grayscale_image(engine, confidence_values)
 
         scan_id = uuid.uuid4().hex[:12]
         scene_info = self.state.snapshot()["workspace"]["scene"]
@@ -323,7 +463,14 @@ class LidarBridge:
             "height": height,
             "rays_per_pixel": rays_per_pixel,
             "seed": seed,
+            "smart_sampling": smart_sampling,
             "coverage": round(float(burst.coverage), 6),
+            "camera": {
+                "yaw_deg": round(yaw_deg, 3),
+                "elevation_deg": round(elevation_deg, 3),
+                "distance_scale": round(distance_scale, 3),
+                "fov_deg": round(fov_deg, 3),
+            },
             "camera_position": [round(float(x), 4) for x in camera.position],
             "camera_target": [round(float(x), 4) for x in camera.target],
             "scene": {
@@ -336,6 +483,8 @@ class LidarBridge:
             "shaded": _png_bytes(shaded),
             "depth": _png_bytes(depth),
             "edge": _png_bytes(edge),
+            "variance": _png_bytes(variance),
+            "confidence": _png_bytes(confidence),
         }
         self.state.set_scan(scan_id, metadata, image_bytes)
         return self.maps_summary()
@@ -347,14 +496,14 @@ class LidarBridge:
         metadata = dict(scan["metadata"])
         scan_id = metadata["scan_id"]
         metadata["channels"] = {
-            "shaded": f"/api/lidar/maps/shaded.png?scan_id={scan_id}",
-            "depth": f"/api/lidar/maps/depth.png?scan_id={scan_id}",
-            "edge": f"/api/lidar/maps/edge.png?scan_id={scan_id}",
+            name: f"/api/lidar/maps/{name}.png?scan_id={scan_id}"
+            for name in ("shaded", "depth", "edge", "variance", "confidence")
         }
         return metadata
 
     def channel_png(self, channel: str) -> bytes:
-        if channel not in {"shaded", "depth", "edge"}:
+        allowed = {"shaded", "depth", "edge", "variance", "confidence"}
+        if channel not in allowed:
             raise ValueError(f"unknown LiDAR channel {channel!r}")
         payload = self.state.get_scan_channel(channel)
         if payload is None:

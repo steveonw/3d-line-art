@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase3" />
+  <meta name="application-version" content="5.3-phase4" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -29,21 +29,118 @@
           <span class="value">STL / OBJ</span>
         </div>
         <input id="modelInput" type="file" accept=".stl,.obj,model/stl,text/plain" />
+        <div class="source-help" id="modelStatus">No 3D model loaded.</div>
+      </div>
+
+      <div class="section lidar-section" id="lidarScanControls">
+        <div class="label-row">
+          <span class="group-label">LiDAR Scan</span>
+          <span class="value" id="scanSummary">single view</span>
+        </div>
+
+        <div class="control-grid">
+          <label class="control-field" for="scanResolution">
+            <span>Resolution</span>
+            <select id="scanResolution">
+              <option value="160x120">160 × 120</option>
+              <option value="320x240" selected>320 × 240</option>
+              <option value="480x360">480 × 360</option>
+              <option value="640x480">640 × 480</option>
+            </select>
+          </label>
+          <label class="control-field" for="raysPerPixel">
+            <span>Rays / pixel</span>
+            <select id="raysPerPixel">
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="check-row" for="smartSampling">
+          <input id="smartSampling" type="checkbox" />
+          <span><strong>Smart sampling</strong><small>Scout first, then concentrate rays around returns.</small></span>
+        </label>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="cameraYaw">Camera orbit</label><span class="value" id="cameraYawValue">45°</span></div>
+          <input id="cameraYaw" type="range" min="0" max="360" step="1" value="45" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="cameraElevation">Elevation</label><span class="value" id="cameraElevationValue">20°</span></div>
+          <input id="cameraElevation" type="range" min="5" max="80" step="1" value="20" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="cameraDistance">Distance</label><span class="value" id="cameraDistanceValue">3.0×</span></div>
+          <input id="cameraDistance" type="range" min="1.4" max="6" step="0.1" value="3" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="cameraFov">Field of view</label><span class="value" id="cameraFovValue">55°</span></div>
+          <input id="cameraFov" type="range" min="25" max="90" step="1" value="55" />
+        </div>
+
         <div class="source-actions">
           <button class="secondary" id="scanBtn" type="button" disabled>Scan LiDAR</button>
         </div>
-        <div class="source-help" id="modelStatus">No 3D model loaded.</div>
+      </div>
+
+      <div class="section lidar-section" id="lidarArtControls">
+        <div class="label-row">
+          <span class="group-label">LiDAR Art Mapping</span>
+          <span class="value">no rescan</span>
+        </div>
+
+        <label class="control-field" for="densitySource">
+          <span>Density source</span>
+          <select id="densitySource" disabled>
+            <option value="tone">Tone</option>
+            <option value="geometryEdge">Geometry Edge</option>
+            <option value="depthChange">Depth Change</option>
+            <option value="confidence">Confidence</option>
+          </select>
+        </label>
+
+        <label class="control-field" for="directionSource">
+          <span>Direction source</span>
+          <select id="directionSource" disabled>
+            <option value="imageStructure">Image Structure</option>
+            <option value="depthTangent">Depth Tangent</option>
+            <option value="mixed" selected>Mixed</option>
+          </select>
+        </label>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="geometryEdgeStrength">Geometry edge</label><span class="value" id="geometryEdgeStrengthValue">100%</span></div>
+          <input id="geometryEdgeStrength" type="range" min="0" max="2" step="0.05" value="1" disabled />
+        </div>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="depthInfluence">Depth influence</label><span class="value" id="depthInfluenceValue">75%</span></div>
+          <input id="depthInfluence" type="range" min="0" max="1" step="0.05" value="0.75" disabled />
+        </div>
+
+        <div class="source-help">These controls remix the current scan maps in the browser. They do not rerun the LiDAR engine.</div>
       </div>
 
       <div class="section">
         <div class="label-row"><label for="preset">Style preset</label></div>
         <select id="preset">
-          <option value="finePencil">Fine Pencil</option>
-          <option value="softSketch">Soft Sketch</option>
-          <option value="denseScribble">Dense Scribble</option>
-          <option value="colorThreads">Color Threads</option>
-          <option value="architectural">Architectural</option>
-          <option value="chaotic">Chaotic</option>
+          <optgroup label="General">
+            <option value="finePencil">Fine Pencil</option>
+            <option value="softSketch">Soft Sketch</option>
+            <option value="denseScribble">Dense Scribble</option>
+            <option value="colorThreads">Color Threads</option>
+            <option value="architectural">Architectural</option>
+            <option value="chaotic">Chaotic</option>
+          </optgroup>
+          <optgroup label="LiDAR">
+            <option value="technicalPencil">Technical Pencil</option>
+            <option value="depthContours">Depth Contours</option>
+            <option value="sensorSketch">Sensor Sketch</option>
+            <option value="architecturalScan">Architectural Scan</option>
+            <option value="uncertainScribble">Uncertain Scribble</option>
+          </optgroup>
           <option value="custom" disabled>Custom</option>
         </select>
       </div>
@@ -128,7 +225,7 @@
     <main class="workspace">
       <div class="stage" id="stage">
         <div class="empty" id="emptyState">
-          <div><strong>No image loaded</strong>Choose an image, select a style, then render.</div>
+          <div><strong>No source loaded</strong>Choose a 2D image or load an STL/OBJ model, then render.</div>
         </div>
         <div class="canvas-shell" id="canvasShell" hidden>
           <canvas id="canvas" width="900" height="600" role="img" aria-label="Generated line-art preview"></canvas>
