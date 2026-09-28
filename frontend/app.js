@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase8';
+  const BUILD_VERSION = '5.3-phase9';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -60,6 +60,9 @@
       depthInfluence: 0.75
     }
   };
+
+  const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(settings));
+  const AUTOSAVE_KEY = 'lidar-ink-studio:project-autosave:v1';
 
   const presets = {
     finePencil: {
@@ -192,6 +195,10 @@
   );
   const seedInput = document.getElementById('seedInput');
   const variationBtn = document.getElementById('variationBtn');
+  const undoBtn = document.getElementById('undoBtn');
+  const redoBtn = document.getElementById('redoBtn');
+  const autosaveStatus = document.getElementById('autosaveStatus');
+  const historyHelp = document.getElementById('historyHelp');
   const renderBtn = document.getElementById('renderBtn');
   const cancelBtn = document.getElementById('cancelBtn');
   const saveBtn = document.getElementById('saveBtn');
@@ -223,6 +230,7 @@
   let scanRunning = false;
   let sceneLoaded = false;
   let sourceKind = 'none';
+  let sourceName = null;
   let lidarSourceMaps = null;
   let scanDirty = false;
   let activeRender = null;
@@ -272,6 +280,160 @@
       return a[0] || 1;
     }
     return ((Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0) || 1;
+  }
+
+  let historyReady = false;
+  let historyApplying = false;
+  let historyUiLocked = false;
+  let restoredSourceHint = null;
+
+  function captureProjectState() {
+    return LineArtProjectState.create(settings, {
+      kind: sourceKind,
+      name: sourceName
+    });
+  }
+
+  function scanSettingsSignature(value = settings) {
+    const s = value.lidar;
+    return JSON.stringify([
+      s.scanResolution,
+      s.raysPerPixel,
+      s.smartSampling,
+      s.cameraYaw,
+      s.cameraElevation,
+      s.cameraDistance,
+      s.cameraFov
+    ]);
+  }
+
+  function normalizeRestoredSettings(next) {
+    next.lineCount = clamp(Math.round(Number(next.lineCount) / 1000) * 1000, 1000, 400000);
+    next.seed = normalizeSeed(next.seed);
+    next.mode = next.mode === 'black' ? 'black' : 'color';
+
+    const palettes = new Set(['original', 'muted', 'warm', 'cool', 'monochrome', 'limited']);
+    if (!palettes.has(next.palette)) next.palette = DEFAULT_SETTINGS.palette;
+
+    for (const def of sliderDefs) {
+      next[def.key] = clamp(Number(next[def.key]), Number(def.min), Number(def.max));
+    }
+
+    next.procedural.scale = clamp(Number(next.procedural.scale), 20, 320);
+    next.procedural.turbulence = clamp(Number(next.procedural.turbulence), 0, 1);
+    next.procedural.octaves = clamp(Math.round(Number(next.procedural.octaves)), 1, 7);
+
+    for (const def of mixerDefs) {
+      next.flowMixer[def.key] = clamp(Number(next.flowMixer[def.key]), 0, 1);
+    }
+
+    const resolutions = new Set(['160x120', '320x240', '480x360', '640x480']);
+    if (!resolutions.has(next.lidar.scanResolution)) next.lidar.scanResolution = '320x240';
+    next.lidar.raysPerPixel = [1, 2, 4].includes(Number(next.lidar.raysPerPixel))
+      ? Number(next.lidar.raysPerPixel)
+      : 2;
+    next.lidar.smartSampling = !!next.lidar.smartSampling;
+    next.lidar.cameraYaw = clamp(Number(next.lidar.cameraYaw), 0, 360);
+    next.lidar.cameraElevation = clamp(Number(next.lidar.cameraElevation), 5, 80);
+    next.lidar.cameraDistance = clamp(Number(next.lidar.cameraDistance), 1.4, 6);
+    next.lidar.cameraFov = clamp(Number(next.lidar.cameraFov), 25, 90);
+
+    const densitySources = new Set(['tone', 'geometryEdge', 'depthChange', 'confidence']);
+    if (!densitySources.has(next.lidar.densitySource)) next.lidar.densitySource = 'tone';
+    const directionSources = new Set(['imageStructure', 'depthTangent', 'mixed']);
+    if (!directionSources.has(next.lidar.directionSource)) next.lidar.directionSource = 'mixed';
+    next.lidar.geometryEdgeStrength = clamp(Number(next.lidar.geometryEdgeStrength), 0, 2);
+    next.lidar.depthInfluence = clamp(Number(next.lidar.depthInfluence), 0, 1);
+
+    if (next.preset !== 'custom' && !presets[next.preset]) next.preset = 'custom';
+    return next;
+  }
+
+  function renderHistoryStatus(status) {
+    historyUiLocked = !!historyUiLocked;
+    undoBtn.disabled = historyUiLocked || !status.canUndo;
+    redoBtn.disabled = historyUiLocked || !status.canRedo;
+
+    autosaveStatus.dataset.state = status.autosaveState;
+    if (status.autosaveState === 'pending') {
+      autosaveStatus.textContent = 'Saving...';
+      historyHelp.textContent = 'Settings autosave locally after edits.';
+    } else if (status.autosaveState === 'saved') {
+      autosaveStatus.textContent = 'Autosaved';
+      historyHelp.textContent = status.lastSavedAt
+        ? `Last local save ${new Date(status.lastSavedAt).toLocaleTimeString()}`
+        : 'Settings restored from local autosave.';
+    } else if (status.autosaveState === 'error') {
+      autosaveStatus.textContent = 'Autosave unavailable';
+      historyHelp.textContent = status.lastError || 'Local browser storage could not be used.';
+    } else {
+      autosaveStatus.textContent = 'Autosave ready';
+      historyHelp.textContent = 'Settings autosave locally after edits.';
+    }
+  }
+
+  const history = LineArtHistory.createHistory({
+    storageKey: AUTOSAVE_KEY,
+    limit: 80,
+    autosaveDelayMs: 250,
+    coalesceWindowMs: 550,
+    onStatus: renderHistoryStatus
+  });
+
+  function recordSettingsChange(coalesceKey = null) {
+    if (!historyReady || historyApplying) return;
+    history.record(captureProjectState(), { coalesceKey });
+  }
+
+  function autosaveCurrentState() {
+    if (!historyReady || historyApplying) return;
+    history.saveNow(captureProjectState());
+  }
+
+  function applyProjectSnapshot(snapshot, { preview = true } = {}) {
+    const restored = LineArtProjectState.restore(snapshot, DEFAULT_SETTINGS);
+    if (!restored) return false;
+
+    const beforeScan = scanSettingsSignature(settings);
+    historyApplying = true;
+    try {
+      Object.assign(settings, normalizeRestoredSettings(restored.settings));
+      syncUI();
+
+      if (sourceKind === 'lidar' && lidarSourceMaps) {
+        const maps = composeCurrentLidarMaps();
+        applyRendererMaps(maps);
+      }
+
+      if (sceneLoaded && beforeScan !== scanSettingsSignature(settings)) {
+        scanDirty = true;
+        scanSummary.textContent = 'settings changed';
+        scanBtn.textContent = 'Rescan LiDAR';
+      }
+
+      if (highQualityStrokeStore) highQualityStale = true;
+      updateExportNote();
+    } finally {
+      historyApplying = false;
+    }
+
+    if (preview && sourceImage) schedulePreview();
+    refreshButtons();
+    return true;
+  }
+
+  function undoSettings() {
+    const snapshot = history.undo();
+    if (!snapshot) return;
+    if (activeRender) stopRender(false);
+    applyProjectSnapshot(snapshot);
+  }
+
+  function redoSettings() {
+    const snapshot = history.redo();
+    if (!snapshot) return;
+    if (activeRender) stopRender(false);
+    applyProjectSnapshot(snapshot);
   }
 
 
