@@ -247,8 +247,8 @@
 
     function depthAt(x, y, fallback) {
       if (x < 0 || y < 0 || x >= w || y >= h) return fallback;
-      const value = depth[y * w + x];
-      return value > 0 ? value : fallback;
+      const idx = y * w + x;
+      return occupancy[idx] ? depth[idx] : fallback;
     }
 
     for (let y = 0; y < h; y++) {
@@ -256,7 +256,7 @@
       for (let x = 0; x < w; x++) {
         const idx = row + x;
         const center = depth[idx];
-        if (center <= 0) continue;
+        if (!occupancy[idx]) continue;
 
         const left = depthAt(x - 1, y, center);
         const right = depthAt(x + 1, y, center);
