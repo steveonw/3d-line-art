@@ -348,6 +348,54 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertEqual(payload["code"], "scan_mismatch")
 
+    def test_fixed_multiview_endpoint_and_archived_channels(self) -> None:
+        self.upload_fake_scene()
+        options = {
+            "width": 160,
+            "height": 120,
+            "rays_per_pixel": 1,
+            "smart_sampling": False,
+            "distance_scale": 3.2,
+            "fov_deg": 50,
+        }
+        status, payload = self.json_request(
+            "/api/lidar/multiview",
+            method="POST",
+            body=json.dumps(options).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        multiview = payload["multiview"]
+        self.assertEqual(multiview["order"], list(FIXED_VIEW_ORDER))
+        self.assertEqual(set(multiview["views"]), set(FIXED_VIEW_ORDER))
+
+        for name in FIXED_VIEW_ORDER:
+            scan = multiview["views"][name]
+            descriptor = FIXED_VIEWS[name]
+            self.assertEqual(scan["view"]["name"], name)
+            self.assertEqual(scan["camera"]["yaw_deg"], descriptor["yaw_deg"])
+            self.assertEqual(
+                scan["camera"]["elevation_deg"],
+                descriptor["elevation_deg"],
+            )
+
+        front_id = multiview["views"]["front"]["scan_id"]
+        top_id = multiview["views"]["top"]["scan_id"]
+        self.assertNotEqual(front_id, top_id)
+
+        status, maps = self.json_request(
+            f"/api/lidar/maps?scan_id={front_id}"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(maps["scan"]["scan_id"], front_id)
+
+        status, body, content_type = self.request(
+            f"/api/lidar/maps/depth.png?scan_id={front_id}"
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(body.endswith(b"front"))
+        self.assertEqual(content_type, "image/png")
+
     def test_reset_discards_scene_and_scan(self) -> None:
         self.upload_fake_scene()
         self.json_request(
