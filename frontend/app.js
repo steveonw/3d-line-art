@@ -609,6 +609,7 @@
   settings.seed = normalizeSeed(seedInput.value);
   syncUI();
   refreshButtons();
+  document.body.dataset.phase1Ready = 'true';
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   presetSelect.addEventListener('change', () => {
