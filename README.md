@@ -433,7 +433,10 @@ filename
 file size
 last-modified timestamp when available
 media type when available
+SHA-256 when available
 ```
+
+When both sides have a SHA-256, content identity is authoritative. The modification timestamp is retained as metadata but is not a hard match requirement.
 
 When reopening a project, LiDAR Ink checks the reference before enabling rendering. A different image/model cannot silently become the source for the saved settings.
 
@@ -487,6 +490,33 @@ scans/confidence.bin
 So the Phase 10 project file is portable creative state plus a source reference, not a self-contained archive of the source model and LiDAR cache.
 
 Project JSON is capped at 1 MB when opened. Unknown future schema versions and foreign project formats are rejected instead of guessed at.
+
+## Phase 10 stabilization
+
+A post-Phase-10 browser review found state-machine bugs that the earlier DOM/string smoke tests could not exercise. The stabilization branch fixes them before Phase 11:
+
+- autosave recovery restores source **hints**, not hard project locks,
+- explicit project files still enforce source identity,
+- installed LiDAR scan freshness is compared against the actual scan metadata,
+- returning camera controls to the scanned values clears stale state,
+- stale LiDAR scans block render/export until rescanned,
+- scan-channel URLs are bound to their `scan_id` and stale IDs return HTTP 409,
+- OBJ/STL geometry rejects NaN/Inf and near-zero extent,
+- model uploads carry SHA-256 fingerprints,
+- local image references use browser SHA-256 when Web Crypto is available,
+- `lastModified` is a portability hint rather than a hard identity constraint,
+- failed model uploads keep the previous scene usable,
+- asynchronous server restore cannot overwrite a newer user source selection.
+
+Real headless-browser regressions now run in CI. For the full development suite:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+python -m unittest discover -s tests -v
+```
+
+Runtime-only installs can continue using `requirements.txt`; the browser regression module skips itself when Playwright is unavailable.
 
 ## Mesh guardrails
 
