@@ -44,8 +44,8 @@ function imageData(fn) {
 }
 
 const shaded = imageData((x, y) => Math.max(0, 255 - (x + y) * 16));
-// x=0 is known no-hit background; x=1..6 is a smooth depth ramp.
-const depth = imageData(x => x === 0 ? 0 : 1 + Math.round((x - 1) / (w - 2) * 254));
+// x=0 is known no-hit background; x=1..6 is a shallow smooth depth ramp.
+const depth = imageData(x => x === 0 ? 0 : 80 + x * 2);
 const edge = imageData(x => x === 3 ? 255 : 0);
 const variance = imageData(x => x === 6 ? 200 : 20);
 // Deliberately speckled confidence over the occupied region.
