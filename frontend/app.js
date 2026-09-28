@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase10';
+  const BUILD_VERSION = '5.3-phase11';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -244,6 +244,7 @@
   let installedScanSignature = null;
   let installedScanId = null;
   let installedScanLabel = null;
+  let installedScanCacheHit = false;
   let scanDirty = false;
   let activeRender = null;
 
@@ -370,7 +371,8 @@
       s.cameraYaw,
       s.cameraElevation,
       s.cameraDistance,
-      s.cameraFov
+      s.cameraFov,
+      42
     ]);
   }
 
@@ -383,6 +385,7 @@
       Number(scan.camera?.elevation_deg),
       Number(scan.camera?.distance_scale),
       Number(scan.camera?.fov_deg),
+      Number(scan.seed ?? 42),
       scan.scene?.sha256 || scan.scene?.name || null
     ]);
   }
@@ -396,6 +399,7 @@
     installedScanSignature = scanMetadataSignature(scan);
     installedScanId = scan.scan_id || null;
     installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
+    installedScanCacheHit = !!scan.cache_hit;
     return updateScanFreshness();
   }
 
@@ -403,6 +407,7 @@
     installedScanSignature = null;
     installedScanId = null;
     installedScanLabel = null;
+    installedScanCacheHit = false;
     scanDirty = false;
   }
 
@@ -419,14 +424,19 @@
     // Compare sensor controls explicitly; the installed signature also carries
     // scene identity, while current settings do not.
     const parsedInstalled = JSON.parse(installedScanSignature);
-    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 7));
+    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 8));
     const currentSensor = JSON.stringify(JSON.parse(scanSettingsSignature(settings)));
     const sensorMatch = installedSensor === currentSensor;
     const modelMatch = installedModelMatchesCurrent();
 
     scanDirty = !sensorMatch || !modelMatch;
-    scanSummary.textContent =
-      `${installedScanLabel || 'scan'}${scanDirty ? ' · settings changed' : ''}`;
+    if (scanDirty) {
+      scanSummary.textContent = `Scan stale · ${installedScanLabel || 'scan'}`;
+    } else if (installedScanCacheHit) {
+      scanSummary.textContent = `Scan cached · ${installedScanLabel || 'scan'}`;
+    } else {
+      scanSummary.textContent = `Scan ready · ${installedScanLabel || 'scan'}`;
+    }
     scanBtn.textContent = 'Rescan LiDAR';
     return scanDirty;
   }
@@ -804,7 +814,7 @@
       updateScanFreshness();
     } else {
       scanDirty = !!sceneLoaded;
-      scanSummary.textContent = sceneLoaded ? 'ready to scan' : 'single view';
+      scanSummary.textContent = sceneLoaded ? 'Scan stale · no current scan' : 'No LiDAR scene';
       scanBtn.textContent = 'Scan LiDAR';
     }
     recordSettingsChange(historyKey);
@@ -1283,6 +1293,8 @@
     previewTimer = 0;
     scanRunning = true;
     loadingImage = true;
+    scanSummary.textContent = 'Scan running…';
+    scanBtn.textContent = 'Scanning…';
     refreshButtons();
     setStatus('LiDAR scan running...', 0);
     setStats(0, 0, 0);
@@ -1292,7 +1304,12 @@
       const options = readScanControls();
       const response = await LidarClient.scan(options);
       const scan = response.scan;
-      setStatus('Loading LiDAR depth, edge, variance, and confidence maps...', 0);
+      setStatus(
+        scan.cache_hit
+          ? 'Scan cached. Loading cached LiDAR maps...'
+          : 'Loading LiDAR depth, edge, variance, and confidence maps...',
+        0
+      );
       const images = await LidarClient.fetchScanMaps(scan);
 
       if (serial !== loadSerial) {
@@ -1332,7 +1349,9 @@
         maps,
         images.shaded.width,
         images.shaded.height,
-        `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
+        scan.cache_hit
+          ? `Scan cached - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`
+          : `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
         'lidar',
         modelReference || {
           kind: 'lidar',
@@ -1662,6 +1681,7 @@
   document.body.dataset.phase8Ready = 'true';
   document.body.dataset.phase9Ready = 'true';
   document.body.dataset.phase10Ready = 'true';
+  document.body.dataset.phase11Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
