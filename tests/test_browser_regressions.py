@@ -9,7 +9,11 @@ import unittest
 from pathlib import Path
 
 from PIL import Image
-from playwright.sync_api import sync_playwright
+
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:  # pragma: no cover - optional outside CI/dev installs
+    sync_playwright = None
 
 from server.api import create_server
 from server.errors import ErrorRecorder
@@ -25,11 +29,16 @@ UI_TIMEOUT_MS = 15_000
 SCAN_TIMEOUT_MS = 90_000
 
 
+@unittest.skipIf(sync_playwright is None, "playwright is not installed")
 class BrowserRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
+        try:
+            cls.browser = cls.playwright.chromium.launch()
+        except Exception as error:
+            cls.playwright.stop()
+            raise unittest.SkipTest(f"Chromium unavailable: {error}") from error
 
     @classmethod
     def tearDownClass(cls) -> None:
