@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import threading
@@ -130,6 +131,17 @@ class BrowserRegressionTests(unittest.TestCase):
     def text(self, selector: str) -> str:
         return self.page.text_content(selector) or ""
 
+    def render_png_sha256(self) -> str:
+        self.page.click("#renderBtn")
+        self.page.wait_for_function(
+            "document.getElementById('status').textContent.startsWith('High quality done')",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        with self.page.expect_download(timeout=SCAN_TIMEOUT_MS) as download_info:
+            self.page.click("#saveBtn")
+        path = Path(download_info.value.path())
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
     def test_autosave_restore_does_not_lock_future_sources(self) -> None:
         self.open_app()
         self.load_image(self.image_a)
@@ -214,6 +226,34 @@ class BrowserRegressionTests(unittest.TestCase):
             self.page.dispatch_event("#cameraYaw", "change")
         self.assertNotIn("settings changed", self.text("#scanSummary"))
         self.assertFalse(self.is_disabled("#renderBtn"))
+
+    def test_same_settings_repeat_to_byte_identical_png(self) -> None:
+        def lightweight_image_project(project: dict) -> None:
+            project["source"] = {"kind": "none"}
+            project["settings"]["lineCount"] = 8000
+            project["settings"]["preset"] = "finePencil"
+            project["settings"]["mode"] = "black"
+            project["settings"]["palette"] = "original"
+            project["settings"]["procedural"]["turbulence"] = 0
+            project["export"]["pngScale"] = "1"
+
+        project = self.write_project(
+            "determinism-image.lidar-ink.json",
+            lightweight_image_project,
+        )
+
+        self.open_app()
+        self.open_project(project)
+        self.load_image(self.image_a)
+
+        first = self.render_png_sha256()
+        second = self.render_png_sha256()
+
+        self.assertEqual(
+            first,
+            second,
+            "same source/settings/seed did not produce byte-identical PNG output",
+        )
 
 
 if __name__ == "__main__":
