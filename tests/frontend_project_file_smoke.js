@@ -155,6 +155,10 @@ assert(
   'different known source sizes should not match'
 );
 assert(
+  !Project.sourceMatches(source, { ...source, lastModified: 1700000001000 }),
+  'different known modification times should not match'
+);
+assert(
   Project.sourceMatches(source, {
     kind: 'lidar',
     name: 'test-cube.obj',
