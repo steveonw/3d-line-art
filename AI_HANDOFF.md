@@ -472,6 +472,31 @@ Scan binaries are **not** inside the project JSON yet.
 
 ### Reference-render review findings
 
+#### Product-quality interpretation
+
+The external automated review's overall conclusion was that the **core renderer, determinism, speed, project files, and architecture are stronger than the current LiDAR gallery initially suggests**.
+
+Useful observations:
+
+- the 2D image path with real tonal shading produced the strongest art,
+- Color Threads and curvature-following strokes were visually convincing,
+- Architectural Scan and Depth Contours remained readable even before the winding fix,
+- the flat-shading bug was the dominant reason tone-led LiDAR presets looked uniformly dark,
+- after two-sided normal orientation, torus/terrain-style LiDAR renders recovered visible form,
+- project JSON worked well as an automation interface for repeatable headless rendering,
+- mathematical Vortex/Rose/Log-Spiral effects can be visually subtle because they are canvas-centered and compete with the surface field,
+- known-empty LiDAR background still receives faint low-importance strokes; a later clean-background option would be useful,
+- Depth Contours can be sparse on smooth surfaces and Confidence density can show cell-scale speckle.
+
+Environment-specific manual timings from that review (do **not** treat as SLAs):
+
+```text
+60k–140k high-quality render: ~1.5 s
+640×480 LiDAR scan: ~5–14 s
+uncaught page errors during automated gallery sessions: 0 observed
+```
+
+Priority implication: after Phase 11 caching, art-quality work should focus first on sensor-to-art evidence/mapping rather than adding more field types.
 A Playwright-driven reference-render bundle supplied after Phase 10 found one additional sensor/render issue and gave us stronger regression fixtures.
 
 Key findings now incorporated:
