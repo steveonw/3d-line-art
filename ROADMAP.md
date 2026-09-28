@@ -551,6 +551,28 @@ This should be treated as a later experimental plugin rather than a core phase.
 
 # Later polish
 
+## Art-quality follow-ups from reference-render review
+
+These are **not** Phase 11 requirements. Preserve them for later visual-polish work after scan caching is solid.
+
+- [ ] Add an optional clean-background mode for LiDAR sources so known no-hit background does not receive faint paper-grain strokes
+- [ ] Let mathematical fields optionally center on the projected object/occupied scan region instead of always the canvas center
+- [ ] Improve visible readability/strength tuning for Vortex, Rose, and Log Spiral fields
+- [ ] Improve Depth Contours coverage on smooth/slowly varying surfaces without destroying contour structure
+- [ ] Reduce cell-scale speckle when Confidence is used as a density source
+- [ ] Keep explicit scan-state UI unambiguous: current/cached/running/stale should be visually distinct
+- [ ] Consider treating the versioned project JSON as a supported automation/headless input contract, since automated reference rendering worked cleanly through it
+
+Manual reference-review observations (environment-specific, **not performance SLAs**):
+
+```text
+60k–140k high-quality line renders: roughly ~1.5 s
+640×480 single-view LiDAR scans: roughly 5–14 s
+automated review sessions: zero uncaught page errors observed
+```
+
+The review concluded that the 2D renderer/art engine is currently stronger than the LiDAR sensor-to-art mapping. Prefer improving the LiDAR evidence/mapping path before adding more decorative flow fields.
+
 ## Mathematical experimental modes
 
 - [ ] Recaman spacing/pattern influence
