@@ -288,10 +288,10 @@
   let restoredSourceHint = null;
 
   function captureProjectState() {
-    return LineArtProjectState.create(settings, {
-      kind: sourceKind,
-      name: sourceName
-    });
+    const source = sourceKind === 'none' && restoredSourceHint
+      ? restoredSourceHint
+      : { kind: sourceKind, name: sourceName };
+    return LineArtProjectState.create(settings, source);
   }
 
   function scanSettingsSignature(value = settings) {
@@ -399,7 +399,7 @@
 
   function autosaveCurrentState() {
     if (!historyReady || historyApplying) return;
-    history.saveNow(captureProjectState());
+    history.replaceCurrent(captureProjectState(), { autosave: true });
   }
 
   function applyProjectSnapshot(snapshot, { preview = true } = {}) {
@@ -797,6 +797,7 @@
     sourceImage = { width: w, height: h };
     sourceKind = kind;
     sourceName = name || null;
+    restoredSourceHint = null;
     if (kind !== 'lidar') lidarSourceMaps = null;
     applyRendererMaps(maps);
 
