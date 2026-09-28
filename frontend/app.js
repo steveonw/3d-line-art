@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase11.5';
+  const BUILD_VERSION = '5.3-phase12';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -62,7 +62,10 @@
       depthContourStrength: 0.0,
       confidenceSmoothing: 0.0,
       cleanBackground: false,
-      objectCenteredFields: false
+      objectCenteredFields: false,
+      multiViewMode: 'current',
+      multiViewCurrent: 'front',
+      multiViewDebugColors: false
     }
   };
 
@@ -163,6 +166,11 @@
   const imageInput = document.getElementById('imageInput');
   const modelInput = document.getElementById('modelInput');
   const scanBtn = document.getElementById('scanBtn');
+  const scanMultiBtn = document.getElementById('scanMultiBtn');
+  const multiViewMode = document.getElementById('multiViewMode');
+  const multiViewCurrent = document.getElementById('multiViewCurrent');
+  const multiViewDebugColors = document.getElementById('multiViewDebugColors');
+  const multiViewSummary = document.getElementById('multiViewSummary');
   const modelStatus = document.getElementById('modelStatus');
   const scanSummary = document.getElementById('scanSummary');
   const scanResolution = document.getElementById('scanResolution');
@@ -257,6 +265,9 @@
   let installedScanId = null;
   let installedScanLabel = null;
   let installedScanCacheHit = false;
+  let installedScanMode = 'single';
+  let installedMultiViewSignature = null;
+  let multiViewBundle = null;
   let scanDirty = false;
   let activeRender = null;
 
@@ -402,16 +413,57 @@
     ]);
   }
 
+  function multiViewSettingsSignature(value = settings) {
+    const s = value.lidar;
+    return JSON.stringify([
+      s.scanResolution,
+      s.raysPerPixel,
+      s.smartSampling,
+      s.cameraDistance,
+      s.cameraFov,
+      42
+    ]);
+  }
+
+  function multiViewMetadataSignature(multiview) {
+    const order = multiview?.order || LineArtMultiView.VIEW_ORDER;
+    const scan = multiview?.views?.[order[0]];
+    if (!scan) return null;
+    return JSON.stringify([
+      `${scan.width}x${scan.height}`,
+      scan.rays_per_pixel,
+      !!scan.smart_sampling,
+      Number(scan.camera?.distance_scale),
+      Number(scan.camera?.fov_deg),
+      Number(scan.seed ?? 42),
+      scan.scene?.sha256 || scan.scene?.name || null
+    ]);
+  }
+
   function installedModelMatchesCurrent() {
     if (sourceKind !== 'lidar' || !sourceReference || !modelReference) return true;
     return LineArtProjectState.sourceMatches(sourceReference, modelReference);
   }
 
   function rememberInstalledScan(scan) {
+    installedScanMode = 'single';
     installedScanSignature = scanMetadataSignature(scan);
     installedScanId = scan.scan_id || null;
     installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
     installedScanCacheHit = !!scan.cache_hit;
+    return updateScanFreshness();
+  }
+
+  function rememberInstalledMultiView(multiview) {
+    installedScanMode = 'multi';
+    installedMultiViewSignature = multiViewMetadataSignature(multiview);
+    const order = multiview?.order || [];
+    const scans = order.map(name => multiview.views?.[name]).filter(Boolean);
+    const first = scans[0];
+    installedScanLabel = first
+      ? `${scans.length} views · ${first.width}×${first.height}${first.smart_sampling ? ' · smart' : ''}`
+      : '5 views';
+    installedScanCacheHit = scans.length > 0 && scans.every(scan => !!scan.cache_hit);
     return updateScanFreshness();
   }
 
@@ -420,26 +472,60 @@
     installedScanId = null;
     installedScanLabel = null;
     installedScanCacheHit = false;
+    installedScanMode = 'single';
+    installedMultiViewSignature = null;
+    multiViewBundle = null;
     scanDirty = false;
   }
 
   function updateScanFreshness() {
-    if (!installedScanSignature || sourceKind !== 'lidar') {
-      scanDirty = sourceKind === 'lidar' && !!sourceImage;
-      if (sceneLoaded && sourceKind !== 'lidar') {
+    if (sourceKind !== 'lidar') {
+      scanDirty = false;
+      if (sceneLoaded) {
         scanSummary.textContent = 'Scan stale · ready to scan';
         scanBtn.textContent = 'Scan LiDAR';
+        scanMultiBtn.textContent = 'Scan 5 Views';
       }
       return scanDirty;
     }
 
-    // Compare sensor controls explicitly; the installed signature also carries
-    // scene identity, while current settings do not.
+    const modelMatch = installedModelMatchesCurrent();
+
+    if (installedScanMode === 'multi' && installedMultiViewSignature) {
+      const parsedInstalled = JSON.parse(installedMultiViewSignature);
+      const installedSensor = JSON.stringify(parsedInstalled.slice(0, 6));
+      const currentSensor = multiViewSettingsSignature(settings);
+      scanDirty = installedSensor !== currentSensor || !modelMatch;
+
+      if (scanDirty) {
+        scanSummary.textContent = `Scan stale · ${installedScanLabel || '5 views'}`;
+      } else {
+        const modeLabel = settings.lidar.multiViewMode === 'combined'
+          ? 'Combined'
+          : (settings.lidar.multiViewCurrent || 'front').replace(/^./, c => c.toUpperCase());
+        scanSummary.textContent = installedScanCacheHit
+          ? `Scan cached · ${installedScanLabel} · ${modeLabel}`
+          : `Scan ready · ${installedScanLabel} · ${modeLabel}`;
+      }
+      scanBtn.textContent = 'Scan LiDAR';
+      scanMultiBtn.textContent = 'Rescan 5 Views';
+      return scanDirty;
+    }
+
+    if (!installedScanSignature) {
+      scanDirty = !!sourceImage;
+      scanSummary.textContent = sceneLoaded
+        ? 'Scan stale · ready to scan'
+        : 'No LiDAR scene';
+      scanBtn.textContent = 'Scan LiDAR';
+      scanMultiBtn.textContent = 'Scan 5 Views';
+      return scanDirty;
+    }
+
     const parsedInstalled = JSON.parse(installedScanSignature);
     const installedSensor = JSON.stringify(parsedInstalled.slice(0, 8));
-    const currentSensor = JSON.stringify(JSON.parse(scanSettingsSignature(settings)));
+    const currentSensor = scanSettingsSignature(settings);
     const sensorMatch = installedSensor === currentSensor;
-    const modelMatch = installedModelMatchesCurrent();
 
     scanDirty = !sensorMatch || !modelMatch;
     if (scanDirty) {
@@ -450,6 +536,7 @@
       scanSummary.textContent = `Scan ready · ${installedScanLabel || 'scan'}`;
     }
     scanBtn.textContent = 'Rescan LiDAR';
+    scanMultiBtn.textContent = multiViewBundle ? 'Use / Rescan 5 Views' : 'Scan 5 Views';
     return scanDirty;
   }
 
