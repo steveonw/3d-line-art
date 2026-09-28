@@ -240,17 +240,17 @@ Use `Math-tools` selectively.
 
 Start with:
 
-- [ ] Vector-field helpers
-- [ ] Radial flow
-- [ ] Vortex flow
-- [ ] Spiral flow
-- [ ] Wave flow
+- [x] Vector-field helpers
+- [x] Radial flow
+- [x] Vortex flow
+- [x] Spiral flow
+- [x] Wave flow
 
 Later add optional polar influences:
 
-- [ ] Rose
-- [ ] Cardioid
-- [ ] Logarithmic spiral
+- [x] Rose
+- [x] Cardioid
+- [x] Logarithmic spiral
 
 Create one field mixer:
 
@@ -262,6 +262,8 @@ Spiral Field       10%
 ```
 
 **Done when:** all artistic direction systems use one common field API.
+
+**Phase 7 validation:** GitHub Actions passes the unified field API tests, radial/vortex orientation checks, deterministic wave behavior, rose/cardioid/log-spiral finiteness, surface-only/depth-only/radial-only mixer tests, procedural weight behavior, combined-field determinism, stable stroke-prefix regression checks, frontend LiDAR-map tests, the server/API suite, and the real cube OBJ LiDAR integration test.
 
 ## v0.2 checkpoint
 
@@ -580,7 +582,7 @@ FIRST MAJOR CHECKPOINT / v0.1
 5. LiDAR controls                              [x]
 6. Stable seeded randomness                    [x]
 7. Procedural noise                            [x]
-8. Mathematical flow mixer                     [ ]
+8. Mathematical flow mixer                     [x]
 9. Better stroke placement                     [ ]
 ---------------------------------------------------
 ART SYSTEM CHECKPOINT / v0.2
