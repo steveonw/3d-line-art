@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase8';
+  const BUILD_VERSION = '5.3-phase9';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -60,6 +60,9 @@
       depthInfluence: 0.75
     }
   };
+
+  const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(settings));
+  const AUTOSAVE_KEY = 'lidar-ink-studio:project-autosave:v1';
 
   const presets = {
     finePencil: {
@@ -192,6 +195,10 @@
   );
   const seedInput = document.getElementById('seedInput');
   const variationBtn = document.getElementById('variationBtn');
+  const undoBtn = document.getElementById('undoBtn');
+  const redoBtn = document.getElementById('redoBtn');
+  const autosaveStatus = document.getElementById('autosaveStatus');
+  const historyHelp = document.getElementById('historyHelp');
   const renderBtn = document.getElementById('renderBtn');
   const cancelBtn = document.getElementById('cancelBtn');
   const saveBtn = document.getElementById('saveBtn');
@@ -223,6 +230,7 @@
   let scanRunning = false;
   let sceneLoaded = false;
   let sourceKind = 'none';
+  let sourceName = null;
   let lidarSourceMaps = null;
   let scanDirty = false;
   let activeRender = null;
@@ -272,6 +280,172 @@
       return a[0] || 1;
     }
     return ((Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0) || 1;
+  }
+
+  let historyReady = false;
+  let historyApplying = false;
+  let historyUiLocked = false;
+  let restoredSourceHint = null;
+
+  function captureProjectState() {
+    const source = sourceKind === 'none' && restoredSourceHint
+      ? restoredSourceHint
+      : { kind: sourceKind, name: sourceName };
+    return LineArtProjectState.create(settings, source);
+  }
+
+  function scanSettingsSignature(value = settings) {
+    const s = value.lidar;
+    return JSON.stringify([
+      s.scanResolution,
+      s.raysPerPixel,
+      s.smartSampling,
+      s.cameraYaw,
+      s.cameraElevation,
+      s.cameraDistance,
+      s.cameraFov
+    ]);
+  }
+
+  function scanMetadataSignature(scan) {
+    return JSON.stringify([
+      `${scan.width}x${scan.height}`,
+      scan.rays_per_pixel,
+      !!scan.smart_sampling,
+      Number(scan.camera?.yaw_deg),
+      Number(scan.camera?.elevation_deg),
+      Number(scan.camera?.distance_scale),
+      Number(scan.camera?.fov_deg)
+    ]);
+  }
+
+  function normalizeRestoredSettings(next) {
+    next.lineCount = clamp(Math.round(Number(next.lineCount) / 1000) * 1000, 1000, 400000);
+    next.seed = normalizeSeed(next.seed);
+    next.mode = next.mode === 'black' ? 'black' : 'color';
+
+    const palettes = new Set(['original', 'muted', 'warm', 'cool', 'monochrome', 'limited']);
+    if (!palettes.has(next.palette)) next.palette = DEFAULT_SETTINGS.palette;
+
+    for (const def of sliderDefs) {
+      next[def.key] = clamp(Number(next[def.key]), Number(def.min), Number(def.max));
+    }
+
+    next.procedural.scale = clamp(Number(next.procedural.scale), 20, 320);
+    next.procedural.turbulence = clamp(Number(next.procedural.turbulence), 0, 1);
+    next.procedural.octaves = clamp(Math.round(Number(next.procedural.octaves)), 1, 7);
+
+    for (const def of mixerDefs) {
+      next.flowMixer[def.key] = clamp(Number(next.flowMixer[def.key]), 0, 1);
+    }
+
+    const resolutions = new Set(['160x120', '320x240', '480x360', '640x480']);
+    if (!resolutions.has(next.lidar.scanResolution)) next.lidar.scanResolution = '320x240';
+    next.lidar.raysPerPixel = [1, 2, 4].includes(Number(next.lidar.raysPerPixel))
+      ? Number(next.lidar.raysPerPixel)
+      : 2;
+    next.lidar.smartSampling = !!next.lidar.smartSampling;
+    next.lidar.cameraYaw = clamp(Number(next.lidar.cameraYaw), 0, 360);
+    next.lidar.cameraElevation = clamp(Number(next.lidar.cameraElevation), 5, 80);
+    next.lidar.cameraDistance = clamp(Number(next.lidar.cameraDistance), 1.4, 6);
+    next.lidar.cameraFov = clamp(Number(next.lidar.cameraFov), 25, 90);
+
+    const densitySources = new Set(['tone', 'geometryEdge', 'depthChange', 'confidence']);
+    if (!densitySources.has(next.lidar.densitySource)) next.lidar.densitySource = 'tone';
+    const directionSources = new Set(['imageStructure', 'depthTangent', 'mixed']);
+    if (!directionSources.has(next.lidar.directionSource)) next.lidar.directionSource = 'mixed';
+    next.lidar.geometryEdgeStrength = clamp(Number(next.lidar.geometryEdgeStrength), 0, 2);
+    next.lidar.depthInfluence = clamp(Number(next.lidar.depthInfluence), 0, 1);
+
+    if (next.preset !== 'custom' && !presets[next.preset]) next.preset = 'custom';
+    return next;
+  }
+
+  function renderHistoryStatus(status) {
+    historyUiLocked = !!historyUiLocked;
+    undoBtn.disabled = historyUiLocked || !status.canUndo;
+    redoBtn.disabled = historyUiLocked || !status.canRedo;
+
+    autosaveStatus.dataset.state = status.autosaveState;
+    if (status.autosaveState === 'pending') {
+      autosaveStatus.textContent = 'Saving...';
+      historyHelp.textContent = 'Settings autosave locally after edits.';
+    } else if (status.autosaveState === 'saved') {
+      autosaveStatus.textContent = 'Autosaved';
+      historyHelp.textContent = status.lastSavedAt
+        ? `Last local save ${new Date(status.lastSavedAt).toLocaleTimeString()}`
+        : 'Settings restored from local autosave.';
+    } else if (status.autosaveState === 'error') {
+      autosaveStatus.textContent = 'Autosave unavailable';
+      historyHelp.textContent = status.lastError || 'Local browser storage could not be used.';
+    } else {
+      autosaveStatus.textContent = 'Autosave ready';
+      historyHelp.textContent = 'Settings autosave locally after edits.';
+    }
+  }
+
+  const history = LineArtHistory.createHistory({
+    storageKey: AUTOSAVE_KEY,
+    limit: 80,
+    autosaveDelayMs: 250,
+    coalesceWindowMs: 550,
+    onStatus: renderHistoryStatus
+  });
+
+  function recordSettingsChange(coalesceKey = null) {
+    if (!historyReady || historyApplying) return;
+    history.record(captureProjectState(), { coalesceKey });
+  }
+
+  function autosaveCurrentState() {
+    if (!historyReady || historyApplying) return;
+    history.replaceCurrent(captureProjectState(), { autosave: true });
+  }
+
+  function applyProjectSnapshot(snapshot, { preview = true } = {}) {
+    const restored = LineArtProjectState.restore(snapshot, DEFAULT_SETTINGS);
+    if (!restored) return false;
+
+    const beforeScan = scanSettingsSignature(settings);
+    historyApplying = true;
+    try {
+      Object.assign(settings, normalizeRestoredSettings(restored.settings));
+      syncUI();
+
+      if (sourceKind === 'lidar' && lidarSourceMaps) {
+        const maps = composeCurrentLidarMaps();
+        applyRendererMaps(maps);
+      }
+
+      if (sceneLoaded && beforeScan !== scanSettingsSignature(settings)) {
+        scanDirty = true;
+        scanSummary.textContent = 'settings changed';
+        scanBtn.textContent = 'Rescan LiDAR';
+      }
+
+      if (highQualityStrokeStore) highQualityStale = true;
+      updateExportNote();
+    } finally {
+      historyApplying = false;
+    }
+
+    if (preview && sourceImage) schedulePreview();
+    refreshButtons();
+    return true;
+  }
+
+  function undoSettings() {
+    const snapshot = history.undo();
+    if (!snapshot) return;
+    if (activeRender) stopRender(false);
+    applyProjectSnapshot(snapshot);
+  }
+
+  function redoSettings() {
+    const snapshot = history.redo();
+    if (!snapshot) return;
+    if (activeRender) stopRender(false);
+    applyProjectSnapshot(snapshot);
   }
 
 
@@ -369,18 +543,23 @@
     });
   }
 
-  function recomposeLidarSource({ preview = true, markPreset = true } = {}) {
+  function recomposeLidarSource({
+    preview = true,
+    markPreset = true,
+    historyKey = null
+  } = {}) {
     if (sourceKind !== 'lidar' || !lidarSourceMaps || !sourceImage) return;
     const maps = composeCurrentLidarMaps();
     applyRendererMaps(maps);
-    markSettingsChanged(markPreset);
+    markSettingsChanged(markPreset, historyKey);
     if (preview) schedulePreview();
   }
 
-  function markScanControlsChanged() {
+  function markScanControlsChanged(historyKey = null) {
     scanDirty = true;
     scanSummary.textContent = sceneLoaded ? 'settings changed' : 'single view';
     scanBtn.textContent = 'Rescan LiDAR';
+    recordSettingsChange(historyKey);
   }
 
   function updateLidarArtControlAvailability(locked = false) {
@@ -388,13 +567,14 @@
     lidarArtControlEls.forEach(el => { el.disabled = !available; });
   }
 
-  function markSettingsChanged(markPreset = true) {
+  function markSettingsChanged(markPreset = true, historyKey = null) {
     if (markPreset && settings.preset !== 'custom') {
       settings.preset = 'custom';
       presetSelect.value = 'custom';
     }
     if (highQualityStrokeStore) highQualityStale = true;
     updateExportNote();
+    recordSettingsChange(historyKey);
   }
 
   function buildSliders() {
@@ -414,7 +594,7 @@
       input.addEventListener('input', () => {
         settings[def.key] = Number(input.value);
         updateSliderValue(def);
-        markSettingsChanged(true);
+        markSettingsChanged(true, `slider:${def.key}`);
         schedulePreview();
       });
     }
@@ -471,16 +651,17 @@
       applyRendererMaps(maps);
     }
     updateExportNote();
+    recordSettingsChange(null);
     if (preview) schedulePreview();
   }
 
-  function setLineCount(value, preview = true) {
+  function setLineCount(value, preview = true, historyKey = 'lineCount') {
     const normalized = clamp(Math.round(Number(value) / 1000) * 1000, 1000, 400000);
     settings.lineCount = normalized;
     lineCountRange.value = normalized;
     lineCountNumber.value = normalized;
     lineCountDisplay.textContent = formatCount(normalized);
-    markSettingsChanged(true);
+    markSettingsChanged(true, historyKey);
     if (preview) schedulePreview();
   }
 
@@ -488,7 +669,7 @@
     settings.mode = mode === 'black' ? 'black' : 'color';
     syncModeButtons();
     syncPaletteAvailability();
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'mode');
     if (preview) schedulePreview();
   }
 
@@ -583,6 +764,8 @@
     const canSave = !active && !loadingImage && !scanRunning && !exportBusy && !!getExportTarget();
     saveBtn.disabled = !canSave;
     saveSvgBtn.disabled = !canSave;
+    historyUiLocked = highActive || exportBusy || scanRunning || modelLoading;
+    renderHistoryStatus(history.status());
     updateExportNote();
   }
 
@@ -594,7 +777,16 @@
     }
   }
 
-  function installSource(newSourceCanvas, newPixels, maps, w, h, readyMessage, kind = 'image') {
+  function installSource(
+    newSourceCanvas,
+    newPixels,
+    maps,
+    w,
+    h,
+    readyMessage,
+    kind = 'image',
+    name = null
+  ) {
     if (sourceCanvas && sourceCanvas !== newSourceCanvas) {
       sourceCanvas.width = 0;
       sourceCanvas.height = 0;
@@ -604,6 +796,8 @@
     sourcePixels = newPixels;
     sourceImage = { width: w, height: h };
     sourceKind = kind;
+    sourceName = name || null;
+    restoredSourceHint = null;
     if (kind !== 'lidar') lidarSourceMaps = null;
     applyRendererMaps(maps);
 
@@ -629,6 +823,7 @@
     updateLidarArtControlAvailability(false);
     refreshButtons();
     setStatus(readyMessage, 0);
+    autosaveCurrentState();
     startRender('preview');
   }
 
@@ -685,7 +880,8 @@
         w,
         h,
         `Ready - ${w} x ${h}px. Building direction-aware preview...`,
-        'image'
+        'image',
+        file.name
       );
     } catch (error) {
       bitmap?.close?.();
@@ -798,7 +994,8 @@
         images.shaded.width,
         images.shaded.height,
         `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
-        'lidar'
+        'lidar',
+        scan.scene?.name || '3D model'
       );
     } catch (error) {
       console.error(error);
@@ -818,17 +1015,71 @@
   async function restoreServerScene() {
     try {
       const result = await LidarClient.getState();
-      const scene = result.state?.workspace?.scene;
-      if (scene?.loaded) {
-        sceneLoaded = true;
-        scanDirty = true;
-        scanSummary.textContent = 'ready to scan';
-        modelStatus.textContent =
-          `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
-        refreshButtons();
+      const workspace = result.state?.workspace;
+      const scene = workspace?.scene;
+      if (!scene?.loaded) return null;
+
+      sceneLoaded = true;
+      modelStatus.textContent =
+        `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
+
+      if (workspace?.scan?.status === 'ready') {
+        try {
+          const mapsResponse = await LidarClient.getMaps();
+          const scan = mapsResponse.scan;
+          const images = await LidarClient.fetchScanMaps(scan);
+
+          lidarSourceMaps = LineArtAnalysis.buildLidarSourceMaps(
+            images.shaded.imageData,
+            images.depth.imageData,
+            images.edge.imageData,
+            images.variance.imageData,
+            images.confidence.imageData,
+            images.shaded.width,
+            images.shaded.height
+          );
+          const maps = composeCurrentLidarMaps();
+
+          for (const [name, item] of Object.entries(images)) {
+            if (name !== 'shaded') {
+              item.canvas.width = 0;
+              item.canvas.height = 0;
+            }
+          }
+
+          scanDirty = scanSettingsSignature(settings) !== scanMetadataSignature(scan);
+          scanBtn.textContent = 'Rescan LiDAR';
+          const smartText = scan.smart_sampling ? ' · smart' : '';
+          const staleText = scanDirty ? ' · settings changed' : '';
+          scanSummary.textContent = `${scan.width}×${scan.height}${smartText}${staleText}`;
+          modelStatus.textContent =
+            `${scan.scene?.name || scene.name || '3D model'} - restored server scan · ${Math.round(scan.coverage * 100)}% coverage`;
+
+          installSource(
+            images.shaded.canvas,
+            images.shaded.imageData,
+            maps,
+            images.shaded.width,
+            images.shaded.height,
+            `Restored LiDAR scan - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
+            'lidar',
+            scan.scene?.name || scene.name || '3D model'
+          );
+          if (scanDirty) scanBtn.textContent = 'Rescan LiDAR';
+          return 'lidar';
+        } catch (error) {
+          console.warn('Could not restore the previous LiDAR scan:', error);
+        }
       }
+
+      scanDirty = true;
+      scanSummary.textContent = 'ready to scan';
+      scanBtn.textContent = 'Scan LiDAR';
+      refreshButtons();
+      return 'scene';
     } catch (_) {
       modelStatus.textContent = '3D mode requires the local Python server.';
+      return null;
     }
   }
 
@@ -976,8 +1227,21 @@
   buildSliders();
   applyPreset('finePencil', false);
   settings.seed = normalizeSeed(seedInput.value);
+
+  const autosavedSnapshot = history.restoreAutosave();
+  const restoredProject = autosavedSnapshot
+    ? LineArtProjectState.restore(autosavedSnapshot, DEFAULT_SETTINGS)
+    : null;
+  if (restoredProject) {
+    Object.assign(settings, normalizeRestoredSettings(restoredProject.settings));
+    restoredSourceHint = restoredProject.source;
+  }
+
   syncUI();
+  history.initialize(captureProjectState());
+  historyReady = true;
   refreshButtons();
+
   document.body.dataset.phase1Ready = 'true';
   document.body.dataset.phase3Ready = 'true';
   document.body.dataset.phase4Ready = 'true';
@@ -985,35 +1249,46 @@
   document.body.dataset.phase6Ready = 'true';
   document.body.dataset.phase7Ready = 'true';
   document.body.dataset.phase8Ready = 'true';
-  syncLidarControls();
-  syncProceduralControls();
-  syncFlowMixerControls();
-  restoreServerScene();
+  document.body.dataset.phase9Ready = 'true';
+
+  restoreServerScene().then(restoredKind => {
+    if (restoredKind) return;
+    if (restoredSourceHint?.kind === 'image') {
+      const name = restoredSourceHint.name ? ` "${restoredSourceHint.name}"` : '';
+      setStatus(`Settings restored from autosave. Reselect image${name} to restore the source.`, 0);
+    } else if (restoredSourceHint?.kind === 'lidar') {
+      setStatus('Settings restored from autosave. Reload the 3D model if the local server was restarted.', 0);
+    } else if (restoredProject) {
+      setStatus('Settings restored from local autosave.', 0);
+    }
+  });
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
   scanBtn.addEventListener('click', runLidarScan);
+  undoBtn.addEventListener('click', undoSettings);
+  redoBtn.addEventListener('click', redoSettings);
 
   scanResolution.addEventListener('change', () => {
     settings.lidar.scanResolution = scanResolution.value;
-    markScanControlsChanged();
+    markScanControlsChanged('lidar:scanResolution');
     refreshButtons();
   });
   raysPerPixel.addEventListener('change', () => {
     settings.lidar.raysPerPixel = Number(raysPerPixel.value);
-    markScanControlsChanged();
+    markScanControlsChanged('lidar:raysPerPixel');
     refreshButtons();
   });
   smartSampling.addEventListener('change', () => {
     settings.lidar.smartSampling = smartSampling.checked;
-    markScanControlsChanged();
+    markScanControlsChanged('lidar:smartSampling');
   });
 
   function bindScanRange(element, key, output, formatter) {
     element.addEventListener('input', () => {
       settings.lidar[key] = Number(element.value);
       output.textContent = formatter(settings.lidar[key]);
-      markScanControlsChanged();
+      markScanControlsChanged(`lidar:${key}`);
     });
   }
   bindScanRange(cameraYaw, 'cameraYaw', cameraYawValue, value => `${Math.round(value)}°`);
@@ -1023,22 +1298,23 @@
 
   densitySource.addEventListener('change', () => {
     settings.lidar.densitySource = densitySource.value;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:densitySource' });
   });
   directionSource.addEventListener('change', () => {
     settings.lidar.directionSource = directionSource.value;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:directionSource' });
   });
   geometryEdgeStrength.addEventListener('input', () => {
     settings.lidar.geometryEdgeStrength = Number(geometryEdgeStrength.value);
     geometryEdgeStrengthValue.textContent = `${Math.round(settings.lidar.geometryEdgeStrength * 100)}%`;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:geometryEdgeStrength' });
   });
   depthInfluence.addEventListener('input', () => {
     settings.lidar.depthInfluence = Number(depthInfluence.value);
     depthInfluenceValue.textContent = `${Math.round(settings.lidar.depthInfluence * 100)}%`;
-    recomposeLidarSource();
+    recomposeLidarSource({ historyKey: 'lidar:depthInfluence' });
   });
+
   presetSelect.addEventListener('change', () => {
     if (presetSelect.value !== 'custom') applyPreset(presetSelect.value);
   });
@@ -1051,36 +1327,36 @@
   paletteSelect.addEventListener('change', () => {
     settings.palette = paletteSelect.value;
     syncPaletteAvailability();
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'palette');
     schedulePreview();
   });
 
-  lineCountRange.addEventListener('input', () => setLineCount(lineCountRange.value));
-  lineCountNumber.addEventListener('change', () => setLineCount(lineCountNumber.value));
+  lineCountRange.addEventListener('input', () => setLineCount(lineCountRange.value, true, 'lineCount'));
+  lineCountNumber.addEventListener('change', () => setLineCount(lineCountNumber.value, true, 'lineCount'));
 
   document.querySelector('.quick-counts').addEventListener('click', e => {
     const btn = e.target.closest('button[data-count]');
-    if (btn) setLineCount(Number(btn.dataset.count));
+    if (btn) setLineCount(Number(btn.dataset.count), true, 'lineCount');
   });
 
   flowScale.addEventListener('input', () => {
     settings.procedural.scale = Number(flowScale.value);
     flowScaleValue.textContent = `${Math.round(settings.procedural.scale)} px`;
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'procedural:scale');
     schedulePreview();
   });
 
   flowTurbulence.addEventListener('input', () => {
     settings.procedural.turbulence = Number(flowTurbulence.value);
     flowTurbulenceValue.textContent = `${Math.round(settings.procedural.turbulence * 100)}%`;
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'procedural:turbulence');
     schedulePreview();
   });
 
   flowOctaves.addEventListener('input', () => {
     settings.procedural.octaves = Number(flowOctaves.value);
     flowOctavesValue.textContent = String(settings.procedural.octaves);
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'procedural:octaves');
     schedulePreview();
   });
 
@@ -1089,7 +1365,7 @@
     control.input.addEventListener('input', () => {
       settings.flowMixer[def.key] = Number(control.input.value);
       control.value.textContent = `${Math.round(settings.flowMixer[def.key] * 100)}%`;
-      markSettingsChanged(true);
+      markSettingsChanged(true, `mixer:${def.key}`);
       schedulePreview();
     });
   }
@@ -1097,15 +1373,28 @@
   seedInput.addEventListener('change', () => {
     settings.seed = normalizeSeed(seedInput.value);
     seedInput.value = settings.seed;
-    markSettingsChanged(false);
+    markSettingsChanged(false, 'seed');
     schedulePreview();
   });
 
   variationBtn.addEventListener('click', () => {
     settings.seed = randomSeed();
     seedInput.value = settings.seed;
-    markSettingsChanged(false);
+    markSettingsChanged(false, null);
     schedulePreview();
+  });
+
+  document.addEventListener('keydown', event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redoSettings();
+      else undoSettings();
+    } else if (key === 'y') {
+      event.preventDefault();
+      redoSettings();
+    }
   });
 
   renderBtn.addEventListener('click', () => startRender('high'));
@@ -1114,6 +1403,7 @@
   saveSvgBtn.addEventListener('click', exporter.saveSvg);
 
   window.addEventListener('pagehide', () => {
+    history.dispose({ flush: true });
     exporter.dispose();
     if (sourceCanvas) {
       sourceCanvas.width = 0;

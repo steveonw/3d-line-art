@@ -275,6 +275,83 @@ Completed renders store placement diagnostics in render metadata, including cand
 
 The deterministic Phase 7-vs-Phase 8 benchmark in `tests/frontend_stroke_placement_smoke.js` uses the same seed and synthetic evidence field for both samplers. The current fixture improves useful selections from about 90.7% to 96.8% and raises average remaining need selected from about 0.327 to 0.366.
 
+## Phase 9 undo, redo, and local autosave
+
+Phase 9 adds an edit-safety layer for normal experimentation.
+
+### History
+
+The sidebar now includes **Undo** and **Redo** controls.
+
+Keyboard shortcuts:
+
+```text
+Ctrl+Z         Undo
+Ctrl+Y         Redo
+Ctrl+Shift+Z   Redo
+```
+
+On macOS, Command can be used in place of Ctrl.
+
+The history stack keeps up to 80 project-setting snapshots. Continuous slider edits with the same control are coalesced for 550 ms, so dragging a slider creates one useful undo step instead of dozens of tiny steps.
+
+Undoable settings include:
+
+- style presets,
+- color/black mode,
+- palette,
+- line count,
+- normal stroke/detail/opacity/flow sliders,
+- seed/new variation,
+- procedural flow controls,
+- all mathematical flow-mixer weights,
+- LiDAR art-mapping controls,
+- LiDAR camera, resolution, ray-count, and smart-sampling controls.
+
+Undoing a LiDAR camera/scan setting marks the current scan stale when appropriate; it does not silently rerun the sensor.
+
+### Versioned project state
+
+Browser history/autosave uses a versioned project-state schema in:
+
+```text
+frontend/project_state.js
+```
+
+Current schema version:
+
+```text
+1
+```
+
+Unknown fields are ignored, invalid primitive types fall back to current defaults, and unsupported future project-state versions are rejected rather than guessed at.
+
+### Autosave
+
+Settings autosave to browser-local storage after a 250 ms debounce.
+
+The autosave key is versioned, and the UI reports:
+
+```text
+Autosave ready
+Saving...
+Autosaved
+Autosave unavailable
+```
+
+Pending state is flushed during page unload.
+
+After a reload or browser crash:
+
+- project settings are restored automatically,
+- undo history starts from the restored settings,
+- if the Python server is still running and still holds the previous LiDAR scan in memory, that scan is reconstructed in the browser automatically,
+- if the source was a local image, the settings are restored but the image must be selected again.
+
+Local image bytes are intentionally **not** stored in localStorage. This avoids browser-storage quota problems and avoids silently copying arbitrary user files into persistent browser storage. Full portable project files belong to Phase 10.
+
+Source hints are updated in the current autosave snapshot without becoming undo operations, so loading an image or LiDAR source does not create a misleading "undo source file" action.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
