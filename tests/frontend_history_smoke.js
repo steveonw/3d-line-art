@@ -167,6 +167,18 @@ const incompatibleHistory = History.createHistory({
 });
 assert(incompatibleHistory.restoreAutosave() === null, 'unknown autosave storage version should be rejected');
 
+const noStorageHistory = History.createHistory({
+  storage: null,
+  storageKey: 'no-storage',
+  now: () => now,
+  setTimeoutFn: setTimer,
+  clearTimeoutFn: clearTimer
+});
+noStorageHistory.initialize(s0);
+noStorageHistory.record(s1);
+runTimers();
+assert(noStorageHistory.status().autosaveState === 'error', 'blocked storage should degrade to autosave error');
+
 assert(html.includes('id="undoBtn"'), 'Undo button missing');
 assert(html.includes('id="redoBtn"'), 'Redo button missing');
 assert(html.includes('id="autosaveStatus"'), 'autosave status missing');
