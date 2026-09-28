@@ -220,6 +220,54 @@ f 1 2 3
         self.assertEqual(stats["misses"], 5)
         self.assertEqual(stats["hits"], 5)
 
+    def test_auto_views_are_deterministic_inspectable_and_cache_reusable(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        options = {
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "seed": 23,
+            "smart_sampling": False,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+            "auto_target": 0.98,
+            "auto_min_views": 3,
+            "auto_max_views": 4,
+            "auto_min_gain": 0.0,
+        }
+
+        first = bridge.scan_auto_views(options)
+        self.assertEqual(first["mode"], "auto")
+        self.assertEqual(len(first["order"]), 4)
+        self.assertEqual(first["planner"]["stop_reason"], "max_views")
+        self.assertGreater(first["planner"]["coverage_score"], 0)
+        self.assertEqual(len(first["planner"]["steps"]), 4)
+
+        first_ids = [first["views"][name]["scan_id"] for name in first["order"]]
+        self.assertEqual(len(set(first_ids)), 4)
+        for name in first["order"]:
+            scan = first["views"][name]
+            self.assertEqual(scan["view"]["kind"], "auto")
+            self.assertGreaterEqual(scan["view"]["quality_score"], 0)
+            self.assertLessEqual(scan["view"]["quality_score"], 1)
+            depth = bridge.channel_png("depth", scan_id=scan["scan_id"])
+            self.assertTrue(depth.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=AssertionError(
+                "repeat auto-view scan should come entirely from scan cache"
+            ),
+        ):
+            second = bridge.scan_auto_views(options)
+
+        self.assertEqual(second["order"], first["order"])
+        for index, name in enumerate(second["order"]):
+            self.assertTrue(second["views"][name]["cache_hit"])
+            self.assertEqual(second["views"][name]["scan_id"], first_ids[index])
+
     def test_identical_scan_reuses_cache_without_engine(self) -> None:
         state = StudioState()
         bridge = LidarBridge(state)
