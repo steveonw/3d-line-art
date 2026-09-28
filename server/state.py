@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
 from threading import Lock, RLock
 from typing import Any
+
+
+DEFAULT_SCAN_CACHE_LIMIT_BYTES = 256 * 1024 * 1024
+DEFAULT_SCAN_CACHE_MAX_ENTRIES = 16
 
 
 def _utc_now() -> str:
@@ -23,7 +28,12 @@ def _empty_workspace() -> dict[str, Any]:
 class StudioState:
     """Single-user local application state with a reusable operation gate."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        scan_cache_limit_bytes: int = DEFAULT_SCAN_CACHE_LIMIT_BYTES,
+        scan_cache_max_entries: int = DEFAULT_SCAN_CACHE_MAX_ENTRIES,
+    ) -> None:
         now = _utc_now()
         self._state_lock = RLock()
         self._operation_lock = Lock()
@@ -39,8 +49,36 @@ class StudioState:
         self._scan_metadata: dict[str, Any] | None = None
         self._scan_channels: dict[str, bytes] = {}
 
+        # Phase 11 bounded in-memory LRU. Keys are stable sensor-result keys,
+        # never art settings. Current scan bytes remain independently available
+        # even if their cache entry is later evicted.
+        self._scan_cache_limit_bytes = max(1, int(scan_cache_limit_bytes))
+        self._scan_cache_max_entries = max(1, int(scan_cache_max_entries))
+        self._scan_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._scan_cache_bytes = 0
+        self._scan_cache_hits = 0
+        self._scan_cache_misses = 0
+        self._scan_cache_evictions = 0
+
+    @staticmethod
+    def _channels_size(channels: dict[str, bytes]) -> int:
+        return sum(len(payload) for payload in channels.values())
+
+    def _cache_summary_locked(self) -> dict[str, Any]:
+        return {
+            "entries": len(self._scan_cache),
+            "bytes": self._scan_cache_bytes,
+            "limit_bytes": self._scan_cache_limit_bytes,
+            "max_entries": self._scan_cache_max_entries,
+            "hits": self._scan_cache_hits,
+            "misses": self._scan_cache_misses,
+            "evictions": self._scan_cache_evictions,
+        }
+
     def snapshot(self) -> dict[str, Any]:
         with self._state_lock:
+            workspace = deepcopy(self._workspace)
+            workspace["scan_cache"] = self._cache_summary_locked()
             return {
                 "revision": self._revision,
                 "reset_count": self._reset_count,
@@ -48,7 +86,7 @@ class StudioState:
                 "updated_at": self._updated_at,
                 "busy": self._active_operation is not None,
                 "active_operation": self._active_operation,
-                "workspace": deepcopy(self._workspace),
+                "workspace": workspace,
             }
 
     def reset(self) -> dict[str, Any]:
@@ -57,6 +95,11 @@ class StudioState:
             self._scene_object = None
             self._scan_metadata = None
             self._scan_channels = {}
+            self._scan_cache.clear()
+            self._scan_cache_bytes = 0
+            self._scan_cache_hits = 0
+            self._scan_cache_misses = 0
+            self._scan_cache_evictions = 0
             self._revision += 1
             self._reset_count += 1
             self._updated_at = _utc_now()
@@ -69,6 +112,9 @@ class StudioState:
             self._scan_channels = {}
             self._workspace["scene"] = {"loaded": True, **deepcopy(info)}
             self._workspace["scan"] = {"status": "idle", "scan_id": None}
+            # Do not clear the cache here. Every entry is namespaced by the
+            # model content fingerprint, so switching back to a known model can
+            # safely reuse its prior sensor result.
             self._revision += 1
             self._updated_at = _utc_now()
             return deepcopy(self._workspace["scene"])
@@ -92,6 +138,8 @@ class StudioState:
                 "width": metadata.get("width"),
                 "height": metadata.get("height"),
                 "coverage": metadata.get("coverage"),
+                "cache_hit": bool(metadata.get("cache_hit")),
+                "cache_key": metadata.get("cache_key"),
             }
             self._revision += 1
             self._updated_at = _utc_now()
@@ -109,6 +157,71 @@ class StudioState:
     def get_scan_channel(self, name: str) -> bytes | None:
         with self._state_lock:
             return self._scan_channels.get(name)
+
+    def get_cached_scan(self, cache_key: str) -> dict[str, Any] | None:
+        with self._state_lock:
+            entry = self._scan_cache.get(cache_key)
+            if entry is None:
+                self._scan_cache_misses += 1
+                return None
+            self._scan_cache.move_to_end(cache_key)
+            self._scan_cache_hits += 1
+            return {
+                "metadata": deepcopy(entry["metadata"]),
+                "channels": dict(entry["channels"]),
+                "bytes": entry["bytes"],
+            }
+
+    def put_cached_scan(
+        self,
+        cache_key: str,
+        metadata: dict[str, Any],
+        channels: dict[str, bytes],
+    ) -> dict[str, Any]:
+        with self._state_lock:
+            stored_channels = dict(channels)
+            size = self._channels_size(stored_channels)
+
+            previous = self._scan_cache.pop(cache_key, None)
+            if previous is not None:
+                self._scan_cache_bytes -= int(previous["bytes"])
+
+            self._scan_cache[cache_key] = {
+                "metadata": deepcopy(metadata),
+                "channels": stored_channels,
+                "bytes": size,
+            }
+            self._scan_cache_bytes += size
+
+            while (
+                len(self._scan_cache) > self._scan_cache_max_entries
+                or self._scan_cache_bytes > self._scan_cache_limit_bytes
+            ):
+                oldest_key, oldest = self._scan_cache.popitem(last=False)
+                # A single result larger than the byte cap remains usable as the
+                # newest/current cache entry. Evict older entries first rather
+                # than immediately discarding the only result.
+                if not self._scan_cache and oldest_key == cache_key:
+                    self._scan_cache[oldest_key] = oldest
+                    break
+                self._scan_cache_bytes -= int(oldest["bytes"])
+                self._scan_cache_evictions += 1
+
+            self._updated_at = _utc_now()
+            return self._cache_summary_locked()
+
+    def scan_cache_stats(self) -> dict[str, Any]:
+        with self._state_lock:
+            return deepcopy(self._cache_summary_locked())
+
+    def clear_scan_cache(self) -> None:
+        with self._state_lock:
+            self._scan_cache.clear()
+            self._scan_cache_bytes = 0
+            self._scan_cache_hits = 0
+            self._scan_cache_misses = 0
+            self._scan_cache_evictions = 0
+            self._updated_at = _utc_now()
 
     def try_begin_operation(self, name: str) -> bool:
         if not self._operation_lock.acquire(blocking=False):

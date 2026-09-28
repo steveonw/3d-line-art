@@ -109,7 +109,8 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
         self.page.click("#scanBtn")
         self.page.wait_for_function(
-            "/^\\d+×\\d+/.test(document.getElementById('scanSummary').textContent)"
+            "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
+            " && !document.getElementById('scanSummary').textContent.startsWith('Scan running')"
             " && !document.getElementById('scanBtn').disabled",
             timeout=SCAN_TIMEOUT_MS,
         )
@@ -195,7 +196,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.open_project(project)
         self.upload_cube_and_scan()
         self.open_project(project)
-        self.assertNotIn("settings changed", self.text("#scanSummary"))
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
         self.assertFalse(self.is_disabled("#saveBtn"))
 
     def test_opening_project_with_different_camera_marks_scan_stale(self) -> None:
@@ -210,7 +211,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.upload_cube_and_scan()
         self.open_project(moved)
         self.assertEqual(self.page.input_value("#cameraYaw"), "200")
-        self.assertIn("settings changed", self.text("#scanSummary"))
+        self.assertIn("Scan stale", self.text("#scanSummary"))
         self.assertTrue(self.is_disabled("#renderBtn"))
         self.assertTrue(self.is_disabled("#saveBtn"))
 
@@ -226,6 +227,82 @@ class BrowserRegressionTests(unittest.TestCase):
             self.page.dispatch_event("#cameraYaw", "change")
         self.assertNotIn("settings changed", self.text("#scanSummary"))
         self.assertFalse(self.is_disabled("#renderBtn"))
+
+    def test_repeated_scan_uses_cache_and_shows_cached_state(self) -> None:
+        project = self.write_project("cube-cache.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+
+        scan_requests = []
+        self.page.on(
+            "request",
+            lambda request: scan_requests.append(request.url)
+            if request.url.endswith("/api/lidar/scan")
+            else None,
+        )
+
+        self.upload_cube_and_scan()
+        self.assertIn("Scan ready", self.text("#scanSummary"))
+        self.assertEqual(len(scan_requests), 1)
+
+        self.page.click("#scanBtn")
+        self.page.wait_for_function(
+            "document.getElementById('scanSummary').textContent.startsWith('Scan cached')",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertEqual(len(scan_requests), 2)
+
+    def test_art_preset_change_reuses_current_scan_without_scan_request(self) -> None:
+        project = self.write_project("cube-art-reuse.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+
+        scan_requests = []
+        self.page.on(
+            "request",
+            lambda request: scan_requests.append(request.url)
+            if request.url.endswith("/api/lidar/scan")
+            else None,
+        )
+
+        self.upload_cube_and_scan()
+        before = len(scan_requests)
+        before_status = self.text("#scanSummary")
+
+        self.page.select_option("#preset", "architectural")
+        self.page.wait_for_function(
+            "document.getElementById('preset').value === 'architectural'"
+        )
+
+        self.assertEqual(
+            len(scan_requests),
+            before,
+            "art-only preset change unexpectedly requested a new LiDAR scan",
+        )
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+        self.assertEqual(self.text("#scanSummary"), before_status)
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+    def test_scan_status_shows_running_then_stale(self) -> None:
+        project = self.write_project("cube-status.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.page.set_input_files("#modelInput", str(CUBE_OBJ))
+        self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
+
+        self.page.click("#scanBtn")
+        self.page.wait_for_function(
+            "document.getElementById('scanSummary').textContent.startsWith('Scan running')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.page.wait_for_function(
+            "document.getElementById('scanSummary').textContent.startsWith('Scan ready')",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+        self.page.fill("#cameraYaw", "120")
+        self.page.dispatch_event("#cameraYaw", "input")
+        self.assertIn("Scan stale", self.text("#scanSummary"))
 
     def test_same_settings_repeat_to_byte_identical_png(self) -> None:
         def lightweight_image_project(project: dict) -> None:

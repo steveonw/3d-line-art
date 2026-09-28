@@ -360,10 +360,10 @@ resolution
 LiDAR settings
 ```
 
-- [ ] Art changes reuse the existing LiDAR scan
-- [ ] Show "Scan cached"
-- [ ] Show "Scan running"
-- [ ] Show "Scan stale"
+- [x] Art changes reuse the existing LiDAR scan
+- [x] Show "Scan cached"
+- [x] Show "Scan running"
+- [x] Show "Scan stale"
 
 Example:
 
@@ -376,6 +376,8 @@ Fine Pencil
 should not raycast three times.
 
 **Done when:** changing art styles becomes fast.
+
+**Phase 11 validation:** GitHub Actions passes bounded-LRU cache tests, identical-request engine bypass, all-sensor-input cache-key isolation, same-filename/different-model SHA-256 isolation, reset/eviction behavior, five-channel cache restore, API cache metadata checks, and real Chromium regressions for Scan running / Scan cached / Scan stale states. The browser also verifies that art-only preset changes reuse the installed scan without issuing a new `/api/lidar/scan` request.
 
 ---
 
@@ -619,7 +621,7 @@ ART SYSTEM CHECKPOINT / v0.2
 
 10. Undo / autosave                            [x]
 11. Project files                              [x]
-12. Scan caching                               [ ]
+12. Scan caching                               [x]
 ---------------------------------------------------
 USABILITY CHECKPOINT / v0.3
 

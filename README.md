@@ -547,6 +547,57 @@ python scripts/make_reference_fixtures.py
 
 See `tests/reference/README.md` for the reference-render testing policy.
 
+## Phase 11 LiDAR scan caching
+
+Expensive single-view LiDAR results are now cached in memory and reused when the model and sensor inputs are identical.
+
+The cache key contains only sensor-result inputs:
+
+```text
+model SHA-256
++ width / height
++ rays per pixel
++ smart sampling
++ yaw / elevation
++ camera distance
++ field of view
++ sensor seed
+```
+
+Art-only settings are deliberately excluded. Changing presets, palette, line count, stroke settings, procedural flow, mathematical flow weights, LiDAR density source, direction source, geometry-edge art strength, or depth influence does not require another raycast.
+
+The server cache is a bounded LRU:
+
+```text
+default byte cap:   256 MB
+default entry cap:  16 scans
+```
+
+Each entry stores scan metadata plus the existing five PNG channels:
+
+```text
+shaded
+depth
+edge
+variance
+confidence
+```
+
+A cache hit restores the complete scan as the current scan without loading or running the LiDAR engine again. Cache entries are safely namespaced by the model's uploaded SHA-256, so switching models can retain older entries without filename collisions. Explicit server reset clears the cache.
+
+The UI distinguishes sensor state directly:
+
+```text
+Scan running…
+Scan ready · 320×240
+Scan cached · 320×240
+Scan stale · 320×240
+```
+
+Returning camera/sensor controls to a previously cached configuration and scanning again can produce an immediate cache hit.
+
+The cache design borrows the useful content-addressed / byte-accounted / bounded-eviction pattern from the owner's `Read-Aloud-Main` repository. A separate in-flight request table is unnecessary here because the local server already serializes expensive write/scan operations.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`

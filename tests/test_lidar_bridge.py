@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import types
 import unittest
+from unittest import mock
 
 from PIL import Image
 
@@ -12,7 +13,9 @@ from server.lidar_bridge import (
     _float_option,
     _int_option,
     _load_engine,
+    _normalized_scan_options,
     _orient_hit_normals_against_rays,
+    _scan_cache_key,
 )
 from server.state import StudioState
 
@@ -153,6 +156,148 @@ f 1 2 3
         self.assertEqual(current["name"], previous["name"])
         self.assertEqual(current["sha256"], previous["sha256"])
         self.assertIsNotNone(state.get_scene_object())
+
+    def test_identical_scan_reuses_cache_without_engine(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        options = {
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "seed": 17,
+            "smart_sampling": False,
+            "yaw_deg": 35,
+            "elevation_deg": 25,
+            "distance_scale": 3.1,
+            "fov_deg": 52,
+        }
+
+        first = bridge.scan(options)
+        first_channels = {
+            name: bridge.channel_png(name, scan_id=first["scan_id"])
+            for name in ("shaded", "depth", "edge", "variance", "confidence")
+        }
+        self.assertFalse(first["cache_hit"])
+
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=AssertionError("cache hit should not load or run the LiDAR engine"),
+        ):
+            second = bridge.scan(options)
+
+        self.assertTrue(second["cache_hit"])
+        self.assertEqual(second["scan_id"], first["scan_id"])
+        self.assertEqual(second["cache_key"], first["cache_key"])
+        for name, payload in first_channels.items():
+            self.assertEqual(
+                bridge.channel_png(name, scan_id=second["scan_id"]),
+                payload,
+            )
+
+        stats = state.scan_cache_stats()
+        self.assertEqual(stats["entries"], 1)
+        self.assertEqual(stats["hits"], 1)
+        self.assertEqual(stats["misses"], 1)
+
+    def test_every_sensor_input_changes_cache_key(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        scene = bridge.upload_scene("cube.obj", CUBE_OBJ)
+
+        base = _normalized_scan_options({
+            "width": 160,
+            "height": 120,
+            "rays_per_pixel": 2,
+            "seed": 42,
+            "smart_sampling": False,
+            "yaw_deg": 45,
+            "elevation_deg": 20,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+        })
+        base_key = _scan_cache_key(scene, base)
+
+        variants = {
+            "width": 200,
+            "height": 160,
+            "rays_per_pixel": 4,
+            "seed": 43,
+            "smart_sampling": True,
+            "yaw_deg": 46,
+            "elevation_deg": 21,
+            "distance_scale": 3.2,
+            "fov_deg": 56,
+        }
+        for name, value in variants.items():
+            changed = dict(base)
+            changed[name] = value
+            self.assertNotEqual(
+                _scan_cache_key(scene, changed),
+                base_key,
+                f"{name} did not change the scan cache key",
+            )
+
+    def test_same_filename_different_model_bytes_do_not_collide(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        options = {"width": 64, "height": 64, "rays_per_pixel": 1}
+
+        first_scene = bridge.upload_scene("model.obj", CUBE_OBJ)
+        first = bridge.scan(options)
+
+        changed_obj = CUBE_OBJ.replace(b"v  1  1  1", b"v  1.2  1  1")
+        second_scene = bridge.upload_scene("model.obj", changed_obj)
+        self.assertNotEqual(first_scene["sha256"], second_scene["sha256"])
+
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=RuntimeError("expected cache miss for changed model"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "expected cache miss"):
+                bridge.scan(options)
+
+        self.assertEqual(state.scan_cache_stats()["entries"], 1)
+        self.assertFalse(state.get_scan())
+
+    def test_reset_clears_scan_cache(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        bridge.scan({"width": 64, "height": 64, "rays_per_pixel": 1})
+        self.assertEqual(state.scan_cache_stats()["entries"], 1)
+
+        state.reset()
+
+        self.assertEqual(
+            state.scan_cache_stats(),
+            {
+                "entries": 0,
+                "bytes": 0,
+                "limit_bytes": state.scan_cache_stats()["limit_bytes"],
+                "max_entries": state.scan_cache_stats()["max_entries"],
+                "hits": 0,
+                "misses": 0,
+                "evictions": 0,
+            },
+        )
+
+    def test_scan_cache_is_bounded_lru(self) -> None:
+        state = StudioState(scan_cache_limit_bytes=10_000, scan_cache_max_entries=2)
+        dummy = {"shaded": b"a" * 100}
+        for i in range(3):
+            state.put_cached_scan(
+                f"key-{i}",
+                {"scan_id": f"scan-{i}"},
+                dummy,
+            )
+
+        stats = state.scan_cache_stats()
+        self.assertEqual(stats["entries"], 2)
+        self.assertEqual(stats["evictions"], 1)
+        self.assertIsNone(state.get_cached_scan("key-0"))
+        self.assertIsNotNone(state.get_cached_scan("key-1"))
+        self.assertIsNotNone(state.get_cached_scan("key-2"))
 
     def test_camera_and_scan_options_are_clamped(self) -> None:
         options = {
