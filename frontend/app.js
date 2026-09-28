@@ -1491,7 +1491,7 @@
       }
 
       scanDirty = true;
-      scanSummary.textContent = 'ready to scan';
+      scanSummary.textContent = 'Scan stale · ready to scan';
       scanBtn.textContent = 'Scan LiDAR';
       if (requiredSourceReference?.kind === 'lidar') {
         setProjectStatus('Referenced model is loaded. Run LiDAR to reproduce the project.', true);
