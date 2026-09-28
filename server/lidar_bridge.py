@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import math
 import os
 import tempfile
@@ -342,6 +343,84 @@ def _bool_option(options: dict[str, Any], key: str, default: bool) -> bool:
     raise ValueError(f"{key} must be a boolean")
 
 
+def _normalized_scan_options(options: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Validate/clamp only inputs that can change the sensor result."""
+    options = options or {}
+    return {
+        "width": _int_option(options, "width", DEFAULT_WIDTH, 64, 640),
+        "height": _int_option(options, "height", DEFAULT_HEIGHT, 64, 480),
+        "rays_per_pixel": _int_option(
+            options,
+            "rays_per_pixel",
+            DEFAULT_RAYS_PER_PIXEL,
+            1,
+            4,
+        ),
+        "seed": _int_option(
+            options,
+            "seed",
+            DEFAULT_SEED,
+            1,
+            2_147_483_647,
+        ),
+        "smart_sampling": _bool_option(options, "smart_sampling", False),
+        "yaw_deg": _float_option(
+            options,
+            "yaw_deg",
+            DEFAULT_YAW_DEG,
+            0.0,
+            360.0,
+        ),
+        "elevation_deg": _float_option(
+            options,
+            "elevation_deg",
+            DEFAULT_ELEVATION_DEG,
+            5.0,
+            80.0,
+        ),
+        "distance_scale": _float_option(
+            options,
+            "distance_scale",
+            DEFAULT_DISTANCE_SCALE,
+            1.4,
+            6.0,
+        ),
+        "fov_deg": _float_option(
+            options,
+            "fov_deg",
+            DEFAULT_FOV_DEG,
+            25.0,
+            90.0,
+        ),
+    }
+
+
+def _scan_cache_key(scene_info: dict[str, Any], scan_options: dict[str, Any]) -> str:
+    """Stable content key for expensive LiDAR results.
+
+    Art settings are intentionally absent. The key contains only the model
+    content identity and normalized sensor inputs.
+    """
+    fingerprint = scene_info.get("sha256")
+    if not fingerprint:
+        raise ValueError("loaded scene is missing its content fingerprint")
+
+    payload = {
+        "model_sha256": str(fingerprint),
+        "width": int(scan_options["width"]),
+        "height": int(scan_options["height"]),
+        "rays_per_pixel": int(scan_options["rays_per_pixel"]),
+        "smart_sampling": bool(scan_options["smart_sampling"]),
+        "yaw_deg": round(float(scan_options["yaw_deg"]), 6),
+        "elevation_deg": round(float(scan_options["elevation_deg"]), 6),
+        "distance_scale": round(float(scan_options["distance_scale"]), 6),
+        "fov_deg": round(float(scan_options["fov_deg"]), 6),
+        "seed": int(scan_options["seed"]),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _camera_for_options(
     engine,
     scene,
@@ -424,39 +503,36 @@ class LidarBridge:
         return info
 
     def scan(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
-        options = options or {}
         scene = self.state.get_scene_object()
         if scene is None:
             raise ValueError("no 3D model is loaded")
 
+        scene_info = self.state.snapshot()["workspace"]["scene"]
+        normalized = _normalized_scan_options(options)
+        cache_key = _scan_cache_key(scene_info, normalized)
+
+        cached = self.state.get_cached_scan(cache_key)
+        if cached is not None:
+            metadata = dict(cached["metadata"])
+            metadata["cache_hit"] = True
+            metadata["cache_key"] = cache_key
+            self.state.set_scan(
+                metadata["scan_id"],
+                metadata,
+                cached["channels"],
+            )
+            return self.maps_summary()
+
         engine = _load_engine()
-        width = _int_option(options, "width", DEFAULT_WIDTH, 64, 640)
-        height = _int_option(options, "height", DEFAULT_HEIGHT, 64, 480)
-        rays_per_pixel = _int_option(
-            options,
-            "rays_per_pixel",
-            DEFAULT_RAYS_PER_PIXEL,
-            1,
-            4,
-        )
-        seed = _int_option(options, "seed", DEFAULT_SEED, 1, 2_147_483_647)
-        smart_sampling = _bool_option(options, "smart_sampling", False)
-        yaw_deg = _float_option(options, "yaw_deg", DEFAULT_YAW_DEG, 0.0, 360.0)
-        elevation_deg = _float_option(
-            options,
-            "elevation_deg",
-            DEFAULT_ELEVATION_DEG,
-            5.0,
-            80.0,
-        )
-        distance_scale = _float_option(
-            options,
-            "distance_scale",
-            DEFAULT_DISTANCE_SCALE,
-            1.4,
-            6.0,
-        )
-        fov_deg = _float_option(options, "fov_deg", DEFAULT_FOV_DEG, 25.0, 90.0)
+        width = normalized["width"]
+        height = normalized["height"]
+        rays_per_pixel = normalized["rays_per_pixel"]
+        seed = normalized["seed"]
+        smart_sampling = normalized["smart_sampling"]
+        yaw_deg = normalized["yaw_deg"]
+        elevation_deg = normalized["elevation_deg"]
+        distance_scale = normalized["distance_scale"]
+        fov_deg = normalized["fov_deg"]
 
         camera = _camera_for_options(
             engine,
@@ -507,9 +583,10 @@ class LidarBridge:
         confidence = _grayscale_image(engine, confidence_values)
 
         scan_id = uuid.uuid4().hex[:12]
-        scene_info = self.state.snapshot()["workspace"]["scene"]
         metadata = {
             "scan_id": scan_id,
+            "cache_key": cache_key,
+            "cache_hit": False,
             "width": width,
             "height": height,
             "rays_per_pixel": rays_per_pixel,
@@ -539,6 +616,7 @@ class LidarBridge:
             "confidence": _png_bytes(confidence),
         }
         self.state.set_scan(scan_id, metadata, image_bytes)
+        self.state.put_cached_scan(cache_key, metadata, image_bytes)
         return self.maps_summary()
 
     def maps_summary(self) -> dict[str, Any]:
@@ -551,6 +629,7 @@ class LidarBridge:
             name: f"/api/lidar/maps/{name}.png?scan_id={scan_id}"
             for name in ("shaded", "depth", "edge", "variance", "confidence")
         }
+        metadata["cache"] = self.state.scan_cache_stats()
         return metadata
 
     def channel_png(self, channel: str, scan_id: str | None = None) -> bytes:
