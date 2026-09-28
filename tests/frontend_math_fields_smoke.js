@@ -34,6 +34,16 @@ const seed = 2841;
 assert(axialDistance(M.radialFlow(cx + 50, cy, width, height), 0) < 1e-9, 'radial field is incorrect');
 assert(axialDistance(M.vortexFlow(cx + 50, cy, width, height), Math.PI / 2) < 1e-9, 'vortex field is incorrect');
 
+const objectCenter = { x: 40, y: 30, scale: 35 };
+assert(
+  axialDistance(M.radialFlow(80, 30, width, height, objectCenter), 0) < 1e-9,
+  'object-centered radial field ignored the supplied center'
+);
+assert(
+  axialDistance(M.vortexFlow(40, 65, width, height, objectCenter), 0) < 1e-9,
+  'object-centered vortex field is incorrect'
+);
+
 const spiral = M.spiralFlow(cx + 50, cy, width, height);
 assert(Number.isFinite(spiral), 'spiral field is not finite');
 assert(axialDistance(spiral, 0) > 0.2, 'spiral should differ from radial');
@@ -142,9 +152,38 @@ const mixedB = M.composeAngle({
 });
 assert(mixedA === mixedB && Number.isFinite(mixedA), 'combined mixer must be deterministic and finite');
 
+const emphasisLow = M.composeAngle({
+  x: 80, y: 30, width, height, seed,
+  baseAngle: Math.PI / 2,
+  procedural: { scale: 120, turbulence: 0, octaves: 4 },
+  fieldCenter: objectCenter,
+  mixer: {
+    surface: 1, depth: 0, procedural: 0,
+    radial: 1, vortex: 0, spiral: 0, wave: 0,
+    rose: 0, cardioid: 0, logSpiral: 0,
+    mathEmphasis: 0.5
+  }
+});
+const emphasisHigh = M.composeAngle({
+  x: 80, y: 30, width, height, seed,
+  baseAngle: Math.PI / 2,
+  procedural: { scale: 120, turbulence: 0, octaves: 4 },
+  fieldCenter: objectCenter,
+  mixer: {
+    surface: 1, depth: 0, procedural: 0,
+    radial: 1, vortex: 0, spiral: 0, wave: 0,
+    rose: 0, cardioid: 0, logSpiral: 0,
+    mathEmphasis: 3
+  }
+});
+assert(
+  axialDistance(emphasisHigh, 0) < axialDistance(emphasisLow, 0),
+  'math emphasis did not pull the mixed field toward the mathematical field'
+);
+
 for (const id of [
   'mixSurface', 'mixDepth', 'mixProcedural', 'mixRadial', 'mixVortex',
-  'mixSpiral', 'mixWave', 'mixRose', 'mixCardioid', 'mixLogSpiral'
+  'mixSpiral', 'mixWave', 'mixRose', 'mixCardioid', 'mixLogSpiral', 'mixMathEmphasis'
 ]) {
   assert(html.includes(`id="${id}"`), `missing mixer control ${id}`);
   assert(html.includes(`id="${id}Value"`), `missing mixer value label ${id}Value`);
