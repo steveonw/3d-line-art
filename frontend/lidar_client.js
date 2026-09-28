@@ -72,21 +72,30 @@
 
   async function fetchScanMaps(scan) {
     const channels = scan?.channels;
-    if (!channels?.shaded || !channels?.depth || !channels?.edge) {
-      throw new Error('LiDAR scan did not provide the required maps.');
+    const required = ['shaded', 'depth', 'edge', 'variance', 'confidence'];
+    for (const name of required) {
+      if (!channels?.[name]) {
+        throw new Error(`LiDAR scan did not provide the required ${name} map.`);
+      }
     }
-    const [shaded, depth, edge] = await Promise.all([
-      fetchImageData(channels.shaded),
-      fetchImageData(channels.depth),
-      fetchImageData(channels.edge)
-    ]);
-    if (
-      shaded.width !== depth.width || shaded.height !== depth.height ||
-      shaded.width !== edge.width || shaded.height !== edge.height
-    ) {
-      throw new Error('LiDAR map dimensions do not match.');
+
+    const results = await Promise.all(
+      required.map(name => fetchImageData(channels[name]))
+    );
+    const maps = Object.fromEntries(required.map((name, index) => [name, results[index]]));
+    const { width, height } = maps.shaded;
+
+    for (const name of required.slice(1)) {
+      if (maps[name].width !== width || maps[name].height !== height) {
+        for (const item of results) {
+          item.canvas.width = 0;
+          item.canvas.height = 0;
+        }
+        throw new Error('LiDAR map dimensions do not match.');
+      }
     }
-    return { shaded, depth, edge };
+
+    return maps;
   }
 
   window.LidarClient = Object.freeze({
