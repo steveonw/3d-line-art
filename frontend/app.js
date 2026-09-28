@@ -238,6 +238,7 @@
   let sourceKind = 'none';
   let sourceName = null;
   let sourceReference = null;
+  let modelReference = null;
   let requiredSourceReference = null;
   let lidarSourceMaps = null;
   let scanDirty = false;
@@ -309,15 +310,22 @@
 
   function currentSourceReference() {
     if (requiredSourceReference) return requiredSourceReference;
+    if (sourceKind === 'lidar' && modelReference) return modelReference;
     if (sourceReference) return sourceReference;
     if (sourceKind === 'none' && restoredSourceHint) return restoredSourceHint;
     return { kind: sourceKind, name: sourceName };
   }
 
-  function sourceRequirementSatisfied() {
+  function projectSourceReady() {
     if (!requiredSourceReference || requiredSourceReference.kind === 'none') return true;
-    return !!sourceReference &&
-      LineArtProjectState.sourceMatches(requiredSourceReference, sourceReference);
+    if (!sourceReference || sourceKind !== requiredSourceReference.kind) return false;
+    return LineArtProjectState.sourceMatches(requiredSourceReference, sourceReference);
+  }
+
+  function projectModelReady() {
+    if (!requiredSourceReference || requiredSourceReference.kind !== 'lidar') return true;
+    return !!modelReference &&
+      LineArtProjectState.sourceMatches(requiredSourceReference, modelReference);
   }
 
   function captureProjectState() {
@@ -437,16 +445,21 @@
   }
 
   function applyProjectSnapshot(snapshot, { preview = true } = {}) {
-    const restored = LineArtProjectState.restore(snapshot, DEFAULT_SETTINGS);
+    const restored = LineArtProjectState.restore(
+      snapshot,
+      DEFAULT_SETTINGS,
+      DEFAULT_EXPORT_SETTINGS
+    );
     if (!restored) return false;
 
     const beforeScan = scanSettingsSignature(settings);
     historyApplying = true;
     try {
       Object.assign(settings, normalizeRestoredSettings(restored.settings));
+      pngScaleSelect.value = restored.export.pngScale;
       syncUI();
 
-      if (sourceKind === 'lidar' && lidarSourceMaps) {
+      if (projectSourceReady() && sourceKind === 'lidar' && lidarSourceMaps) {
         const maps = composeCurrentLidarMaps();
         applyRendererMaps(maps);
       }
@@ -463,7 +476,7 @@
       historyApplying = false;
     }
 
-    if (preview && sourceImage) schedulePreview();
+    if (preview && sourceImage && projectSourceReady()) schedulePreview();
     refreshButtons();
     return true;
   }
