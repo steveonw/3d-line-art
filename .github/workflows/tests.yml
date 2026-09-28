@@ -29,6 +29,8 @@ jobs:
           node --check frontend/procedural_flow.js
           node --check frontend/math_fields.js
           node --check frontend/stroke_placement.js
+          node --check frontend/project_state.js
+          node --check frontend/history.js
           node --check frontend/line_renderer.js
           node --check frontend/export.js
           node --check frontend/lidar_client.js
@@ -48,6 +50,9 @@ jobs:
 
       - name: Run stroke placement smoke test
         run: node tests/frontend_stroke_placement_smoke.js
+
+      - name: Run history autosave smoke test
+        run: node tests/frontend_history_smoke.js
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
