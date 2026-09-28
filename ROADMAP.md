@@ -293,16 +293,18 @@ The LiDAR + mathematical art system is now established.
 
 Borrow application-state ideas from Quilt Designer.
 
-- [ ] Add Undo
-- [ ] Add Redo
-- [ ] Add Ctrl+Z
-- [ ] Add Ctrl+Y
-- [ ] Add versioned project state
-- [ ] Add debounced autosave
-- [ ] Add restore after reload/crash
-- [ ] Make settings changes undoable
+- [x] Add Undo
+- [x] Add Redo
+- [x] Add Ctrl+Z
+- [x] Add Ctrl+Y
+- [x] Add versioned project state
+- [x] Add debounced autosave
+- [x] Add restore after reload/crash
+- [x] Make settings changes undoable
 
 **Done when:** normal experimentation no longer risks losing the current setup.
+
+**Phase 9 validation:** GitHub Actions passes versioned project-state validation, undo/redo and redo-branch behavior, slider coalescing, debounced autosave and restore, source-hint replacement without extra undo entries, blocked-storage fallback, keyboard/DOM checks, all deterministic rendering/flow/stroke-placement tests, the server/API suite, and the real cube OBJ LiDAR integration test. Browser settings restore after reload; an in-memory LiDAR scan is reconstructed when the local server still holds it. Local image bytes are intentionally not persisted and must be reselected after reload.
 
 ---
 
@@ -589,7 +591,7 @@ FIRST MAJOR CHECKPOINT / v0.1
 ---------------------------------------------------
 ART SYSTEM CHECKPOINT / v0.2
 
-10. Undo / autosave                            [ ]
+10. Undo / autosave                            [x]
 11. Project files                              [ ]
 12. Scan caching                               [ ]
 ---------------------------------------------------
