@@ -1482,11 +1482,18 @@
 
   const autosavedSnapshot = history.restoreAutosave();
   const restoredProject = autosavedSnapshot
-    ? LineArtProjectState.restore(autosavedSnapshot, DEFAULT_SETTINGS)
+    ? LineArtProjectState.restore(
+        autosavedSnapshot,
+        DEFAULT_SETTINGS,
+        DEFAULT_EXPORT_SETTINGS
+      )
     : null;
   if (restoredProject) {
     Object.assign(settings, normalizeRestoredSettings(restoredProject.settings));
+    pngScaleSelect.value = restoredProject.export.pngScale;
     restoredSourceHint = restoredProject.source;
+    requiredSourceReference =
+      restoredProject.source.kind === 'none' ? null : restoredProject.source;
   }
 
   syncUI();
@@ -1502,6 +1509,16 @@
   document.body.dataset.phase7Ready = 'true';
   document.body.dataset.phase8Ready = 'true';
   document.body.dataset.phase9Ready = 'true';
+  document.body.dataset.phase10Ready = 'true';
+
+  if (restoredProject?.source?.kind === 'image') {
+    setProjectStatus(
+      `Autosave restored. Reselect ${requiredSourceLabel(restoredProject.source)}.`,
+      true
+    );
+  } else if (restoredProject?.source?.kind === 'lidar') {
+    setProjectStatus('Autosave restored. Checking the local server for the referenced model...');
+  }
 
   restoreServerScene().then(restoredKind => {
     if (restoredKind) return;
@@ -1514,6 +1531,10 @@
       setStatus('Settings restored from local autosave.', 0);
     }
   });
+
+  openProjectBtn.addEventListener('click', () => projectFileInput.click());
+  saveProjectBtn.addEventListener('click', saveProjectFile);
+  projectFileInput.addEventListener('change', e => openProjectFile(e.target.files?.[0]));
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
@@ -1636,6 +1657,10 @@
     schedulePreview();
   });
 
+  pngScaleSelect.addEventListener('change', () => {
+    recordSettingsChange('export:pngScale');
+  });
+
   document.addEventListener('keydown', event => {
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
@@ -1657,6 +1682,10 @@
   window.addEventListener('pagehide', () => {
     history.dispose({ flush: true });
     exporter.dispose();
+    if (projectDownloadUrl) {
+      URL.revokeObjectURL(projectDownloadUrl);
+      projectDownloadUrl = null;
+    }
     if (sourceCanvas) {
       sourceCanvas.width = 0;
       sourceCanvas.height = 0;
