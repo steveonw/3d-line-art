@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from server.lidar_bridge import LidarBridge
+from server.lidar_bridge import LidarBridge, _float_option, _int_option
 from server.state import StudioState
 
 
@@ -65,28 +65,22 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
             self.assertGreater(len(payload), 32)
 
     def test_camera_and_scan_options_are_clamped(self) -> None:
-        state = StudioState()
-        bridge = LidarBridge(state)
-        bridge.upload_scene("cube.obj", CUBE_OBJ)
-
-        scan = bridge.scan(
-            {
-                "width": 9999,
-                "height": 9999,
-                "rays_per_pixel": 99,
-                "yaw_deg": 999,
-                "elevation_deg": -100,
-                "distance_scale": 99,
-                "fov_deg": 5,
-            }
-        )
-        self.assertEqual(scan["width"], 640)
-        self.assertEqual(scan["height"], 480)
-        self.assertEqual(scan["rays_per_pixel"], 4)
-        self.assertEqual(scan["camera"]["yaw_deg"], 360.0)
-        self.assertEqual(scan["camera"]["elevation_deg"], 5.0)
-        self.assertEqual(scan["camera"]["distance_scale"], 6.0)
-        self.assertEqual(scan["camera"]["fov_deg"], 25.0)
+        options = {
+            "width": 9999,
+            "height": 9999,
+            "rays_per_pixel": 99,
+            "yaw_deg": 999,
+            "elevation_deg": -100,
+            "distance_scale": 99,
+            "fov_deg": 5,
+        }
+        self.assertEqual(_int_option(options, "width", 320, 64, 640), 640)
+        self.assertEqual(_int_option(options, "height", 240, 64, 480), 480)
+        self.assertEqual(_int_option(options, "rays_per_pixel", 2, 1, 4), 4)
+        self.assertEqual(_float_option(options, "yaw_deg", 45, 0, 360), 360.0)
+        self.assertEqual(_float_option(options, "elevation_deg", 20, 5, 80), 5.0)
+        self.assertEqual(_float_option(options, "distance_scale", 3, 1.4, 6), 6.0)
+        self.assertEqual(_float_option(options, "fov_deg", 55, 25, 90), 25.0)
 
 
 if __name__ == "__main__":
