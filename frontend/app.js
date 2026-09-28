@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase9';
+  const BUILD_VERSION = '5.3-phase10';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -62,7 +62,9 @@
   };
 
   const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(settings));
+  const DEFAULT_EXPORT_SETTINGS = Object.freeze({ pngScale: '2' });
   const AUTOSAVE_KEY = 'lidar-ink-studio:project-autosave:v1';
+  const PROJECT_FILE_MAX_BYTES = 1024 * 1024;
 
   const presets = {
     finePencil: {
@@ -195,6 +197,10 @@
   );
   const seedInput = document.getElementById('seedInput');
   const variationBtn = document.getElementById('variationBtn');
+  const openProjectBtn = document.getElementById('openProjectBtn');
+  const saveProjectBtn = document.getElementById('saveProjectBtn');
+  const projectFileInput = document.getElementById('projectFileInput');
+  const projectStatus = document.getElementById('projectStatus');
   const undoBtn = document.getElementById('undoBtn');
   const redoBtn = document.getElementById('redoBtn');
   const autosaveStatus = document.getElementById('autosaveStatus');
@@ -231,6 +237,9 @@
   let sceneLoaded = false;
   let sourceKind = 'none';
   let sourceName = null;
+  let sourceReference = null;
+  let modelReference = null;
+  let requiredSourceReference = null;
   let lidarSourceMaps = null;
   let scanDirty = false;
   let activeRender = null;
@@ -240,6 +249,7 @@
   let highQualityStrokeStore = null;
   let highQualityRenderMeta = null;
   let highQualityStale = false;
+  let projectDownloadUrl = null;
 
   const renderer = LineArtRenderer.createRenderer({
     ctx,
@@ -287,11 +297,44 @@
   let historyUiLocked = false;
   let restoredSourceHint = null;
 
+  function fileSourceReference(file, kind) {
+    if (!file) return { kind: 'none', name: null, size: null, lastModified: null, type: null };
+    return {
+      kind,
+      name: file.name || null,
+      size: Number.isFinite(file.size) ? file.size : null,
+      lastModified: Number.isFinite(file.lastModified) ? file.lastModified : null,
+      type: file.type || null
+    };
+  }
+
+  function currentSourceReference() {
+    if (requiredSourceReference) return requiredSourceReference;
+    if (sourceKind === 'lidar' && modelReference) return modelReference;
+    if (modelReference && sceneLoaded && !sourceImage) return modelReference;
+    if (sourceReference) return sourceReference;
+    if (sourceKind === 'none' && restoredSourceHint) return restoredSourceHint;
+    return { kind: sourceKind, name: sourceName };
+  }
+
+  function projectSourceReady() {
+    if (!requiredSourceReference || requiredSourceReference.kind === 'none') return true;
+    if (!sourceReference || sourceKind !== requiredSourceReference.kind) return false;
+    return LineArtProjectState.sourceMatches(requiredSourceReference, sourceReference);
+  }
+
+  function projectModelReady() {
+    if (!requiredSourceReference || requiredSourceReference.kind !== 'lidar') return true;
+    return !!modelReference &&
+      LineArtProjectState.sourceMatches(requiredSourceReference, modelReference);
+  }
+
   function captureProjectState() {
-    const source = sourceKind === 'none' && restoredSourceHint
-      ? restoredSourceHint
-      : { kind: sourceKind, name: sourceName };
-    return LineArtProjectState.create(settings, source);
+    return LineArtProjectState.create(
+      settings,
+      currentSourceReference(),
+      { pngScale: pngScaleSelect?.value || DEFAULT_EXPORT_SETTINGS.pngScale }
+    );
   }
 
   function scanSettingsSignature(value = settings) {
@@ -403,16 +446,21 @@
   }
 
   function applyProjectSnapshot(snapshot, { preview = true } = {}) {
-    const restored = LineArtProjectState.restore(snapshot, DEFAULT_SETTINGS);
+    const restored = LineArtProjectState.restore(
+      snapshot,
+      DEFAULT_SETTINGS,
+      DEFAULT_EXPORT_SETTINGS
+    );
     if (!restored) return false;
 
     const beforeScan = scanSettingsSignature(settings);
     historyApplying = true;
     try {
       Object.assign(settings, normalizeRestoredSettings(restored.settings));
+      pngScaleSelect.value = restored.export.pngScale;
       syncUI();
 
-      if (sourceKind === 'lidar' && lidarSourceMaps) {
+      if (projectSourceReady() && sourceKind === 'lidar' && lidarSourceMaps) {
         const maps = composeCurrentLidarMaps();
         applyRendererMaps(maps);
       }
@@ -429,7 +477,7 @@
       historyApplying = false;
     }
 
-    if (preview && sourceImage) schedulePreview();
+    if (preview && sourceImage && projectSourceReady()) schedulePreview();
     refreshButtons();
     return true;
   }
@@ -446,6 +494,122 @@
     if (!snapshot) return;
     if (activeRender) stopRender(false);
     applyProjectSnapshot(snapshot);
+  }
+
+  function setProjectStatus(message, warning = false) {
+    projectStatus.textContent = message;
+    projectStatus.classList.toggle('warning', !!warning);
+  }
+
+  function requiredSourceLabel(reference = requiredSourceReference) {
+    if (!reference || reference.kind === 'none') return 'source';
+    const kind = reference.kind === 'lidar' ? '3D model' : 'image';
+    return reference.name ? `${kind} "${reference.name}"` : kind;
+  }
+
+  function saveProjectFile() {
+    const snapshot = captureProjectState();
+    const documentState = {
+      ...snapshot,
+      meta: {
+        appVersion: BUILD_VERSION,
+        savedAt: new Date().toISOString()
+      }
+    };
+    const json = LineArtProjectState.serialize(documentState, { pretty: true });
+    const blob = new Blob([json + '\n'], { type: 'application/json;charset=utf-8' });
+
+    if (projectDownloadUrl) URL.revokeObjectURL(projectDownloadUrl);
+    projectDownloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const filename = LineArtProjectState.projectFileName(snapshot.source);
+    anchor.href = projectDownloadUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setProjectStatus(`Saved ${filename}`);
+  }
+
+  async function openProjectFile(file) {
+    if (!file) return;
+    projectFileInput.value = '';
+
+    if (file.size > PROJECT_FILE_MAX_BYTES) {
+      setProjectStatus('Project file is too large. Expected a settings-only JSON file under 1 MB.', true);
+      return;
+    }
+
+    let restored;
+    try {
+      const text = await file.text();
+      restored = LineArtProjectState.deserialize(
+        text,
+        DEFAULT_SETTINGS,
+        DEFAULT_EXPORT_SETTINGS
+      );
+    } catch (_) {
+      restored = null;
+    }
+
+    if (!restored) {
+      setProjectStatus('Could not open that project: unsupported or invalid LiDAR Ink project JSON.', true);
+      return;
+    }
+
+    if (activeRender) stopRender(false);
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+
+    historyApplying = true;
+    try {
+      Object.assign(settings, normalizeRestoredSettings(restored.settings));
+      pngScaleSelect.value = restored.export.pngScale;
+      restoredSourceHint = restored.source;
+      requiredSourceReference = restored.source.kind === 'none' ? null : restored.source;
+      syncUI();
+
+      if (projectSourceReady() && sourceKind === 'lidar' && lidarSourceMaps) {
+        const maps = composeCurrentLidarMaps();
+        applyRendererMaps(maps);
+      }
+
+      if (highQualityStrokeStore) highQualityStale = true;
+      updateExportNote();
+    } finally {
+      historyApplying = false;
+    }
+
+    history.initialize(captureProjectState());
+    historyReady = true;
+    history.saveNow(captureProjectState());
+
+    if (projectSourceReady()) {
+      setProjectStatus(`Opened ${file.name}. Source reference is satisfied.`);
+      setStatus('Project opened. Rebuilding preview from the referenced source.', 0);
+      if (sourceImage) schedulePreview();
+    } else if (restored.source.kind === 'lidar') {
+      setProjectStatus(
+        `Opened ${file.name}. Load ${requiredSourceLabel(restored.source)} to reproduce the project.`,
+        true
+      );
+      setStatus(`Project settings loaded. Waiting for ${requiredSourceLabel(restored.source)}.`, 0);
+      await restoreServerScene();
+      if (projectSourceReady()) {
+        setProjectStatus(`Opened ${file.name}. Referenced LiDAR source restored from the local server.`);
+      }
+    } else if (restored.source.kind === 'image') {
+      setProjectStatus(
+        `Opened ${file.name}. Reselect ${requiredSourceLabel(restored.source)} to reproduce the project.`,
+        true
+      );
+      setStatus(`Project settings loaded. Waiting for ${requiredSourceLabel(restored.source)}.`, 0);
+    } else {
+      setProjectStatus(`Opened ${file.name}. No source is referenced.`);
+      setStatus('Project settings loaded.', 0);
+    }
+
+    refreshButtons();
   }
 
 
@@ -752,18 +916,32 @@
     const highActive = activeRender?.kind === 'high';
     const exportBusy = exporter.isBusy();
     const uiLocked = highActive || exportBusy || scanRunning;
+    const sourceReady = projectSourceReady();
+    const modelReady = projectModelReady();
+
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
+    openProjectBtn.disabled = uiLocked || modelLoading;
+    saveProjectBtn.disabled = highActive || exportBusy || scanRunning || modelLoading;
+
     scanControlEls.forEach(el => {
-      el.disabled = !sceneLoaded || modelLoading || scanRunning || highActive || exportBusy;
+      el.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || highActive || exportBusy;
     });
-    scanBtn.disabled = !sceneLoaded || modelLoading || scanRunning || active || exportBusy;
-    renderBtn.disabled = !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
+    scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
+    renderBtn.disabled = !sourceReady || !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
     cancelBtn.disabled = !active;
-    const canSave = !active && !loadingImage && !scanRunning && !exportBusy && !!getExportTarget();
+
+    const canSave =
+      sourceReady &&
+      !active &&
+      !loadingImage &&
+      !scanRunning &&
+      !exportBusy &&
+      !!getExportTarget();
     saveBtn.disabled = !canSave;
     saveSvgBtn.disabled = !canSave;
+
     historyUiLocked = highActive || exportBusy || scanRunning || modelLoading;
     renderHistoryStatus(history.status());
     updateExportNote();
@@ -785,7 +963,7 @@
     h,
     readyMessage,
     kind = 'image',
-    name = null
+    reference = null
   ) {
     if (sourceCanvas && sourceCanvas !== newSourceCanvas) {
       sourceCanvas.width = 0;
@@ -796,8 +974,22 @@
     sourcePixels = newPixels;
     sourceImage = { width: w, height: h };
     sourceKind = kind;
-    sourceName = name || null;
-    restoredSourceHint = null;
+    sourceReference = reference && typeof reference === 'object'
+      ? { ...reference, kind }
+      : { kind, name: typeof reference === 'string' ? reference : null };
+    sourceName = sourceReference.name || null;
+
+    if (
+      requiredSourceReference &&
+      LineArtProjectState.sourceMatches(requiredSourceReference, sourceReference)
+    ) {
+      requiredSourceReference = null;
+      restoredSourceHint = null;
+      setProjectStatus('Referenced source loaded. Project is ready.');
+    } else if (!requiredSourceReference) {
+      restoredSourceHint = null;
+    }
+
     if (kind !== 'lidar') lidarSourceMaps = null;
     applyRendererMaps(maps);
 
@@ -822,9 +1014,16 @@
     scanRunning = false;
     updateLidarArtControlAvailability(false);
     refreshButtons();
-    setStatus(readyMessage, 0);
     autosaveCurrentState();
-    startRender('preview');
+    if (projectSourceReady()) {
+      setStatus(readyMessage, 0);
+      startRender('preview');
+    } else {
+      const needed = requiredSourceLabel();
+      setProjectStatus(`This source does not match the project. Load ${needed}.`, true);
+      setStatus(`Source loaded, but the project is waiting for ${needed}.`, 0);
+      refreshButtons();
+    }
   }
 
   async function loadImageFile(file) {
@@ -881,7 +1080,7 @@
         h,
         `Ready - ${w} x ${h}px. Building direction-aware preview...`,
         'image',
-        file.name
+        fileSourceReference(file, 'image')
       );
     } catch (error) {
       bitmap?.close?.();
@@ -914,12 +1113,26 @@
       const result = await LidarClient.uploadScene(file);
       const scene = result.scene;
       sceneLoaded = true;
+      modelReference = fileSourceReference(file, 'lidar');
       scanDirty = true;
       scanBtn.textContent = 'Scan LiDAR';
       scanSummary.textContent = 'ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
-      setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
+
+      if (!projectModelReady()) {
+        const needed = requiredSourceLabel();
+        setProjectStatus(`Loaded model does not match this project. Load ${needed}.`, true);
+        setStatus(`Model loaded, but the project is waiting for ${needed}.`, 0);
+      } else {
+        setProjectStatus(
+          requiredSourceReference
+            ? 'Referenced model loaded. Run LiDAR to reproduce the project.'
+            : '3D model loaded.'
+        );
+        setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
+      }
+      autosaveCurrentState();
     } catch (error) {
       console.error(error);
       sceneLoaded = false;
@@ -995,7 +1208,10 @@
         images.shaded.height,
         `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
         'lidar',
-        scan.scene?.name || '3D model'
+        modelReference || {
+          kind: 'lidar',
+          name: scan.scene?.name || '3D model'
+        }
       );
     } catch (error) {
       console.error(error);
@@ -1018,10 +1234,40 @@
       const workspace = result.state?.workspace;
       const scene = workspace?.scene;
       if (!scene?.loaded) return null;
+      if (requiredSourceReference?.kind === 'image') return null;
 
       sceneLoaded = true;
+      const serverReference = {
+        kind: 'lidar',
+        name: scene.name || '3D model',
+        size: null,
+        lastModified: null,
+        type: null
+      };
+      const hintedReference =
+        (requiredSourceReference?.kind === 'lidar' &&
+          requiredSourceReference.name === serverReference.name)
+          ? requiredSourceReference
+          : ((restoredSourceHint?.kind === 'lidar' &&
+              restoredSourceHint.name === serverReference.name)
+              ? restoredSourceHint
+              : serverReference);
+      modelReference = hintedReference;
+
       modelStatus.textContent =
         `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
+
+      if (!projectModelReady()) {
+        scanDirty = true;
+        scanSummary.textContent = 'different project model';
+        scanBtn.textContent = 'Scan LiDAR';
+        setProjectStatus(
+          `Local server has a different model. Load ${requiredSourceLabel()}.`,
+          true
+        );
+        refreshButtons();
+        return 'scene-mismatch';
+      }
 
       if (workspace?.scan?.status === 'ready') {
         try {
@@ -1061,11 +1307,16 @@
             maps,
             images.shaded.width,
             images.shaded.height,
-            `Restored LiDAR scan - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
+            scanDirty
+              ? 'Referenced model restored. Rescan LiDAR to reproduce the saved camera settings.'
+              : `Restored LiDAR scan - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
             'lidar',
-            scan.scene?.name || scene.name || '3D model'
+            modelReference
           );
-          if (scanDirty) scanBtn.textContent = 'Rescan LiDAR';
+          if (scanDirty) {
+            scanBtn.textContent = 'Rescan LiDAR';
+            setProjectStatus('Referenced model restored; current server scan is stale. Rescan LiDAR to reproduce the project.', true);
+          }
           return 'lidar';
         } catch (error) {
           console.warn('Could not restore the previous LiDAR scan:', error);
@@ -1075,6 +1326,9 @@
       scanDirty = true;
       scanSummary.textContent = 'ready to scan';
       scanBtn.textContent = 'Scan LiDAR';
+      if (requiredSourceReference?.kind === 'lidar') {
+        setProjectStatus('Referenced model is loaded. Run LiDAR to reproduce the project.', true);
+      }
       refreshButtons();
       return 'scene';
     } catch (_) {
@@ -1230,11 +1484,18 @@
 
   const autosavedSnapshot = history.restoreAutosave();
   const restoredProject = autosavedSnapshot
-    ? LineArtProjectState.restore(autosavedSnapshot, DEFAULT_SETTINGS)
+    ? LineArtProjectState.restore(
+        autosavedSnapshot,
+        DEFAULT_SETTINGS,
+        DEFAULT_EXPORT_SETTINGS
+      )
     : null;
   if (restoredProject) {
     Object.assign(settings, normalizeRestoredSettings(restoredProject.settings));
+    pngScaleSelect.value = restoredProject.export.pngScale;
     restoredSourceHint = restoredProject.source;
+    requiredSourceReference =
+      restoredProject.source.kind === 'none' ? null : restoredProject.source;
   }
 
   syncUI();
@@ -1250,6 +1511,16 @@
   document.body.dataset.phase7Ready = 'true';
   document.body.dataset.phase8Ready = 'true';
   document.body.dataset.phase9Ready = 'true';
+  document.body.dataset.phase10Ready = 'true';
+
+  if (restoredProject?.source?.kind === 'image') {
+    setProjectStatus(
+      `Autosave restored. Reselect ${requiredSourceLabel(restoredProject.source)}.`,
+      true
+    );
+  } else if (restoredProject?.source?.kind === 'lidar') {
+    setProjectStatus('Autosave restored. Checking the local server for the referenced model...');
+  }
 
   restoreServerScene().then(restoredKind => {
     if (restoredKind) return;
@@ -1262,6 +1533,10 @@
       setStatus('Settings restored from local autosave.', 0);
     }
   });
+
+  openProjectBtn.addEventListener('click', () => projectFileInput.click());
+  saveProjectBtn.addEventListener('click', saveProjectFile);
+  projectFileInput.addEventListener('change', e => openProjectFile(e.target.files?.[0]));
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
@@ -1384,6 +1659,10 @@
     schedulePreview();
   });
 
+  pngScaleSelect.addEventListener('change', () => {
+    recordSettingsChange('export:pngScale');
+  });
+
   document.addEventListener('keydown', event => {
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
@@ -1405,6 +1684,10 @@
   window.addEventListener('pagehide', () => {
     history.dispose({ flush: true });
     exporter.dispose();
+    if (projectDownloadUrl) {
+      URL.revokeObjectURL(projectDownloadUrl);
+      projectDownloadUrl = null;
+    }
     if (sourceCanvas) {
       sourceCanvas.width = 0;
       sourceCanvas.height = 0;

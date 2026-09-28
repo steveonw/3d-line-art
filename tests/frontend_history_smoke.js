@@ -35,7 +35,9 @@ const created = Project.create(
   },
   { kind: 'image', name: 'portrait.png' }
 );
-assert(created.version === 1, 'project state version missing');
+assert(created.version === 2, 'project state version missing');
+assert(created.format === 'lidar-ink-project', 'project state format missing');
+assert(created.export.pngScale === '2', 'default export settings missing');
 assert(created.source.kind === 'image', 'source hint missing');
 assert(created.source.name === 'portrait.png', 'source name missing');
 

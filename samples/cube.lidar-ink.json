@@ -1,0 +1,65 @@
+{
+  "format": "lidar-ink-project",
+  "version": 2,
+  "settings": {
+    "preset": "technicalPencil",
+    "mode": "black",
+    "palette": "monochrome",
+    "lineCount": 85000,
+    "strokeLength": 5.5,
+    "strokeWeight": 0.68,
+    "detail": 2.8,
+    "opacity": 0.46,
+    "colorStrength": 1,
+    "paletteStrength": 1,
+    "directionNoise": 0.1,
+    "angleQuantize": 0,
+    "sampleBias": 0.82,
+    "flowStrength": 0.82,
+    "seed": 2841,
+    "procedural": {
+      "scale": 120,
+      "turbulence": 0.2,
+      "octaves": 4
+    },
+    "flowMixer": {
+      "surface": 1,
+      "depth": 0.25,
+      "procedural": 0.5,
+      "radial": 0,
+      "vortex": 0,
+      "spiral": 0,
+      "wave": 0,
+      "rose": 0,
+      "cardioid": 0,
+      "logSpiral": 0
+    },
+    "lidar": {
+      "scanResolution": "320x240",
+      "raysPerPixel": 2,
+      "smartSampling": true,
+      "cameraYaw": 45,
+      "cameraElevation": 20,
+      "cameraDistance": 3,
+      "cameraFov": 55,
+      "densitySource": "tone",
+      "directionSource": "mixed",
+      "geometryEdgeStrength": 1.55,
+      "depthInfluence": 0.72
+    }
+  },
+  "source": {
+    "kind": "lidar",
+    "name": "cube.obj",
+    "size": 254,
+    "lastModified": null,
+    "type": "text/plain"
+  },
+  "export": {
+    "pngScale": "2"
+  },
+  "meta": {
+    "appVersion": "5.3-phase10",
+    "note": "Open this project, then load samples/cube.obj and run LiDAR."
+  }
+}

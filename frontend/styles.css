@@ -433,3 +433,27 @@
       color: #8a3d32;
       font-weight: 700;
     }
+
+    .project-section {
+      padding-top: 12px;
+    }
+
+    .project-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .project-actions .secondary {
+      min-height: 36px;
+      padding: 8px 10px;
+      background: var(--soft);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      font-weight: 700;
+    }
+
+    #projectStatus.warning {
+      color: #8a4b12;
+      font-weight: 700;
+    }

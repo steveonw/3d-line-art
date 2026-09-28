@@ -318,14 +318,14 @@ project.json
 
 Store:
 
-- [ ] Source model reference
-- [ ] Camera
-- [ ] LiDAR settings
-- [ ] Art settings
-- [ ] Flow mixer
-- [ ] Palette
-- [ ] Seed
-- [ ] Export settings
+- [x] Source model reference
+- [x] Camera
+- [x] LiDAR settings
+- [x] Art settings
+- [x] Flow mixer
+- [x] Palette
+- [x] Seed
+- [x] Export settings
 
 Optionally store cached scan products later:
 
@@ -338,6 +338,8 @@ scans/
 ```
 
 **Done when:** a project can be saved, closed, reopened, and reproduced.
+
+**Phase 10 validation:** GitHub Actions passes portable project v2 save/open round trips, Phase 9 v1 migration, camera/LiDAR/art/flow/palette/seed/export restoration, source identity matching, future-version and foreign-format rejection, the checked-in cube project fixture, history/autosave regression, all deterministic renderer/flow/stroke-placement tests, the server/API suite, and the real cube OBJ LiDAR integration test. Project files reference source files rather than embedding them; a mismatched source blocks rendering until the referenced image/model is loaded, and stale restored LiDAR scans are marked for rescan.
 
 ## v0.3 checkpoint
 
@@ -592,7 +594,7 @@ FIRST MAJOR CHECKPOINT / v0.1
 ART SYSTEM CHECKPOINT / v0.2
 
 10. Undo / autosave                            [x]
-11. Project files                              [ ]
+11. Project files                              [x]
 12. Scan caching                               [ ]
 ---------------------------------------------------
 USABILITY CHECKPOINT / v0.3
