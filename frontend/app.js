@@ -307,6 +307,18 @@
     ]);
   }
 
+  function scanMetadataSignature(scan) {
+    return JSON.stringify([
+      `${scan.width}x${scan.height}`,
+      scan.rays_per_pixel,
+      !!scan.smart_sampling,
+      Number(scan.camera?.yaw_deg),
+      Number(scan.camera?.elevation_deg),
+      Number(scan.camera?.distance_scale),
+      Number(scan.camera?.fov_deg)
+    ]);
+  }
+
   function normalizeRestoredSettings(next) {
     next.lineCount = clamp(Math.round(Number(next.lineCount) / 1000) * 1000, 1000, 400000);
     next.seed = normalizeSeed(next.seed);
@@ -765,7 +777,16 @@
     }
   }
 
-  function installSource(newSourceCanvas, newPixels, maps, w, h, readyMessage, kind = 'image') {
+  function installSource(
+    newSourceCanvas,
+    newPixels,
+    maps,
+    w,
+    h,
+    readyMessage,
+    kind = 'image',
+    name = null
+  ) {
     if (sourceCanvas && sourceCanvas !== newSourceCanvas) {
       sourceCanvas.width = 0;
       sourceCanvas.height = 0;
@@ -775,6 +796,7 @@
     sourcePixels = newPixels;
     sourceImage = { width: w, height: h };
     sourceKind = kind;
+    sourceName = name || null;
     if (kind !== 'lidar') lidarSourceMaps = null;
     applyRendererMaps(maps);
 
@@ -800,6 +822,7 @@
     updateLidarArtControlAvailability(false);
     refreshButtons();
     setStatus(readyMessage, 0);
+    autosaveCurrentState();
     startRender('preview');
   }
 
@@ -856,7 +879,8 @@
         w,
         h,
         `Ready - ${w} x ${h}px. Building direction-aware preview...`,
-        'image'
+        'image',
+        file.name
       );
     } catch (error) {
       bitmap?.close?.();
@@ -969,7 +993,8 @@
         images.shaded.width,
         images.shaded.height,
         `LiDAR maps ready - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
-        'lidar'
+        'lidar',
+        scan.scene?.name || '3D model'
       );
     } catch (error) {
       console.error(error);
