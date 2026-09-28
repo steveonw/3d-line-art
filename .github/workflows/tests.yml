@@ -54,5 +54,8 @@ jobs:
       - name: Run history autosave smoke test
         run: node tests/frontend_history_smoke.js
 
+      - name: Run portable project smoke test
+        run: node tests/frontend_project_file_smoke.js
+
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
