@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
 import unittest
+
+from PIL import Image
 
 from server.lidar_bridge import (
     LidarBridge,
@@ -72,6 +75,20 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
 
         with self.assertRaises(ScanIdMismatchError):
             bridge.channel_png("depth", scan_id="stale-scan")
+
+        shaded = Image.open(
+            io.BytesIO(bridge.channel_png("shaded", scan_id=scan["scan_id"]))
+        ).convert("RGB")
+        object_pixels = [
+            pixel for pixel in shaded.getdata()
+            if pixel != (255, 255, 255)
+        ]
+        self.assertGreater(len(object_pixels), 0)
+        self.assertGreater(
+            len(set(object_pixels)),
+            2,
+            "sample cube shading collapsed to a flat winding-dependent tone",
+        )
 
     def test_rejects_nonfinite_and_degenerate_meshes(self) -> None:
         state = StudioState()
