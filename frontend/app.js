@@ -1355,12 +1355,23 @@
   }
 
   async function restoreServerScene() {
+    const serial = ++loadSerial;
     try {
+      // Autosave recovery only hints at the previous image; it must not let an
+      // unrelated server-side LiDAR scene replace that recovery path.
+      if (
+        requiredSourceReference?.kind === 'image' ||
+        (!requiredSourceReference && restoredSourceHint?.kind === 'image')
+      ) {
+        return null;
+      }
+
       const result = await LidarClient.getState();
+      if (serial !== loadSerial) return null;
+
       const workspace = result.state?.workspace;
       const scene = workspace?.scene;
       if (!scene?.loaded) return null;
-      if (requiredSourceReference?.kind === 'image') return null;
 
       sceneLoaded = true;
       const serverReference = {
@@ -1368,14 +1379,15 @@
         name: scene.name || '3D model',
         size: null,
         lastModified: null,
-        type: null
+        type: null,
+        sha256: scene.sha256 || null
       };
       const hintedReference =
         (requiredSourceReference?.kind === 'lidar' &&
-          requiredSourceReference.name === serverReference.name)
+          LineArtProjectState.sourceMatches(requiredSourceReference, serverReference))
           ? requiredSourceReference
           : ((restoredSourceHint?.kind === 'lidar' &&
-              restoredSourceHint.name === serverReference.name)
+              LineArtProjectState.sourceMatches(restoredSourceHint, serverReference))
               ? restoredSourceHint
               : serverReference);
       modelReference = hintedReference;
@@ -1398,8 +1410,17 @@
       if (workspace?.scan?.status === 'ready') {
         try {
           const mapsResponse = await LidarClient.getMaps();
+          if (serial !== loadSerial) return null;
+
           const scan = mapsResponse.scan;
           const images = await LidarClient.fetchScanMaps(scan);
+          if (serial !== loadSerial) {
+            for (const item of Object.values(images)) {
+              item.canvas.width = 0;
+              item.canvas.height = 0;
+            }
+            return null;
+          }
 
           lidarSourceMaps = LineArtAnalysis.buildLidarSourceMaps(
             images.shaded.imageData,
@@ -1419,11 +1440,7 @@
             }
           }
 
-          scanDirty = scanSettingsSignature(settings) !== scanMetadataSignature(scan);
-          scanBtn.textContent = 'Rescan LiDAR';
-          const smartText = scan.smart_sampling ? ' · smart' : '';
-          const staleText = scanDirty ? ' · settings changed' : '';
-          scanSummary.textContent = `${scan.width}×${scan.height}${smartText}${staleText}`;
+          rememberInstalledScan(scan);
           modelStatus.textContent =
             `${scan.scene?.name || scene.name || '3D model'} - restored server scan · ${Math.round(scan.coverage * 100)}% coverage`;
 
@@ -1439,12 +1456,16 @@
             'lidar',
             modelReference
           );
+
           if (scanDirty) {
-            scanBtn.textContent = 'Rescan LiDAR';
-            setProjectStatus('Referenced model restored; current server scan is stale. Rescan LiDAR to reproduce the project.', true);
+            setProjectStatus(
+              'Referenced model restored; current server scan is stale. Rescan LiDAR to reproduce the project.',
+              true
+            );
           }
           return 'lidar';
         } catch (error) {
+          if (serial !== loadSerial) return null;
           console.warn('Could not restore the previous LiDAR scan:', error);
         }
       }
@@ -1458,6 +1479,7 @@
       refreshButtons();
       return 'scene';
     } catch (_) {
+      if (serial !== loadSerial) return null;
       modelStatus.textContent = '3D mode requires the local Python server.';
       return null;
     }
