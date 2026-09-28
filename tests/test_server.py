@@ -13,6 +13,68 @@ from server.errors import ErrorRecorder
 from server.state import StudioState
 
 
+PNG = b"\x89PNG\r\n\x1a\nphase3-test"
+
+
+class FakeLidarBridge:
+    def __init__(self, state: StudioState) -> None:
+        self.state = state
+
+    def upload_scene(self, filename: str, raw: bytes) -> dict:
+        if not filename:
+            raise ValueError("filename is required")
+        if not raw:
+            raise ValueError("uploaded model is empty")
+        info = {
+            "name": filename,
+            "format": Path(filename).suffix.lower().lstrip("."),
+            "triangles": 12,
+            "vertices": 8,
+            "normalized": True,
+        }
+        self.state.set_scene(object(), info)
+        return info
+
+    def scan(self, options: dict | None = None) -> dict:
+        if self.state.get_scene_object() is None:
+            raise ValueError("no 3D model is loaded")
+        metadata = {
+            "scan_id": "fake123",
+            "width": int((options or {}).get("width", 320)),
+            "height": int((options or {}).get("height", 240)),
+            "rays_per_pixel": int((options or {}).get("rays_per_pixel", 2)),
+            "seed": int((options or {}).get("seed", 42)),
+            "coverage": 0.75,
+            "scene": {"name": self.state.snapshot()["workspace"]["scene"]["name"]},
+        }
+        self.state.set_scan(
+            "fake123",
+            metadata,
+            {"shaded": PNG, "depth": PNG, "edge": PNG},
+        )
+        return self.maps_summary()
+
+    def maps_summary(self) -> dict:
+        scan = self.state.get_scan()
+        if scan is None:
+            raise ValueError("no LiDAR scan is available")
+        metadata = dict(scan["metadata"])
+        metadata["channels"] = {
+            "shaded": "/api/lidar/maps/shaded.png?scan_id=fake123",
+            "depth": "/api/lidar/maps/depth.png?scan_id=fake123",
+            "edge": "/api/lidar/maps/edge.png?scan_id=fake123",
+        }
+        return metadata
+
+    def channel_png(self, channel: str) -> bytes:
+        if channel not in {"shaded", "depth", "edge"}:
+            raise ValueError("unknown LiDAR channel")
+        payload = self.state.get_scan_channel(channel)
+        if payload is None:
+            raise ValueError("no LiDAR scan is available")
+        return payload
+
+
 class ServerTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -20,23 +82,25 @@ class ServerTestCase(unittest.TestCase):
         self.frontend = root / "frontend"
         self.frontend.mkdir()
         (self.frontend / "index.html").write_text(
-            "<!doctype html><title>Phase 2 Test</title>",
+            "<!doctype html><title>Phase 3 Test</title>",
             encoding="utf-8",
         )
         (self.frontend / "app.js").write_text(
-            "window.phase2Test = true;",
+            "window.phase3Test = true;",
             encoding="utf-8",
         )
         (root / "secret.txt").write_text("outside frontend", encoding="utf-8")
 
         self.state = StudioState()
         recorder = ErrorRecorder(root / "errors.jsonl")
+        self.lidar = FakeLidarBridge(self.state)
         self.server = create_server(
             self.frontend,
             host=HOST,
             port=0,
             state=self.state,
             error_recorder=recorder,
+            lidar_bridge=self.lidar,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -48,8 +112,18 @@ class ServerTestCase(unittest.TestCase):
         self.thread.join(timeout=2)
         self.temp.cleanup()
 
-    def request(self, path: str, *, method: str = "GET") -> tuple[int, bytes, str]:
-        request = Request(self.base + path, method=method)
+    def request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        body: bytes | None = None,
+        content_type: str | None = None,
+    ) -> tuple[int, bytes, str]:
+        headers = {}
+        if content_type:
+            headers["Content-Type"] = content_type
+        request = Request(self.base + path, data=body, headers=headers, method=method)
         try:
             with urlopen(request, timeout=2) as response:
                 return (
@@ -60,16 +134,38 @@ class ServerTestCase(unittest.TestCase):
         except HTTPError as error:
             return error.code, error.read(), error.headers.get("Content-Type", "")
 
-    def json_request(self, path: str, *, method: str = "GET") -> tuple[int, dict]:
-        status, body, _ = self.request(path, method=method)
-        return status, json.loads(body.decode("utf-8"))
+    def json_request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        body: bytes | None = None,
+        content_type: str | None = None,
+    ) -> tuple[int, dict]:
+        status, payload, _ = self.request(
+            path,
+            method=method,
+            body=body,
+            content_type=content_type,
+        )
+        return status, json.loads(payload.decode("utf-8"))
+
+    def upload_fake_scene(self) -> dict:
+        status, payload = self.json_request(
+            "/api/scene/upload?filename=cube.obj",
+            method="POST",
+            body=b"fake obj bytes",
+            content_type="application/octet-stream",
+        )
+        self.assertEqual(status, 200)
+        return payload
 
     def test_health(self) -> None:
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.1-phase2")
-        self.assertEqual(payload["api_version"], 1)
+        self.assertEqual(payload["server_version"], "0.2-phase3")
+        self.assertEqual(payload["api_version"], 2)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -97,13 +193,66 @@ class ServerTestCase(unittest.TestCase):
     def test_static_frontend_is_served(self) -> None:
         status, body, content_type = self.request("/")
         self.assertEqual(status, 200)
-        self.assertIn(b"Phase 2 Test", body)
+        self.assertIn(b"Phase 3 Test", body)
         self.assertIn("text/html", content_type)
 
         status, body, content_type = self.request("/app.js")
         self.assertEqual(status, 200)
-        self.assertIn(b"phase2Test", body)
+        self.assertIn(b"phase3Test", body)
         self.assertIn("javascript", content_type)
+
+    def test_scene_upload_updates_state(self) -> None:
+        payload = self.upload_fake_scene()
+        self.assertTrue(payload["scene"]["normalized"])
+
+        status, state = self.json_request("/api/state")
+        self.assertEqual(status, 200)
+        self.assertTrue(state["state"]["workspace"]["scene"]["loaded"])
+        self.assertEqual(state["state"]["workspace"]["scene"]["name"], "cube.obj")
+
+    def test_scan_requires_scene(self) -> None:
+        status, payload = self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=b"{}",
+            content_type="application/json",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "bad_request")
+
+    def test_scan_and_map_endpoints(self) -> None:
+        self.upload_fake_scene()
+        status, payload = self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=json.dumps({"width": 160, "height": 120}).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["scan"]["scan_id"], "fake123")
+        self.assertEqual(payload["scan"]["width"], 160)
+
+        status, maps = self.json_request("/api/lidar/maps")
+        self.assertEqual(status, 200)
+        self.assertIn("depth", maps["scan"]["channels"])
+
+        status, body, content_type = self.request("/api/lidar/maps/edge.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, PNG)
+        self.assertEqual(content_type, "image/png")
+
+    def test_reset_discards_scene_and_scan(self) -> None:
+        self.upload_fake_scene()
+        self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=b"{}",
+            content_type="application/json",
+        )
+        status, _ = self.json_request("/api/reset", method="POST")
+        self.assertEqual(status, 200)
+        self.assertIsNone(self.state.get_scene_object())
+        self.assertIsNone(self.state.get_scan())
 
     def test_unknown_api_is_json_404(self) -> None:
         status, payload = self.json_request("/api/nope")
