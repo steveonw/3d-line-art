@@ -3,12 +3,14 @@ const vm = require('vm');
 
 const randomCode = fs.readFileSync('frontend/random_field.js', 'utf8');
 const proceduralCode = fs.readFileSync('frontend/procedural_flow.js', 'utf8');
+const mathCode = fs.readFileSync('frontend/math_fields.js', 'utf8');
 const rendererCode = fs.readFileSync('frontend/line_renderer.js', 'utf8');
 
 const context = { window: {} };
 vm.createContext(context);
 vm.runInContext(randomCode, context, { filename: 'random_field.js' });
 vm.runInContext(proceduralCode, context, { filename: 'procedural_flow.js' });
+vm.runInContext(mathCode, context, { filename: 'math_fields.js' });
 vm.runInContext(rendererCode, context, { filename: 'line_renderer.js' });
 
 const R = context.window.LineArtRandom;
@@ -126,7 +128,19 @@ const settings = {
   angleQuantize: 0,
   sampleBias: 0.7,
   flowStrength: 0.65,
-  procedural: { scale: 120, turbulence: 0, octaves: 4 }
+  procedural: { scale: 120, turbulence: 0, octaves: 4 },
+  flowMixer: {
+    surface: 1,
+    depth: 0,
+    procedural: 1,
+    radial: 0,
+    vortex: 0,
+    spiral: 0,
+    wave: 0,
+    rose: 0,
+    cardioid: 0,
+    logSpiral: 0
+  }
 };
 
 function renderPrefix(target, previewOpacityMultiplier = 1, previewWeightMultiplier = 1) {
