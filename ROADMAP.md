@@ -109,12 +109,12 @@ opens the whole application.
 
 Connect `lidar-engine`.
 
-- [ ] Add STL upload
-- [ ] Add OBJ upload
-- [ ] Load the model once on the server
-- [ ] Return a shaded map
-- [ ] Return a depth map
-- [ ] Return a geometry-edge map
+- [x] Add STL upload
+- [x] Add OBJ upload
+- [x] Load the model once on the server
+- [x] Return a shaded map
+- [x] Return a depth map
+- [x] Return a geometry-edge map
 
 Initial API:
 
@@ -147,6 +147,8 @@ STL / OBJ
 ```
 
 works end-to-end.
+
+**Phase 3 validation:** GitHub Actions passes the real cube OBJ -> vendored LiDAR engine -> shaded/depth/edge PNG integration test, the HTTP/API suite, JavaScript syntax/DOM checks, and a synthetic LiDAR depth-tangent/edge-map smoke test. The LiDAR maps feed the same renderer/export path used by the Phase 1 image source; visual art-quality comparison remains a manual review step.
 
 ## v0.1 checkpoint
 
@@ -565,7 +567,7 @@ Use useful packaging/runtime-management ideas from `LocalChatBox` only after the
 1. Existing renderer protected                 [x]
 2. Frontend cleaned up                         [x]
 3. Local server                                [x]
-4. STL/OBJ -> LiDAR -> line art                [ ]
+4. STL/OBJ -> LiDAR -> line art                [x]
 ---------------------------------------------------
 FIRST MAJOR CHECKPOINT / v0.1
 
