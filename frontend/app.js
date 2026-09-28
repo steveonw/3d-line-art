@@ -1336,7 +1336,8 @@
         'lidar',
         modelReference || {
           kind: 'lidar',
-          name: scan.scene?.name || '3D model'
+          name: scan.scene?.name || '3D model',
+          sha256: scan.scene?.sha256 || null
         }
       );
     } catch (error) {
@@ -1487,6 +1488,7 @@
 
   function schedulePreview() {
     if (!sourceImage || loadingImage) return;
+    if (sourceKind === 'lidar' && scanDirty) return;
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       previewTimer = 0;
@@ -1511,6 +1513,7 @@
 
   function startRender(kind) {
     if (!sourceImage || loadingImage) return;
+    if (sourceKind === 'lidar' && scanDirty) return;
     clearTimeout(previewTimer);
     previewTimer = 0;
 
