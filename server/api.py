@@ -17,8 +17,8 @@ from .state import StudioState
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.3-phase4"
-API_VERSION = 3
+SERVER_VERSION = "0.4-phase12"
+API_VERSION = 4
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
@@ -205,10 +205,30 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, {"ok": True, "scan": scan})
             return
 
-        if method == "GET" and path == "/api/lidar/maps":
+        if method == "POST" and path == "/api/lidar/multiview":
+            options = self._read_json(MAX_JSON_BYTES)
+            if not self.server.state.try_begin_operation("lidar-multiview"):
+                self._busy()
+                return
+            try:
+                multiview = self.server.lidar.scan_fixed_views(options)
+            finally:
+                self.server.state.end_operation()
             self._send_json(
                 HTTPStatus.OK,
-                {"ok": True, "scan": self.server.lidar.maps_summary()},
+                {"ok": True, "multiview": multiview},
+            )
+            return
+
+        if method == "GET" and path == "/api/lidar/maps":
+            params = parse_qs(query, keep_blank_values=True)
+            scan_id = (params.get("scan_id") or [None])[0]
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "scan": self.server.lidar.maps_summary(scan_id=scan_id),
+                },
             )
             return
 
@@ -232,6 +252,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             "/api/reset",
             "/api/scene/upload",
             "/api/lidar/scan",
+            "/api/lidar/multiview",
             "/api/lidar/maps",
         }
         if path in known_paths or path.startswith("/api/lidar/maps/"):
