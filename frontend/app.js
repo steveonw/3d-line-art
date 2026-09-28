@@ -1899,6 +1899,7 @@
       }
 
       rememberInstalledMultiView(multiview);
+      scanAutoBtn.textContent = 'Auto Scan';
       const planner = multiview.planner || {};
       const coverageScore = Math.round(Number(planner.coverage_score || 0) * 100);
       modelStatus.textContent =
