@@ -139,6 +139,33 @@ This is an independent implementation of the coordinate-stable randomness idea r
 
 The existing **Seed** field controls this deterministic variation. **New Variation** still generates a new seed intentionally.
 
+## Phase 6 procedural flow
+
+Phase 6 adds a deterministic multi-octave gradient-noise/fBm direction field on top of the current image or LiDAR direction map.
+
+Controls:
+
+- **Flow Scale** — spatial size of the procedural features. Larger values create broader, slower bends.
+- **Turbulence** — strength of the procedural angular offset. At 0%, the Phase 5 direction field is preserved exactly.
+- **Octaves** — number of fBm detail layers, from 1 to 7.
+- **Seed** — the existing seed controls both stable stroke variation and the procedural field.
+
+The procedural field is evaluated locally from coordinates and seed, so it remains repeatable and does not consume sequential random state.
+
+Conceptually:
+
+```text
+image/LiDAR direction
+        +
+seeded fBm flow offset
+        +
+small stable local jitter
+        ↓
+final streamline direction
+```
+
+This is an independent implementation of seeded gradient noise and fBm. It does not copy source code from the experimental world-generator repository.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -234,6 +261,12 @@ Run the deterministic-randomness regression test:
 node tests/frontend_randomness_smoke.js
 ```
 
-GitHub Actions also runs JavaScript syntax checks, deterministic prefix/repeatability checks, and the real cube-OBJ -> LiDAR integration test.
+Run the procedural-flow regression test:
+
+```bash
+node tests/frontend_procedural_flow_smoke.js
+```
+
+GitHub Actions also runs JavaScript syntax checks, deterministic prefix/repeatability checks, procedural-flow checks, and the real cube-OBJ -> LiDAR integration test.
 
 See `ROADMAP.md` for the staged build plan.
