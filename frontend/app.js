@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase9';
+  const BUILD_VERSION = '5.3-phase10';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -62,7 +62,9 @@
   };
 
   const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(settings));
+  const DEFAULT_EXPORT_SETTINGS = Object.freeze({ pngScale: '2' });
   const AUTOSAVE_KEY = 'lidar-ink-studio:project-autosave:v1';
+  const PROJECT_FILE_MAX_BYTES = 1024 * 1024;
 
   const presets = {
     finePencil: {
@@ -195,6 +197,10 @@
   );
   const seedInput = document.getElementById('seedInput');
   const variationBtn = document.getElementById('variationBtn');
+  const openProjectBtn = document.getElementById('openProjectBtn');
+  const saveProjectBtn = document.getElementById('saveProjectBtn');
+  const projectFileInput = document.getElementById('projectFileInput');
+  const projectStatus = document.getElementById('projectStatus');
   const undoBtn = document.getElementById('undoBtn');
   const redoBtn = document.getElementById('redoBtn');
   const autosaveStatus = document.getElementById('autosaveStatus');
@@ -231,6 +237,8 @@
   let sceneLoaded = false;
   let sourceKind = 'none';
   let sourceName = null;
+  let sourceReference = null;
+  let requiredSourceReference = null;
   let lidarSourceMaps = null;
   let scanDirty = false;
   let activeRender = null;
@@ -240,6 +248,7 @@
   let highQualityStrokeStore = null;
   let highQualityRenderMeta = null;
   let highQualityStale = false;
+  let projectDownloadUrl = null;
 
   const renderer = LineArtRenderer.createRenderer({
     ctx,
@@ -287,11 +296,36 @@
   let historyUiLocked = false;
   let restoredSourceHint = null;
 
+  function fileSourceReference(file, kind) {
+    if (!file) return { kind: 'none', name: null, size: null, lastModified: null, type: null };
+    return {
+      kind,
+      name: file.name || null,
+      size: Number.isFinite(file.size) ? file.size : null,
+      lastModified: Number.isFinite(file.lastModified) ? file.lastModified : null,
+      type: file.type || null
+    };
+  }
+
+  function currentSourceReference() {
+    if (requiredSourceReference) return requiredSourceReference;
+    if (sourceReference) return sourceReference;
+    if (sourceKind === 'none' && restoredSourceHint) return restoredSourceHint;
+    return { kind: sourceKind, name: sourceName };
+  }
+
+  function sourceRequirementSatisfied() {
+    if (!requiredSourceReference || requiredSourceReference.kind === 'none') return true;
+    return !!sourceReference &&
+      LineArtProjectState.sourceMatches(requiredSourceReference, sourceReference);
+  }
+
   function captureProjectState() {
-    const source = sourceKind === 'none' && restoredSourceHint
-      ? restoredSourceHint
-      : { kind: sourceKind, name: sourceName };
-    return LineArtProjectState.create(settings, source);
+    return LineArtProjectState.create(
+      settings,
+      currentSourceReference(),
+      { pngScale: pngScaleSelect?.value || DEFAULT_EXPORT_SETTINGS.pngScale }
+    );
   }
 
   function scanSettingsSignature(value = settings) {
