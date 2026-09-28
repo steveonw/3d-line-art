@@ -405,17 +405,19 @@ Defaults preserve pre-11.5 project behavior. LiDAR-specific presets opt into the
 
 Start with predictable views:
 
-- [ ] Front
-- [ ] Back
-- [ ] Left
-- [ ] Right
-- [ ] Top
-- [ ] Keep each scan independently inspectable
-- [ ] Add current-view mode
-- [ ] Add combined-view mode
-- [ ] Add per-view debug coloring
+- [x] Front
+- [x] Back
+- [x] Left
+- [x] Right
+- [x] Top
+- [x] Keep each scan independently inspectable
+- [x] Add current-view mode
+- [x] Add combined-view mode
+- [x] Add per-view debug coloring
 
 **Done when:** several viewpoints can contribute to one drawing.
+
+**Phase 12 validation:** GitHub Actions passes fixed-view camera tests on the real cube, five-entry cache creation and full cache-only replay with the LiDAR engine disabled, archived scan metadata/channel retrieval by `scan_id`, deterministic combined-evidence and debug-attribution tests, project-file round trips for view settings, and real Chromium regressions for current-view switching, combined mode, debug coloring, correct stale/fresh behavior, and fully cached repeat five-view scans.
 
 ---
 
@@ -646,7 +648,7 @@ ART SYSTEM CHECKPOINT / v0.2
 ---------------------------------------------------
 USABILITY CHECKPOINT / v0.3
 
-13. Fixed multi-view                           [ ]
+13. Fixed multi-view                           [x]
 14. Auto Scan                                  [ ]
 15. Confidence fusion                          [ ]
 ---------------------------------------------------
