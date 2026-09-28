@@ -241,6 +241,9 @@
   let modelReference = null;
   let requiredSourceReference = null;
   let lidarSourceMaps = null;
+  let installedScanSignature = null;
+  let installedScanId = null;
+  let installedScanLabel = null;
   let scanDirty = false;
   let activeRender = null;
 
@@ -297,22 +300,43 @@
   let historyUiLocked = false;
   let restoredSourceHint = null;
 
-  function fileSourceReference(file, kind) {
-    if (!file) return { kind: 'none', name: null, size: null, lastModified: null, type: null };
+  async function sha256File(file) {
+    if (!file || !globalThis.crypto?.subtle || typeof file.arrayBuffer !== 'function') {
+      return null;
+    }
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function fileSourceReference(file, kind, knownSha256 = null) {
+    if (!file) {
+      return {
+        kind: 'none',
+        name: null,
+        size: null,
+        lastModified: null,
+        type: null,
+        sha256: null
+      };
+    }
     return {
       kind,
       name: file.name || null,
       size: Number.isFinite(file.size) ? file.size : null,
       lastModified: Number.isFinite(file.lastModified) ? file.lastModified : null,
-      type: file.type || null
+      type: file.type || null,
+      sha256: knownSha256 || await sha256File(file)
     };
   }
 
   function currentSourceReference() {
     if (requiredSourceReference) return requiredSourceReference;
-    if (sourceKind === 'lidar' && modelReference) return modelReference;
-    if (modelReference && sceneLoaded && !sourceImage) return modelReference;
     if (sourceReference) return sourceReference;
+    if (modelReference && sceneLoaded && !sourceImage) return modelReference;
     if (sourceKind === 'none' && restoredSourceHint) return restoredSourceHint;
     return { kind: sourceKind, name: sourceName };
   }
@@ -358,8 +382,53 @@
       Number(scan.camera?.yaw_deg),
       Number(scan.camera?.elevation_deg),
       Number(scan.camera?.distance_scale),
-      Number(scan.camera?.fov_deg)
+      Number(scan.camera?.fov_deg),
+      scan.scene?.sha256 || scan.scene?.name || null
     ]);
+  }
+
+  function installedModelMatchesCurrent() {
+    if (sourceKind !== 'lidar' || !sourceReference || !modelReference) return true;
+    return LineArtProjectState.sourceMatches(sourceReference, modelReference);
+  }
+
+  function rememberInstalledScan(scan) {
+    installedScanSignature = scanMetadataSignature(scan);
+    installedScanId = scan.scan_id || null;
+    installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
+    return updateScanFreshness();
+  }
+
+  function clearInstalledScan() {
+    installedScanSignature = null;
+    installedScanId = null;
+    installedScanLabel = null;
+    scanDirty = false;
+  }
+
+  function updateScanFreshness() {
+    if (!installedScanSignature || sourceKind !== 'lidar') {
+      scanDirty = sourceKind === 'lidar' && !!sourceImage;
+      if (sceneLoaded && sourceKind !== 'lidar') {
+        scanSummary.textContent = 'ready to scan';
+        scanBtn.textContent = 'Scan LiDAR';
+      }
+      return scanDirty;
+    }
+
+    // Compare sensor controls explicitly; the installed signature also carries
+    // scene identity, while current settings do not.
+    const parsedInstalled = JSON.parse(installedScanSignature);
+    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 7));
+    const currentSensor = JSON.stringify(JSON.parse(scanSettingsSignature(settings)));
+    const sensorMatch = installedSensor === currentSensor;
+    const modelMatch = installedModelMatchesCurrent();
+
+    scanDirty = !sensorMatch || !modelMatch;
+    scanSummary.textContent =
+      `${installedScanLabel || 'scan'}${scanDirty ? ' · settings changed' : ''}`;
+    scanBtn.textContent = 'Rescan LiDAR';
+    return scanDirty;
   }
 
   function normalizeRestoredSettings(next) {
