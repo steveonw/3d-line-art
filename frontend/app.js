@@ -1534,8 +1534,13 @@
       const scene = result.scene;
       sceneLoaded = true;
       modelReference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
+      const previousScanLabel = installedScanLabel;
       multiViewBundle = null;
       installedMultiViewSignature = null;
+      installedScanSignature = null;
+      installedScanId = null;
+      installedScanCacheHit = false;
+      installedScanMode = 'single';
       updateMultiViewSummary();
 
       // Uploading a model replaces the server scene/scan, but it does not
@@ -1544,7 +1549,7 @@
       scanDirty = true;
       scanBtn.textContent = 'Scan LiDAR';
       scanSummary.textContent = sourceKind === 'lidar' && sourceImage
-        ? `Scan stale · ${installedScanLabel || 'scan'}`
+        ? `Scan stale · ${previousScanLabel || 'scan'}`
         : 'Scan stale · ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
@@ -1780,6 +1785,7 @@
       if (serial !== loadSerial) return;
       scanRunning = false;
       loadingImage = false;
+      scanMultiBtn.textContent = multiViewBundle ? 'Rescan 5 Views' : 'Scan 5 Views';
       refreshButtons();
       const suffix = error.errorId ? ` (${error.errorId})` : '';
       setStatus(`Fixed multi-view scan failed: ${error.message}${suffix}`, 0);
