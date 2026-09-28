@@ -27,6 +27,7 @@ jobs:
           node --check frontend/analysis_maps.js
           node --check frontend/random_field.js
           node --check frontend/procedural_flow.js
+          node --check frontend/math_fields.js
           node --check frontend/line_renderer.js
           node --check frontend/export.js
           node --check frontend/lidar_client.js
@@ -40,6 +41,9 @@ jobs:
 
       - name: Run procedural flow smoke test
         run: node tests/frontend_procedural_flow_smoke.js
+
+      - name: Run mathematical flow mixer smoke test
+        run: node tests/frontend_math_fields_smoke.js
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v

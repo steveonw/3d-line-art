@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase6';
+  const BUILD_VERSION = '5.3-phase7';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -33,6 +33,18 @@
       scale: 120,
       turbulence: 0,
       octaves: 4
+    },
+    flowMixer: {
+      surface: 1.0,
+      depth: 0.0,
+      procedural: 1.0,
+      radial: 0.0,
+      vortex: 0.0,
+      spiral: 0.0,
+      wave: 0.0,
+      rose: 0.0,
+      cardioid: 0.0,
+      logSpiral: 0.0
     },
     lidar: {
       scanResolution: '320x240',
@@ -122,6 +134,19 @@
     { key: 'flowStrength', label: 'Stroke Flow', min: 0, max: 1.0, step: 0.05, format: v => Math.round(Number(v) * 100) + '%' }
   ];
 
+  const mixerDefs = [
+    { key: 'surface', id: 'mixSurface' },
+    { key: 'depth', id: 'mixDepth' },
+    { key: 'procedural', id: 'mixProcedural' },
+    { key: 'radial', id: 'mixRadial' },
+    { key: 'vortex', id: 'mixVortex' },
+    { key: 'spiral', id: 'mixSpiral' },
+    { key: 'wave', id: 'mixWave' },
+    { key: 'rose', id: 'mixRose' },
+    { key: 'cardioid', id: 'mixCardioid' },
+    { key: 'logSpiral', id: 'mixLogSpiral' }
+  ];
+
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d', { alpha: false });
   const imageInput = document.getElementById('imageInput');
@@ -159,6 +184,12 @@
   const flowTurbulenceValue = document.getElementById('flowTurbulenceValue');
   const flowOctaves = document.getElementById('flowOctaves');
   const flowOctavesValue = document.getElementById('flowOctavesValue');
+  const mixerControls = Object.fromEntries(
+    mixerDefs.map(def => [def.key, {
+      input: document.getElementById(def.id),
+      value: document.getElementById(def.id + 'Value')
+    }])
+  );
   const seedInput = document.getElementById('seedInput');
   const variationBtn = document.getElementById('variationBtn');
   const renderBtn = document.getElementById('renderBtn');
@@ -283,6 +314,15 @@
     flowOctavesValue.textContent = String(p.octaves);
   }
 
+  function syncFlowMixerControls() {
+    for (const def of mixerDefs) {
+      const control = mixerControls[def.key];
+      const value = settings.flowMixer[def.key];
+      control.input.value = value;
+      control.value.textContent = `${Math.round(value * 100)}%`;
+    }
+  }
+
   function readScanControls() {
     const [width, height] = settings.lidar.scanResolution.split('x').map(Number);
     return {
@@ -311,7 +351,9 @@
       edgeStrength,
       colorInkNeed,
       strokeDirection,
-      directionCoherence
+      directionCoherence,
+      depthDirection: maps.depthDirection || null,
+      depthCoherence: maps.depthCoherence || null
     });
   }
 
@@ -408,6 +450,7 @@
     for (const def of sliderDefs) updateSliderValue(def);
     syncLidarControls();
     syncProceduralControls();
+    syncFlowMixerControls();
     syncModeButtons();
     syncPaletteAvailability();
   }
@@ -506,6 +549,7 @@
     flowScale.disabled = locked;
     flowTurbulence.disabled = locked;
     flowOctaves.disabled = locked;
+    for (const def of mixerDefs) mixerControls[def.key].input.disabled = locked;
     seedInput.disabled = locked;
     variationBtn.disabled = locked;
     pngScaleSelect.disabled = locked;
@@ -820,6 +864,7 @@
     const renderSettings = {
       ...settings,
       procedural: { ...settings.procedural },
+      flowMixer: { ...settings.flowMixer },
       lidar: { ...settings.lidar }
     };
     const target = isPreview ? Math.min(renderSettings.lineCount, PREVIEW_MAX_LINES) : renderSettings.lineCount;
@@ -935,8 +980,10 @@
   document.body.dataset.phase4Ready = 'true';
   document.body.dataset.phase5Ready = 'true';
   document.body.dataset.phase6Ready = 'true';
+  document.body.dataset.phase7Ready = 'true';
   syncLidarControls();
   syncProceduralControls();
+  syncFlowMixerControls();
   restoreServerScene();
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
@@ -1032,6 +1079,16 @@
     markSettingsChanged(true);
     schedulePreview();
   });
+
+  for (const def of mixerDefs) {
+    const control = mixerControls[def.key];
+    control.input.addEventListener('input', () => {
+      settings.flowMixer[def.key] = Number(control.input.value);
+      control.value.textContent = `${Math.round(settings.flowMixer[def.key] * 100)}%`;
+      markSettingsChanged(true);
+      schedulePreview();
+    });
+  }
 
   seedInput.addEventListener('change', () => {
     settings.seed = normalizeSeed(seedInput.value);

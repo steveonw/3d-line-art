@@ -12,14 +12,16 @@
     let colorInkNeed = null;
     let strokeDirection = null;
     let directionCoherence = null;
+    let depthDirection = null;
+    let depthCoherence = null;
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
     function blend(a, b, t) { return a + (b - a) * t; }
 
     const RandomField = window.LineArtRandom;
-    const ProceduralFlow = window.LineArtProceduralFlow;
+    const MathFields = window.LineArtMathFields;
     if (!RandomField) throw new Error('LineArtRandom must load before line_renderer.js');
-    if (!ProceduralFlow) throw new Error('LineArtProceduralFlow must load before line_renderer.js');
+    if (!MathFields) throw new Error('LineArtMathFields must load before line_renderer.js');
 
     const limitedPalette = [
       [28, 30, 33],
@@ -213,19 +215,27 @@
       return angle;
     }
 
-    function proceduralAngleAt(x, y, angle, renderState) {
-      const p = renderState.settings.procedural;
-      if (!p || p.turbulence <= 0) return angle;
-      return angle + ProceduralFlow.proceduralFlow(
+    function mixedFieldAngleAt(x, y, baseAngle, renderState) {
+      const w = sourceImage.width;
+      const h = sourceImage.height;
+      const ix = clamp(Math.round(x), 0, w - 1);
+      const iy = clamp(Math.round(y), 0, h - 1);
+      const idx = iy * w + ix;
+      const localDepthAngle = depthDirection ? depthDirection[idx] : null;
+      const localDepthCoherence = depthCoherence ? depthCoherence[idx] / 255 : 0;
+
+      return MathFields.composeAngle({
         x,
         y,
-        renderState.seed,
-        {
-          scale: p.scale,
-          turbulence: p.turbulence,
-          octaves: p.octaves
-        }
-      );
+        width: w,
+        height: h,
+        seed: renderState.seed,
+        baseAngle,
+        depthAngle: localDepthAngle,
+        depthCoherence: localDepthCoherence,
+        procedural: renderState.settings.procedural,
+        mixer: renderState.settings.flowMixer
+      });
     }
     
     function fieldAngleAt(x, y, reference, renderSettings, renderState, channel) {
@@ -236,7 +246,7 @@
       const idx = iy * w + ix;
       const coherence = directionCoherence[idx] / 255;
       let angle = coherence >= 0.30 ? strokeDirection[idx] : Math.PI / 4;
-      angle = proceduralAngleAt(x, y, angle, renderState);
+      angle = mixedFieldAngleAt(x, y, angle, renderState);
       angle = alignTangent(angle, reference);
       if (renderSettings.angleQuantize > 0) {
         angle = Math.round(angle / renderSettings.angleQuantize) * renderSettings.angleQuantize;
@@ -260,7 +270,7 @@
       // Flow = 0 exactly preserves the 5.2 straight-stroke behavior.
       if (flow <= 0.001) {
         let angle = candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4;
-        angle = proceduralAngleAt(candidate.x, candidate.y, angle, renderState);
+        angle = mixedFieldAngleAt(candidate.x, candidate.y, angle, renderState);
         const localNoise = RandomField.signedRandomAt(
           candidate.x,
           candidate.y,
@@ -423,6 +433,8 @@
       colorInkNeed = next.colorInkNeed;
       strokeDirection = next.strokeDirection;
       directionCoherence = next.directionCoherence;
+      depthDirection = next.depthDirection || null;
+      depthCoherence = next.depthCoherence || null;
     }
 
     return Object.freeze({

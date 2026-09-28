@@ -296,7 +296,9 @@
       edgeStrength,
       colorInkNeed,
       strokeDirection,
-      directionCoherence
+      directionCoherence,
+      depthDirection: source.depthDirection,
+      depthCoherence: source.depthCoherence
     };
   }
 
