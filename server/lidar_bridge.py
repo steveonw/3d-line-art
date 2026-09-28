@@ -250,6 +250,30 @@ def _depth_image(engine, depth):
     return Image.fromarray(pixels, mode="L").convert("RGB")
 
 
+def _orient_hit_normals_against_rays(engine, burst) -> int:
+    """Make mesh hit normals two-sided by orienting them toward the camera.
+
+    Ray directions point from the camera into the scene, so a visible surface
+    normal should have n·dir <= 0. Imported OBJ/STL winding is not reliable;
+    flipping only back-facing hit normals makes shaded tone independent of face
+    winding without changing hit positions, depth, or material color.
+    """
+    np = engine.np
+    depths = np.asarray(burst.depths)
+    normals = np.asarray(burst.normals)
+    dirs = np.asarray(burst.dirs)
+    hit = np.isfinite(depths) & (depths < getattr(engine, "INF", np.inf))
+    if not np.any(hit):
+        return 0
+
+    indices = np.where(hit)[0]
+    back_facing = np.sum(normals[indices] * dirs[indices], axis=1) > 0.0
+    flip_indices = indices[back_facing]
+    if flip_indices.size:
+        burst.normals[flip_indices] *= -1.0
+    return int(flip_indices.size)
+
+
 def _confidence_map(engine, channels, rays_per_pixel: int):
     """Continuous sensor-confidence proxy from support, coherence, and depth stability."""
     np = engine.np
@@ -455,6 +479,7 @@ class LidarBridge:
             beam_width=0.35,
             min_ray_weight=0.05,
         )
+        _orient_hit_normals_against_rays(engine, burst)
         channels = engine.compute_wave_channels(
             burst,
             scene,
