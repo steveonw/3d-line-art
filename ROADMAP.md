@@ -341,6 +341,8 @@ scans/
 
 **Phase 10 validation:** GitHub Actions passes portable project v2 save/open round trips, Phase 9 v1 migration, camera/LiDAR/art/flow/palette/seed/export restoration, source identity matching, future-version and foreign-format rejection, the checked-in cube project fixture, history/autosave regression, all deterministic renderer/flow/stroke-placement tests, the server/API suite, and the real cube OBJ LiDAR integration test. Project files reference source files rather than embedding them; a mismatched source blocks rendering until the referenced image/model is loaded, and stale restored LiDAR scans are marked for rescan.
 
+**Phase 10 post-review stabilization:** real Chromium regressions now cover autosave source freedom, explicit-project source locking, installed-scan freshness, and camera round-trips. Server hardening now enforces scan-id channel isolation, strict finite JSON, non-finite/degenerate mesh rejection, and model SHA-256 identity. Failed model uploads preserve the prior scene, and asynchronous server restore is generation-guarded.
+
 ## v0.3 checkpoint
 
 The application is now usable as a persistent creative tool.
