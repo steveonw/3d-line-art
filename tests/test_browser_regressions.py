@@ -269,15 +269,29 @@ class BrowserRegressionTests(unittest.TestCase):
         before = len(scan_requests)
         before_status = self.text("#scanSummary")
 
-        self.page.select_option("#preset", "architectural")
+        self.page.select_option("#preset", "sensorSketch")
         self.page.wait_for_function(
-            "document.getElementById('preset').value === 'architectural'"
+            "document.getElementById('preset').value === 'sensorSketch'"
         )
 
         self.assertEqual(
             len(scan_requests),
             before,
-            "art-only preset change unexpectedly requested a new LiDAR scan",
+            "LiDAR art-only preset change unexpectedly requested a new scan",
+        )
+        self.assertTrue(self.page.is_checked("#cleanBackground"))
+        self.assertTrue(self.page.is_checked("#objectCenteredFields"))
+        self.assertEqual(self.page.input_value("#confidenceSmoothing"), "0.8")
+
+        self.page.fill("#depthContourStrength", "0.75")
+        self.page.dispatch_event("#depthContourStrength", "input")
+        self.page.fill("#mixMathEmphasis", "2")
+        self.page.dispatch_event("#mixMathEmphasis", "input")
+
+        self.assertEqual(
+            len(scan_requests),
+            before,
+            "Phase 11.5 art controls unexpectedly requested a new LiDAR scan",
         )
         self.assertNotIn("Scan stale", self.text("#scanSummary"))
         self.assertEqual(self.text("#scanSummary"), before_status)
