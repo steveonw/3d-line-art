@@ -298,7 +298,9 @@
       strokeDirection,
       directionCoherence,
       depthDirection: source.depthDirection,
-      depthCoherence: source.depthCoherence
+      depthCoherence: source.depthCoherence,
+      depthChange: source.depthChange,
+      confidence: source.confidence
     };
   }
 
