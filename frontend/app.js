@@ -585,6 +585,13 @@
     next.lidar.confidenceSmoothing = clamp(Number(next.lidar.confidenceSmoothing), 0, 1);
     next.lidar.cleanBackground = !!next.lidar.cleanBackground;
     next.lidar.objectCenteredFields = !!next.lidar.objectCenteredFields;
+    next.lidar.multiViewMode = next.lidar.multiViewMode === 'combined'
+      ? 'combined'
+      : 'current';
+    if (!LineArtMultiView.VIEW_ORDER.includes(next.lidar.multiViewCurrent)) {
+      next.lidar.multiViewCurrent = 'front';
+    }
+    next.lidar.multiViewDebugColors = !!next.lidar.multiViewDebugColors;
 
     if (next.preset !== 'custom' && !presets[next.preset]) next.preset = 'custom';
     return next;
@@ -842,6 +849,9 @@
     confidenceSmoothing.value = s.confidenceSmoothing;
     cleanBackground.checked = !!s.cleanBackground;
     objectCenteredFields.checked = !!s.objectCenteredFields;
+    multiViewMode.value = s.multiViewMode;
+    multiViewCurrent.value = s.multiViewCurrent;
+    multiViewDebugColors.checked = !!s.multiViewDebugColors;
     cameraYawValue.textContent = `${Math.round(s.cameraYaw)}°`;
     cameraElevationValue.textContent = `${Math.round(s.cameraElevation)}°`;
     cameraDistanceValue.textContent = `${Number(s.cameraDistance).toFixed(1)}×`;
@@ -906,13 +916,13 @@
       confidence: maps.confidence || null,
       strokeMask: maps.strokeMask || null,
       eligibleIndices: maps.eligibleIndices || null,
-      fieldCenter: maps.fieldCenter || null
+      fieldCenter: maps.fieldCenter || null,
+      debugColorMap: maps.debugColorMap || null
     });
   }
 
-  function composeCurrentLidarMaps() {
-    if (!lidarSourceMaps) return null;
-    return LineArtAnalysis.composeLidarAnalysisMaps(lidarSourceMaps, {
+  function lidarArtOptions() {
+    return {
       densitySource: settings.lidar.densitySource,
       directionSource: settings.lidar.directionSource,
       geometryEdgeStrength: settings.lidar.geometryEdgeStrength,
@@ -921,7 +931,124 @@
       confidenceSmoothing: settings.lidar.confidenceSmoothing,
       cleanBackground: settings.lidar.cleanBackground,
       objectCenteredFields: settings.lidar.objectCenteredFields
+    };
+  }
+
+  function composeOneLidarView(sourceMaps) {
+    return LineArtAnalysis.composeLidarAnalysisMaps(sourceMaps, lidarArtOptions());
+  }
+
+  function composeCurrentLidarMaps() {
+    if (
+      installedScanMode === 'multi' &&
+      multiViewBundle &&
+      multiViewBundle.order.length
+    ) {
+      const currentName = settings.lidar.multiViewCurrent;
+      const current = multiViewBundle.views[currentName] ||
+        multiViewBundle.views[multiViewBundle.order[0]];
+      if (!current) return null;
+
+      if (settings.lidar.multiViewMode === 'combined') {
+        const entries = multiViewBundle.order
+          .map(name => multiViewBundle.views[name])
+          .filter(Boolean)
+          .map(view => ({
+            name: view.name,
+            maps: composeOneLidarView(view.sourceMaps)
+          }));
+        return LineArtMultiView.combineComposedViews(
+          entries,
+          multiViewBundle.width,
+          multiViewBundle.height,
+          { debugColors: settings.lidar.multiViewDebugColors }
+        );
+      }
+
+      const maps = composeOneLidarView(current.sourceMaps);
+      if (!settings.lidar.multiViewDebugColors) return maps;
+      return {
+        ...maps,
+        debugColorMap: LineArtMultiView.debugColorMapForView(
+          current.name,
+          multiViewBundle.width * multiViewBundle.height
+        )
+      };
+    }
+
+    if (!lidarSourceMaps) return null;
+    return composeOneLidarView(lidarSourceMaps);
+  }
+
+  function canvasFromPixels(pixels, width, height) {
+    const nextCanvas = document.createElement('canvas');
+    nextCanvas.width = width;
+    nextCanvas.height = height;
+    const nextCtx = nextCanvas.getContext('2d', {
+      willReadFrequently: true,
+      alpha: false
     });
+    nextCtx.putImageData(pixels, 0, 0);
+    return nextCanvas;
+  }
+
+  function updateMultiViewSummary() {
+    if (!multiViewBundle) {
+      multiViewSummary.textContent = 'No fixed multi-view scan loaded.';
+      return;
+    }
+    const statuses = multiViewBundle.order.map(name => {
+      const view = multiViewBundle.views[name];
+      const label = view?.scan?.view?.label ||
+        name.replace(/^./, letter => letter.toUpperCase());
+      return `${label} ${view?.scan?.cache_hit ? 'cached' : 'ready'}`;
+    });
+    const mode = settings.lidar.multiViewMode === 'combined'
+      ? 'Combined'
+      : `Current: ${settings.lidar.multiViewCurrent.replace(/^./, letter => letter.toUpperCase())}`;
+    multiViewSummary.textContent = `${mode} · ${statuses.join(' · ')}`;
+  }
+
+  function activateMultiViewSource({ historyKey = null } = {}) {
+    if (!multiViewBundle) return false;
+    const current = multiViewBundle.views[settings.lidar.multiViewCurrent] ||
+      multiViewBundle.views[multiViewBundle.order[0]];
+    if (!current) return false;
+
+    rememberInstalledMultiView(multiViewBundle.metadata);
+    lidarSourceMaps = current.sourceMaps;
+
+    const pixels = settings.lidar.multiViewMode === 'combined'
+      ? multiViewBundle.combinedPixels
+      : current.pixels;
+    const nextCanvas = canvasFromPixels(
+      pixels,
+      multiViewBundle.width,
+      multiViewBundle.height
+    );
+    const maps = composeCurrentLidarMaps();
+    const label = settings.lidar.multiViewMode === 'combined'
+      ? 'Combined 5-view LiDAR'
+      : `${current.scan.view?.label || current.name} LiDAR view`;
+
+    installSource(
+      nextCanvas,
+      pixels,
+      maps,
+      multiViewBundle.width,
+      multiViewBundle.height,
+      `${label} ready - ${multiViewBundle.width} x ${multiViewBundle.height}px. Building preview...`,
+      'lidar',
+      modelReference || {
+        kind: 'lidar',
+        name: current.scan.scene?.name || '3D model',
+        sha256: current.scan.scene?.sha256 || null
+      }
+    );
+
+    updateMultiViewSummary();
+    if (historyKey) recordSettingsChange(historyKey);
+    return true;
   }
 
   function recomposeLidarSource({
@@ -937,7 +1064,7 @@
   }
 
   function markScanControlsChanged(historyKey = null) {
-    if (installedScanSignature && sourceKind === 'lidar') {
+    if ((installedScanSignature || installedMultiViewSignature) && sourceKind === 'lidar') {
       updateScanFreshness();
     } else {
       scanDirty = !!sceneLoaded;
@@ -1152,6 +1279,14 @@
       el.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || highActive || exportBusy;
     });
     scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
+    scanMultiBtn.disabled = scanBtn.disabled;
+    const multiViewAvailable = !!multiViewBundle && modelReady && !modelLoading;
+    multiViewMode.disabled = !multiViewAvailable || uiLocked;
+    multiViewDebugColors.disabled = !multiViewAvailable || uiLocked;
+    multiViewCurrent.disabled =
+      !multiViewAvailable ||
+      uiLocked ||
+      settings.lidar.multiViewMode === 'combined';
     renderBtn.disabled = !sourceReady || !sensorReady || !sourceImage || loadingImage || scanRunning || highActive || exportBusy;
     cancelBtn.disabled = !active;
 
