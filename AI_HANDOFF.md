@@ -15,12 +15,13 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-10-project-files
-commit: f0d6536b852ba7af05961ca9295034fa4790e899
-PR:     #11 — Phase 10: add portable project files
-base:   phase-9-undo-autosave
+branch: phase-10-stabilization
+PR:     #12 — Phase 10 stabilization: fix project and LiDAR state regressions
+base:   phase-10-stabilization
 CI:     passed
 ```
+
+PR #11 remains the portable-project Phase 10 branch immediately below this stabilization PR.
 
 Resume from **Phase 11 — LiDAR scan caching**.
 
@@ -57,12 +58,14 @@ main
   ↓
 #10 phase-9-undo-autosave
   ↓
-#11 phase-10-project-files   ← CURRENT HEAD
+#11 phase-10-project-files
+  ↓
+#12 phase-10-stabilization   ← CURRENT HEAD
 ```
 
 For Phase 11:
 
-1. Branch from `phase-10-project-files`.
+1. Branch from `phase-10-stabilization`.
 2. Suggested branch name:
 
    ```text
@@ -142,9 +145,17 @@ The server is intentionally loopback-only.
 
 ## 5. Test commands
 
-Run the full Python suite:
+Run the runtime-only Python suite:
 
 ```bash
+python -m unittest discover -s tests -v
+```
+
+For the full development suite including real Chromium regressions:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
 python -m unittest discover -s tests -v
 ```
 
@@ -160,7 +171,7 @@ node tests/frontend_history_smoke.js
 node tests/frontend_project_file_smoke.js
 ```
 
-GitHub Actions runs these plus JavaScript syntax checks and the real cube OBJ → LiDAR engine integration tests.
+GitHub Actions runs these plus JavaScript syntax checks, real Chromium project/source regressions, and the real cube OBJ → LiDAR engine integration tests.
 
 Do not mark a roadmap phase complete until the exact branch-head CI is green.
 
@@ -444,7 +455,18 @@ Stores:
 
 Phase 9 v1 autosaves migrate to v2.
 
-Source identity uses filename plus known file metadata. A mismatched source blocks rendering/export.
+Source identity prefers SHA-256 content identity when both sides have it and falls back to filename + known size for older references. Modification time is metadata only, not a hard identity constraint. A mismatched explicit project source blocks rendering/export.
+
+A post-review stabilization pass also fixed:
+- autosave source hints becoming accidental permanent project locks,
+- stale LiDAR scans being treated as fresh after project/camera changes,
+- scan-channel mixing across different scan IDs,
+- late async server restore overwriting a newer image selection,
+- failed model uploads making the frontend forget the previous scene,
+- old rendered scans being relabeled as newly uploaded models,
+- NaN/Inf and near-zero-extent mesh acceptance.
+
+Real browser regressions now cover the confirmed state-machine bugs in CI.
 
 Scan binaries are **not** inside the project JSON yet.
 
@@ -459,11 +481,11 @@ POST /api/scene/upload?filename=model.obj
 POST /api/lidar/scan
 GET  /api/lidar/maps
 
-GET  /api/lidar/maps/shaded.png
-GET  /api/lidar/maps/depth.png
-GET  /api/lidar/maps/edge.png
-GET  /api/lidar/maps/variance.png
-GET  /api/lidar/maps/confidence.png
+GET  /api/lidar/maps/shaded.png?scan_id=<id>
+GET  /api/lidar/maps/depth.png?scan_id=<id>
+GET  /api/lidar/maps/edge.png?scan_id=<id>
+GET  /api/lidar/maps/variance.png?scan_id=<id>
+GET  /api/lidar/maps/confidence.png?scan_id=<id>
 ```
 
 `/api/scene/upload` uses raw request bytes, not multipart.
@@ -492,7 +514,7 @@ Current scan request fields:
 - one current scan metadata object,
 - one current set of scan-channel PNG bytes.
 
-Uploading a new scene clears the current scan.
+Uploading a new scene clears the current server scan. Scene metadata now includes SHA-256 of the uploaded raw OBJ/STL bytes. Channel retrieval checks the requested `scan_id`; a stale ID returns HTTP 409 instead of silently serving the current scan.
 
 This is the main place Phase 11 will evolve.
 
@@ -571,9 +593,9 @@ Those must remain fast browser-side edits.
 
 Do not key only on the filename if the server can cheaply retain a stronger identity.
 
-A good Phase 11 implementation can compute a scene/model fingerprint during upload, for example SHA-256 of the uploaded raw STL/OBJ bytes, and store it in the scene metadata/runtime state.
+Phase 10 stabilization already computes SHA-256 of the uploaded raw STL/OBJ bytes and stores it in scene metadata.
 
-This avoids collisions between two different files named `model.obj`.
+Phase 11 should reuse that existing fingerprint as the model component of the cache key. This avoids collisions between two different files named `model.obj`.
 
 ### Recommended first cache scope
 
