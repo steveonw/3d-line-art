@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase4" />
+  <meta name="application-version" content="5.3-phase5" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -188,7 +188,7 @@
       <div class="section">
         <div class="label-row">
           <label for="seedInput">Seed</label>
-          <span class="value">repeatable variation</span>
+          <span class="value">coordinate-stable variation</span>
         </div>
         <div class="range-number">
           <input id="seedInput" type="number" min="1" max="4294967295" step="1" value="2841" />
@@ -235,6 +235,7 @@
   </div>
 
   <script src="analysis_maps.js"></script>
+  <script src="random_field.js"></script>
   <script src="line_renderer.js"></script>
   <script src="export.js"></script>
   <script src="lidar_client.js"></script>
