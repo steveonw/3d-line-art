@@ -246,8 +246,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.3-phase4")
-        self.assertEqual(payload["api_version"], 3)
+        self.assertEqual(payload["server_version"], "0.4-phase12")
+        self.assertEqual(payload["api_version"], 4)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
