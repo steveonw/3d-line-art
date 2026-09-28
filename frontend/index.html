@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Line Art Studio 5.3</title>
+  <meta name="application-version" content="5.3-phase1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <div class="brand">
+        <h1>Line Art Studio 5.3</h1>
+        <p>Coverage-aware rendering with smooth direction fields and optional curved streamline strokes.</p>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="imageInput">Image</label></div>
+        <input id="imageInput" type="file" accept="image/*" />
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="preset">Style preset</label></div>
+        <select id="preset">
+          <option value="finePencil">Fine Pencil</option>
+          <option value="softSketch">Soft Sketch</option>
+          <option value="denseScribble">Dense Scribble</option>
+          <option value="colorThreads">Color Threads</option>
+          <option value="architectural">Architectural</option>
+          <option value="chaotic">Chaotic</option>
+          <option value="custom" disabled>Custom</option>
+        </select>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><span class="group-label">Mode</span></div>
+        <div class="segmented" id="modeControl" role="group" aria-label="Line color mode">
+          <button type="button" data-mode="color" class="active" aria-pressed="true">Color</button>
+          <button type="button" data-mode="black" aria-pressed="false">Black</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="palette">Palette</label></div>
+        <select id="palette">
+          <option value="original">Original</option>
+          <option value="muted">Muted</option>
+          <option value="warm">Warm</option>
+          <option value="cool">Cool</option>
+          <option value="monochrome">Monochrome</option>
+          <option value="limited">Limited Palette</option>
+        </select>
+      </div>
+
+      <div class="section">
+        <div class="label-row">
+          <label for="lineCountRange">Line Count</label>
+          <span class="value" id="lineCountDisplay">50,000</span>
+        </div>
+        <div class="range-number">
+          <input id="lineCountRange" type="range" min="1000" max="400000" step="1000" value="50000" />
+          <input id="lineCountNumber" type="number" min="1000" max="400000" step="1000" value="50000" />
+        </div>
+        <div class="quick-counts">
+          <button type="button" data-count="25000">25k</button>
+          <button type="button" data-count="50000">50k</button>
+          <button type="button" data-count="100000">100k</button>
+          <button type="button" data-count="200000">200k</button>
+          <button type="button" data-count="400000">400k</button>
+        </div>
+      </div>
+
+      <div class="section" id="sliders"></div>
+
+      <div class="section">
+        <div class="label-row">
+          <label for="seedInput">Seed</label>
+          <span class="value">repeatable variation</span>
+        </div>
+        <div class="range-number">
+          <input id="seedInput" type="number" min="1" max="4294967295" step="1" value="2841" />
+          <button class="secondary" id="variationBtn" type="button">New Variation</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label-row"><label for="pngScale">PNG export size</label><span class="value">replays vector strokes</span></div>
+        <select id="pngScale" style="margin-bottom:10px">
+          <option value="1">1× — canvas size</option>
+          <option value="2" selected>2× — high resolution</option>
+          <option value="4">4× — print size</option>
+        </select>
+        <div class="actions">
+          <button class="primary" id="renderBtn" type="button" disabled>Render High Quality</button>
+          <button class="secondary" id="saveBtn" type="button" disabled>Save PNG</button>
+          <button class="secondary" id="saveSvgBtn" type="button" disabled>Save SVG</button>
+          <button class="secondary" id="cancelBtn" type="button" disabled>Cancel Render</button>
+        </div>
+        <div class="progress-wrap">
+          <div id="status" aria-live="polite">Upload an image to begin.</div>
+          <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+          <div class="stats">
+            <div class="stat"><span>Lines</span><strong id="statLines">0</strong></div>
+            <div class="stat"><span>Progress</span><strong id="statPercent">0%</strong></div>
+            <div class="stat"><span>Time</span><strong id="statTime">0.0s</strong></div>
+          </div>
+          <div class="export-note" id="exportNote">Exports use the last completed high-quality render when available.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="stage" id="stage">
+        <div class="empty" id="emptyState">
+          <div><strong>No image loaded</strong>Choose an image, select a style, then render.</div>
+        </div>
+        <div class="canvas-shell" id="canvasShell" hidden>
+          <canvas id="canvas" width="900" height="600" role="img" aria-label="Generated line-art preview"></canvas>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="analysis_maps.js"></script>
+  <script src="line_renderer.js"></script>
+  <script src="export.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
