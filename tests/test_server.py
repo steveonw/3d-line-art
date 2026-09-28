@@ -42,6 +42,8 @@ class FakeLidarBridge:
         options = options or {}
         metadata = {
             "scan_id": "fake123",
+            "cache_hit": False,
+            "cache_key": "fake-cache-key",
             "width": int(options.get("width", 320)),
             "height": int(options.get("height", 240)),
             "rays_per_pixel": int(options.get("rays_per_pixel", 2)),
@@ -72,6 +74,7 @@ class FakeLidarBridge:
             name: f"/api/lidar/maps/{name}.png?scan_id=fake123"
             for name in CHANNELS
         }
+        metadata["cache"] = self.state.scan_cache_stats()
         return metadata
 
     def channel_png(self, channel: str, scan_id: str | None = None) -> bytes:
@@ -184,12 +187,15 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(before["state"]["revision"], 0)
         self.assertEqual(before["state"]["reset_count"], 0)
+        self.assertEqual(before["state"]["workspace"]["scan_cache"]["entries"], 0)
+        self.assertIn("limit_bytes", before["state"]["workspace"]["scan_cache"])
 
         status, after = self.json_request("/api/reset", method="POST")
         self.assertEqual(status, 200)
         self.assertEqual(after["state"]["revision"], 1)
         self.assertEqual(after["state"]["reset_count"], 1)
         self.assertFalse(after["state"]["busy"])
+        self.assertEqual(after["state"]["workspace"]["scan_cache"]["entries"], 0)
 
     def test_busy_write_returns_conflict(self) -> None:
         self.assertTrue(self.state.try_begin_operation("test-operation"))
@@ -251,6 +257,8 @@ class ServerTestCase(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(payload["scan"]["scan_id"], "fake123")
+        self.assertFalse(payload["scan"]["cache_hit"])
+        self.assertEqual(payload["scan"]["cache_key"], "fake-cache-key")
         self.assertEqual(payload["scan"]["width"], 160)
         self.assertTrue(payload["scan"]["smart_sampling"])
         self.assertEqual(payload["scan"]["camera"]["yaw_deg"], 120.0)
