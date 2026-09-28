@@ -17,7 +17,9 @@
     function blend(a, b, t) { return a + (b - a) * t; }
 
     const RandomField = window.LineArtRandom;
+    const ProceduralFlow = window.LineArtProceduralFlow;
     if (!RandomField) throw new Error('LineArtRandom must load before line_renderer.js');
+    if (!ProceduralFlow) throw new Error('LineArtProceduralFlow must load before line_renderer.js');
 
     const limitedPalette = [
       [28, 30, 33],
@@ -210,6 +212,21 @@
       while (angle - reference < -Math.PI / 2) angle += Math.PI;
       return angle;
     }
+
+    function proceduralAngleAt(x, y, angle, renderState) {
+      const p = renderState.settings.procedural;
+      if (!p || p.turbulence <= 0) return angle;
+      return angle + ProceduralFlow.proceduralFlow(
+        x,
+        y,
+        renderState.seed,
+        {
+          scale: p.scale,
+          turbulence: p.turbulence,
+          octaves: p.octaves
+        }
+      );
+    }
     
     function fieldAngleAt(x, y, reference, renderSettings, renderState, channel) {
       const w = sourceImage.width;
@@ -219,6 +236,7 @@
       const idx = iy * w + ix;
       const coherence = directionCoherence[idx] / 255;
       let angle = coherence >= 0.30 ? strokeDirection[idx] : Math.PI / 4;
+      angle = proceduralAngleAt(x, y, angle, renderState);
       angle = alignTangent(angle, reference);
       if (renderSettings.angleQuantize > 0) {
         angle = Math.round(angle / renderSettings.angleQuantize) * renderSettings.angleQuantize;
@@ -242,6 +260,7 @@
       // Flow = 0 exactly preserves the 5.2 straight-stroke behavior.
       if (flow <= 0.001) {
         let angle = candidate.coherence >= 0.30 ? candidate.direction : Math.PI / 4;
+        angle = proceduralAngleAt(candidate.x, candidate.y, angle, renderState);
         const localNoise = RandomField.signedRandomAt(
           candidate.x,
           candidate.y,
