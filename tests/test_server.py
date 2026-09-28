@@ -13,7 +13,8 @@ from server.errors import ErrorRecorder
 from server.state import StudioState
 
 
-PNG = b"\x89PNG\r\n\x1a\nphase3-test"
+PNG = b"\x89PNG\r\n\x1a\nphase4-test"
+CHANNELS = ("shaded", "depth", "edge", "variance", "confidence")
 
 
 class FakeLidarBridge:
@@ -38,19 +39,27 @@ class FakeLidarBridge:
     def scan(self, options: dict | None = None) -> dict:
         if self.state.get_scene_object() is None:
             raise ValueError("no 3D model is loaded")
+        options = options or {}
         metadata = {
             "scan_id": "fake123",
-            "width": int((options or {}).get("width", 320)),
-            "height": int((options or {}).get("height", 240)),
-            "rays_per_pixel": int((options or {}).get("rays_per_pixel", 2)),
-            "seed": int((options or {}).get("seed", 42)),
+            "width": int(options.get("width", 320)),
+            "height": int(options.get("height", 240)),
+            "rays_per_pixel": int(options.get("rays_per_pixel", 2)),
+            "seed": int(options.get("seed", 42)),
+            "smart_sampling": bool(options.get("smart_sampling", False)),
             "coverage": 0.75,
+            "camera": {
+                "yaw_deg": float(options.get("yaw_deg", 45)),
+                "elevation_deg": float(options.get("elevation_deg", 20)),
+                "distance_scale": float(options.get("distance_scale", 3.0)),
+                "fov_deg": float(options.get("fov_deg", 55)),
+            },
             "scene": {"name": self.state.snapshot()["workspace"]["scene"]["name"]},
         }
         self.state.set_scan(
             "fake123",
             metadata,
-            {"shaded": PNG, "depth": PNG, "edge": PNG},
+            {name: PNG for name in CHANNELS},
         )
         return self.maps_summary()
 
@@ -60,14 +69,13 @@ class FakeLidarBridge:
             raise ValueError("no LiDAR scan is available")
         metadata = dict(scan["metadata"])
         metadata["channels"] = {
-            "shaded": "/api/lidar/maps/shaded.png?scan_id=fake123",
-            "depth": "/api/lidar/maps/depth.png?scan_id=fake123",
-            "edge": "/api/lidar/maps/edge.png?scan_id=fake123",
+            name: f"/api/lidar/maps/{name}.png?scan_id=fake123"
+            for name in CHANNELS
         }
         return metadata
 
     def channel_png(self, channel: str) -> bytes:
-        if channel not in {"shaded", "depth", "edge"}:
+        if channel not in set(CHANNELS):
             raise ValueError("unknown LiDAR channel")
         payload = self.state.get_scan_channel(channel)
         if payload is None:
@@ -82,11 +90,11 @@ class ServerTestCase(unittest.TestCase):
         self.frontend = root / "frontend"
         self.frontend.mkdir()
         (self.frontend / "index.html").write_text(
-            "<!doctype html><title>Phase 3 Test</title>",
+            "<!doctype html><title>Phase 4 Test</title>",
             encoding="utf-8",
         )
         (self.frontend / "app.js").write_text(
-            "window.phase3Test = true;",
+            "window.phase4Test = true;",
             encoding="utf-8",
         )
         (root / "secret.txt").write_text("outside frontend", encoding="utf-8")
@@ -164,8 +172,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.2-phase3")
-        self.assertEqual(payload["api_version"], 2)
+        self.assertEqual(payload["server_version"], "0.3-phase4")
+        self.assertEqual(payload["api_version"], 3)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -193,12 +201,12 @@ class ServerTestCase(unittest.TestCase):
     def test_static_frontend_is_served(self) -> None:
         status, body, content_type = self.request("/")
         self.assertEqual(status, 200)
-        self.assertIn(b"Phase 3 Test", body)
+        self.assertIn(b"Phase 4 Test", body)
         self.assertIn("text/html", content_type)
 
         status, body, content_type = self.request("/app.js")
         self.assertEqual(status, 200)
-        self.assertIn(b"phase3Test", body)
+        self.assertIn(b"phase4Test", body)
         self.assertIn("javascript", content_type)
 
     def test_scene_upload_updates_state(self) -> None:
@@ -220,26 +228,38 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "bad_request")
 
-    def test_scan_and_map_endpoints(self) -> None:
+    def test_scan_options_and_map_endpoints(self) -> None:
         self.upload_fake_scene()
+        options = {
+            "width": 160,
+            "height": 120,
+            "smart_sampling": True,
+            "yaw_deg": 120,
+            "elevation_deg": 35,
+            "distance_scale": 2.8,
+            "fov_deg": 48,
+        }
         status, payload = self.json_request(
             "/api/lidar/scan",
             method="POST",
-            body=json.dumps({"width": 160, "height": 120}).encode("utf-8"),
+            body=json.dumps(options).encode("utf-8"),
             content_type="application/json",
         )
         self.assertEqual(status, 200)
         self.assertEqual(payload["scan"]["scan_id"], "fake123")
         self.assertEqual(payload["scan"]["width"], 160)
+        self.assertTrue(payload["scan"]["smart_sampling"])
+        self.assertEqual(payload["scan"]["camera"]["yaw_deg"], 120.0)
 
         status, maps = self.json_request("/api/lidar/maps")
         self.assertEqual(status, 200)
-        self.assertIn("depth", maps["scan"]["channels"])
+        self.assertEqual(set(maps["scan"]["channels"]), set(CHANNELS))
 
-        status, body, content_type = self.request("/api/lidar/maps/edge.png")
-        self.assertEqual(status, 200)
-        self.assertEqual(body, PNG)
-        self.assertEqual(content_type, "image/png")
+        for channel in CHANNELS:
+            status, body, content_type = self.request(f"/api/lidar/maps/{channel}.png")
+            self.assertEqual(status, 200)
+            self.assertEqual(body, PNG)
+            self.assertEqual(content_type, "image/png")
 
     def test_reset_discards_scene_and_scan(self) -> None:
         self.upload_fake_scene()
