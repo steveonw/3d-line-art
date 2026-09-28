@@ -19,6 +19,68 @@ class LidarUnavailableError(RuntimeError):
     """Raised when optional LiDAR runtime dependencies are unavailable."""
 
 
+
+def _patch_engine_for_mesh_scenes(engine) -> None:
+    """Apply the mesh compatibility shim used by the upstream camera studio."""
+    if getattr(engine, "_lidar_ink_mesh_patch", False):
+        return
+    if not (hasattr(engine, "Scene") and hasattr(engine, "Mesh")):
+        raise LidarUnavailableError("vendored LiDAR engine is missing Scene/Mesh support")
+
+    np = engine.np
+    Scene, Mesh = engine.Scene, engine.Mesh
+
+    if "__iter__" not in vars(Scene):
+        def _scene_iter(self):
+            yield from self.primitives
+            yield from self.meshes
+        Scene.__iter__ = _scene_iter
+
+    if "__len__" not in vars(Scene):
+        def _scene_len(self):
+            return len(self.primitives) + len(self.meshes)
+        Scene.__len__ = _scene_len
+
+    if not hasattr(Mesh, "shape"):
+        Mesh.shape = property(lambda self: "mesh")
+    if not hasattr(Mesh, "center"):
+        Mesh.center = property(lambda self: (self.aabb_min + self.aabb_max) / 2.0)
+
+    if not getattr(engine.scene_bounds, "_lidar_ink_mesh_aware", False):
+        original_scene_bounds = engine.scene_bounds
+
+        def mesh_scene_bounds(prims):
+            meshes = [p for p in prims if getattr(p, "shape", None) == "mesh"]
+            if not meshes:
+                return original_scene_bounds(prims)
+
+            primitive_only = [
+                p for p in prims if getattr(p, "shape", None) != "mesh"
+            ]
+            lows = [np.asarray(m.aabb_min, dtype=np.float64) for m in meshes]
+            highs = [np.asarray(m.aabb_max, dtype=np.float64) for m in meshes]
+            if primitive_only:
+                primitive_bounds = original_scene_bounds(primitive_only)
+                lows.append(primitive_bounds["min"])
+                highs.append(primitive_bounds["max"])
+
+            minimum = np.vstack(lows).min(axis=0)
+            maximum = np.vstack(highs).max(axis=0)
+            center = (minimum + maximum) / 2.0
+            span = np.maximum(maximum - minimum, 1e-6)
+            return {
+                "min": minimum,
+                "max": maximum,
+                "center": center,
+                "span": span,
+            }
+
+        mesh_scene_bounds._lidar_ink_mesh_aware = True
+        engine.scene_bounds = mesh_scene_bounds
+
+    engine._lidar_ink_mesh_patch = True
+
+
 def _load_engine():
     try:
         from vendor import lidar_engine as engine
@@ -26,6 +88,7 @@ def _load_engine():
         raise LidarUnavailableError(
             "LiDAR dependencies are unavailable. Run: pip install -r requirements.txt"
         ) from error
+    _patch_engine_for_mesh_scenes(engine)
     return engine
 
 
