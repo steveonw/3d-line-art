@@ -531,18 +531,23 @@
     });
   }
 
-  function recomposeLidarSource({ preview = true, markPreset = true } = {}) {
+  function recomposeLidarSource({
+    preview = true,
+    markPreset = true,
+    historyKey = null
+  } = {}) {
     if (sourceKind !== 'lidar' || !lidarSourceMaps || !sourceImage) return;
     const maps = composeCurrentLidarMaps();
     applyRendererMaps(maps);
-    markSettingsChanged(markPreset);
+    markSettingsChanged(markPreset, historyKey);
     if (preview) schedulePreview();
   }
 
-  function markScanControlsChanged() {
+  function markScanControlsChanged(historyKey = null) {
     scanDirty = true;
     scanSummary.textContent = sceneLoaded ? 'settings changed' : 'single view';
     scanBtn.textContent = 'Rescan LiDAR';
+    recordSettingsChange(historyKey);
   }
 
   function updateLidarArtControlAvailability(locked = false) {
@@ -550,13 +555,14 @@
     lidarArtControlEls.forEach(el => { el.disabled = !available; });
   }
 
-  function markSettingsChanged(markPreset = true) {
+  function markSettingsChanged(markPreset = true, historyKey = null) {
     if (markPreset && settings.preset !== 'custom') {
       settings.preset = 'custom';
       presetSelect.value = 'custom';
     }
     if (highQualityStrokeStore) highQualityStale = true;
     updateExportNote();
+    recordSettingsChange(historyKey);
   }
 
   function buildSliders() {
@@ -576,7 +582,7 @@
       input.addEventListener('input', () => {
         settings[def.key] = Number(input.value);
         updateSliderValue(def);
-        markSettingsChanged(true);
+        markSettingsChanged(true, `slider:${def.key}`);
         schedulePreview();
       });
     }
@@ -633,16 +639,17 @@
       applyRendererMaps(maps);
     }
     updateExportNote();
+    recordSettingsChange(null);
     if (preview) schedulePreview();
   }
 
-  function setLineCount(value, preview = true) {
+  function setLineCount(value, preview = true, historyKey = 'lineCount') {
     const normalized = clamp(Math.round(Number(value) / 1000) * 1000, 1000, 400000);
     settings.lineCount = normalized;
     lineCountRange.value = normalized;
     lineCountNumber.value = normalized;
     lineCountDisplay.textContent = formatCount(normalized);
-    markSettingsChanged(true);
+    markSettingsChanged(true, historyKey);
     if (preview) schedulePreview();
   }
 
@@ -650,7 +657,7 @@
     settings.mode = mode === 'black' ? 'black' : 'color';
     syncModeButtons();
     syncPaletteAvailability();
-    markSettingsChanged(true);
+    markSettingsChanged(true, 'mode');
     if (preview) schedulePreview();
   }
 
@@ -745,6 +752,8 @@
     const canSave = !active && !loadingImage && !scanRunning && !exportBusy && !!getExportTarget();
     saveBtn.disabled = !canSave;
     saveSvgBtn.disabled = !canSave;
+    historyUiLocked = highActive || exportBusy || scanRunning || modelLoading;
+    renderHistoryStatus(history.status());
     updateExportNote();
   }
 
