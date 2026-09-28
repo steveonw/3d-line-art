@@ -45,6 +45,9 @@ jobs:
       - name: Run frontend LiDAR smoke test
         run: node tests/frontend_maps_smoke.js
 
+      - name: Run LiDAR art polish renderer smoke test
+        run: node tests/frontend_lidar_polish_smoke.js
+
       - name: Run stable randomness smoke test
         run: node tests/frontend_randomness_smoke.js
 
