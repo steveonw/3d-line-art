@@ -291,6 +291,37 @@
       return angle;
     }
 
+    function maskAllows(x, y) {
+      if (!strokeMask) return true;
+      const w = sourceImage.width;
+      const h = sourceImage.height;
+      const ix = clamp(Math.round(x), 0, w - 1);
+      const iy = clamp(Math.round(y), 0, h - 1);
+      return !!strokeMask[iy * w + ix];
+    }
+
+    function maskedEndpoint(x, y, angle, distance) {
+      if (!strokeMask) {
+        return {
+          x: clamp(x + Math.cos(angle) * distance, 0, sourceImage.width - 1),
+          y: clamp(y + Math.sin(angle) * distance, 0, sourceImage.height - 1)
+        };
+      }
+
+      const steps = Math.max(1, Math.ceil(distance));
+      let lastX = x;
+      let lastY = y;
+      for (let step = 1; step <= steps; step++) {
+        const d = distance * (step / steps);
+        const nx = clamp(x + Math.cos(angle) * d, 0, sourceImage.width - 1);
+        const ny = clamp(y + Math.sin(angle) * d, 0, sourceImage.height - 1);
+        if (!maskAllows(nx, ny)) break;
+        lastX = nx;
+        lastY = ny;
+      }
+      return { x: lastX, y: lastY };
+    }
+
     function mixedFieldAngleAt(x, y, baseAngle, renderState) {
       const w = sourceImage.width;
       const h = sourceImage.height;
@@ -359,10 +390,12 @@
           : localNoise * 0.5 * (0.10 + s.directionNoise * 0.22);
         if (s.angleQuantize > 0) angle = Math.round(angle / s.angleQuantize) * s.angleQuantize;
         const half = length * 0.5;
-        out[0] = candidate.x - Math.cos(angle) * half;
-        out[1] = candidate.y - Math.sin(angle) * half;
-        out[2] = candidate.x + Math.cos(angle) * half;
-        out[3] = candidate.y + Math.sin(angle) * half;
+        const left = maskedEndpoint(candidate.x, candidate.y, angle + Math.PI, half);
+        const right = maskedEndpoint(candidate.x, candidate.y, angle, half);
+        out[0] = left.x;
+        out[1] = left.y;
+        out[2] = right.x;
+        out[3] = right.y;
         return 2;
       }
     
@@ -388,6 +421,7 @@
         let ny = by + Math.sin(bAngle) * stepLength;
         const clampedX = clamp(nx, 0, sourceImage.width - 1);
         const clampedY = clamp(ny, 0, sourceImage.height - 1);
+        if (!maskAllows(clampedX, clampedY)) break;
         back[backCount * 2] = clampedX;
         back[backCount * 2 + 1] = clampedY;
         backCount++;
@@ -405,6 +439,7 @@
         let ny = fy + Math.sin(fAngle) * stepLength;
         const clampedX = clamp(nx, 0, sourceImage.width - 1);
         const clampedY = clamp(ny, 0, sourceImage.height - 1);
+        if (!maskAllows(clampedX, clampedY)) break;
         fwd[fwdCount * 2] = clampedX;
         fwd[fwdCount * 2 + 1] = clampedY;
         fwdCount++;
