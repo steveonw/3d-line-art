@@ -340,6 +340,78 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertEqual(len(single_scan_requests), 0)
         self.assertIn("Scan cached", self.text("#scanSummary"))
 
+    def test_auto_scan_selects_views_and_reuses_cached_results(self) -> None:
+        project = self.write_project("cube-auto-view.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.page.set_input_files("#modelInput", str(CUBE_OBJ))
+        self.page.wait_for_function("!document.getElementById('scanAutoBtn').disabled")
+
+        auto_requests = []
+        single_scan_requests = []
+        self.page.on(
+            "request",
+            lambda request: (
+                auto_requests.append(request.url)
+                if request.url.endswith("/api/lidar/auto")
+                else (
+                    single_scan_requests.append(request.url)
+                    if request.url.endswith("/api/lidar/scan")
+                    else None
+                )
+            ),
+        )
+
+        self.page.click("#scanAutoBtn")
+        self.page.wait_for_function(
+            "document.getElementById('multiViewSummary').textContent.includes('ready')"
+            " && !document.getElementById('scanAutoBtn').disabled"
+            " && document.body.dataset.phase13Ready === 'true'",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+        self.assertEqual(len(auto_requests), 1)
+        self.assertEqual(len(single_scan_requests), 0)
+        options = self.page.locator("#multiViewCurrent option").all()
+        self.assertGreaterEqual(len(options), 3)
+        self.assertLessEqual(len(options), 6)
+        first_value = options[0].get_attribute("value")
+        second_value = options[1].get_attribute("value")
+        self.assertTrue(first_value.startswith("auto_"))
+        self.assertTrue(second_value.startswith("auto_"))
+        self.assertIn("views", self.text("#scanSummary"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+        self.page.select_option("#multiViewCurrent", second_value)
+        self.assertEqual(len(auto_requests), 1)
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+
+        # Orbit/elevation do not stale an acquired automatic view set because
+        # Auto Scan owns camera placement just like fixed multi-view scanning.
+        self.page.fill("#cameraYaw", "133")
+        self.page.dispatch_event("#cameraYaw", "input")
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+
+        # Shared sensor settings do stale the set.
+        self.page.fill("#cameraDistance", "3.6")
+        self.page.dispatch_event("#cameraDistance", "input")
+        self.assertIn("Scan stale", self.text("#scanSummary"))
+        self.assertTrue(self.is_disabled("#renderBtn"))
+
+        self.page.fill("#cameraDistance", "3")
+        self.page.dispatch_event("#cameraDistance", "input")
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+
+        self.page.click("#scanAutoBtn")
+        self.page.wait_for_function(
+            "document.getElementById('multiViewSummary').textContent.includes('cached')"
+            " && !document.getElementById('scanAutoBtn').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertEqual(len(auto_requests), 2)
+        self.assertEqual(len(single_scan_requests), 0)
+        self.assertIn("Scan cached", self.text("#scanSummary"))
+
     def test_art_preset_change_reuses_current_scan_without_scan_request(self) -> None:
         project = self.write_project("cube-art-reuse.lidar-ink.json")
         self.open_app()
