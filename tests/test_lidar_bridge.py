@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from server.lidar_bridge import LidarBridge, _float_option, _int_option
+from server.lidar_bridge import (
+    LidarBridge,
+    ScanIdMismatchError,
+    _float_option,
+    _int_option,
+)
 from server.state import StudioState
 
 
@@ -65,6 +70,9 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
             self.assertTrue(payload.startswith(b"\x89PNG\r\n\x1a\n"))
             self.assertGreater(len(payload), 32)
 
+        with self.assertRaises(ScanIdMismatchError):
+            bridge.channel_png("depth", scan_id="stale-scan")
+
     def test_rejects_nonfinite_and_degenerate_meshes(self) -> None:
         state = StudioState()
         bridge = LidarBridge(state)
@@ -86,6 +94,23 @@ f 1 2 3
         with self.assertRaisesRegex(ValueError, "near-zero"):
             bridge.upload_scene("flat.obj", degenerate)
         self.assertIsNone(state.get_scene_object())
+
+    def test_invalid_upload_preserves_previous_scene(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        previous = state.snapshot()["workspace"]["scene"]
+
+        with self.assertRaisesRegex(ValueError, "non-finite"):
+            bridge.upload_scene(
+                "bad.obj",
+                b"v nan 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
+            )
+
+        current = state.snapshot()["workspace"]["scene"]
+        self.assertEqual(current["name"], previous["name"])
+        self.assertEqual(current["sha256"], previous["sha256"])
+        self.assertIsNotNone(state.get_scene_object())
 
     def test_camera_and_scan_options_are_clamped(self) -> None:
         options = {
