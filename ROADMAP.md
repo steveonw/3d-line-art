@@ -47,18 +47,20 @@ frontend/
   export.js
 ```
 
-- [ ] Move layout into `index.html`
-- [ ] Move styling into `styles.css`
-- [ ] Move UI/event logic into `app.js`
-- [ ] Move stroke rendering into `line_renderer.js`
-- [ ] Move image/analysis-map construction into `analysis_maps.js`
-- [ ] Move PNG/SVG export into `export.js`
-- [ ] Keep the actual drawing algorithm unchanged
-- [ ] Create one central settings object
-- [ ] Add build/version information
-- [ ] Add a basic status/error panel
+- [x] Move layout into `index.html`
+- [x] Move styling into `styles.css`
+- [x] Move UI/event logic into `app.js`
+- [x] Move stroke rendering into `line_renderer.js`
+- [x] Move image/analysis-map construction into `analysis_maps.js`
+- [x] Move PNG/SVG export into `export.js`
+- [x] Keep the actual drawing algorithm unchanged
+- [x] Create one central settings object
+- [x] Add build/version information
+- [x] Add a basic status/error panel
 
 **Done when:** normal image -> line-art output still matches the reference version.
+
+**Phase 1 validation:** module syntax and functional smoke checks pass. The original single-file build remains untouched for side-by-side visual comparison.
 
 ---
 
