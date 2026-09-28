@@ -15,9 +15,9 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-11-scan-cache
-PR:     #13 — Phase 11: add bounded LiDAR scan caching
-base:   phase-10-stabilization
+branch: phase-11-5-lidar-art-polish
+PR:     #14 — Phase 11.5: polish LiDAR sensor-to-art mapping
+base:   phase-11-scan-cache
 CI:     passed
 ```
 
@@ -60,12 +60,14 @@ main
   ↓
 #12 phase-10-stabilization
   ↓
-#13 phase-11-scan-cache      ← CURRENT HEAD
+#13 phase-11-scan-cache
+  ↓
+#14 phase-11-5-lidar-art-polish ← CURRENT HEAD
 ```
 
 For Phase 12:
 
-1. Branch from `phase-11-scan-cache`.
+1. Branch from `phase-11-5-lidar-art-polish`.
 2. Suggested branch name:
 
    ```text
@@ -75,7 +77,7 @@ For Phase 12:
 3. Open the new PR against:
 
    ```text
-   phase-11-scan-cache
+   phase-11-5-lidar-art-polish
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -163,6 +165,7 @@ Frontend smoke tests:
 
 ```bash
 node tests/frontend_maps_smoke.js
+node tests/frontend_lidar_polish_smoke.js
 node tests/frontend_randomness_smoke.js
 node tests/frontend_procedural_flow_smoke.js
 node tests/frontend_math_fields_smoke.js
@@ -608,6 +611,46 @@ Implemented:
 
 The cache architecture intentionally follows the good content-addressed/byte-bounded ideas from `steveonw/Read-Aloud-Main`. A separate duplicate in-flight table was not added because this local server already serializes expensive operations.
 
+### Phase 11.5 — LiDAR art mapping polish
+
+Phase 11.5 is complete and intentionally remains browser-side/art-only.
+
+Implemented:
+
+- explicit occupied/no-hit mask derived from LiDAR depth,
+- optional clean-background mode,
+- deterministic fallback candidate selection inside the occupied region,
+- straight and curved stroke-path clipping at the occupancy boundary,
+- masked confidence smoothing,
+- deterministic iso-depth contour bands blended with local depth-change evidence,
+- projected-object centroid/scale derived from occupied LiDAR pixels,
+- optional object-centered mathematical fields,
+- Math emphasis for stronger mathematical-field readability,
+- LiDAR-specific presets opt into the new polish controls,
+- defaults preserve pre-11.5 behavior for older project files.
+
+New art settings:
+
+```text
+lidar.depthContourStrength
+lidar.confidenceSmoothing
+lidar.cleanBackground
+lidar.objectCenteredFields
+flowMixer.mathEmphasis
+```
+
+These settings are intentionally excluded from the Phase 11 scan key and must never trigger a LiDAR rescan.
+
+Regression coverage includes:
+
+- shallow smooth depth ramp gains contour density,
+- confidence smoothing reduces checkerboard roughness,
+- no-hit background is removed from art evidence,
+- hard-mask renderer test requires every recorded stroke point to stay inside occupancy,
+- custom object center moves Radial/Vortex origins,
+- Math emphasis measurably strengthens mathematical influence,
+- real Chromium verifies the LiDAR preset and Phase 11.5 controls issue no extra `/api/lidar/scan` request.
+
 ## 12. Next task: Phase 12 — Fixed multi-view scanning
 
 Roadmap scope:
@@ -795,7 +838,7 @@ Start here:
 Phase 12 — Fixed multi-view scanning
 ```
 
-Branch from `phase-11-scan-cache` and base the Phase 12 PR on `phase-11-scan-cache`.
+Branch from `phase-11-5-lidar-art-polish` and base the Phase 12 PR on `phase-11-5-lidar-art-polish`.
 
 First inspect:
 
@@ -810,7 +853,7 @@ tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Preserve the Phase 11 cache key and LRU behavior. Fixed views should request/reuse cached single-view scans rather than creating a second unrelated sensor pipeline.
+Preserve the Phase 11 cache key/LRU behavior **and** the Phase 11.5 browser-side art mapping. Fixed views should request/reuse cached single-view scans rather than creating a second unrelated sensor pipeline. Each view's maps should still flow through the same contour/confidence/background/object-center art mapping instead of forking another renderer path.
 
 Implement Front / Back / Left / Right / Top with independent inspectability, then current-view and combined-view modes.
 
