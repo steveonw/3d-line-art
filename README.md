@@ -166,6 +166,67 @@ final streamline direction
 
 This is an independent implementation of seeded gradient noise and fBm. It does not copy source code from the experimental world-generator repository.
 
+## Phase 7 mathematical flow mixer
+
+Phase 7 puts the direction systems behind one common field API in:
+
+```text
+frontend/math_fields.js
+```
+
+The renderer now composes direction from a weighted set of fields instead of hard-wiring procedural noise directly into the stroke solver.
+
+### Core mixer
+
+```text
+Surface Flow
+Depth Contour
+Procedural Noise
+Radial
+Vortex
+Spiral
+Wave
+Rose
+Cardioid
+Log Spiral
+```
+
+**Surface Flow** is the current image/LiDAR base direction selected by the existing direction controls.
+
+**Depth Contour** uses the raw LiDAR depth-tangent field and its local depth coherence. It has no effect for ordinary 2D image sources.
+
+**Procedural Noise** is treated as an angular offset field. Its Flow Scale, Turbulence, Octaves, and Seed still come from the Phase 6 controls.
+
+The mathematical fields are absolute orientation fields centered on the artwork:
+
+- **Radial** points through the center.
+- **Vortex** follows circles around the center.
+- **Spiral** blends radial and tangential orientation.
+- **Wave** creates a deterministic seeded sinusoidal direction field.
+- **Rose** uses the tangent of a five-petal polar rose field.
+- **Cardioid** uses a cardioid tangent field.
+- **Log Spiral** uses the tangent direction of a logarithmic spiral.
+
+The absolute direction fields are mixed using axial vectors, so a line orientation and the same line flipped by 180 degrees are treated as equivalent. This avoids false cancellation from ordinary arrow-vector averaging.
+
+Conceptually:
+
+```text
+image/LiDAR surface field ───────┐
+LiDAR depth contour ─────────────┤
+radial/vortex/spiral/wave ───────┤
+rose/cardioid/log spiral ────────┤
+                                 ├─ axial field mix
+                                 │
+procedural fBm offset ───────────┘
+                                 │
+stable local jitter
+                                 ▼
+                         streamline solver
+```
+
+Default mixer settings preserve Phase 6 behavior: Surface Flow is 100%, Procedural Noise is 100%, all mathematical fields are 0%, and Depth Contour is 0%.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -267,6 +328,12 @@ Run the procedural-flow regression test:
 node tests/frontend_procedural_flow_smoke.js
 ```
 
-GitHub Actions also runs JavaScript syntax checks, deterministic prefix/repeatability checks, procedural-flow checks, and the real cube-OBJ -> LiDAR integration test.
+Run the mathematical-flow mixer regression test:
+
+```bash
+node tests/frontend_math_fields_smoke.js
+```
+
+GitHub Actions also runs JavaScript syntax checks, deterministic prefix/repeatability checks, procedural-flow and mathematical-field checks, plus the real cube-OBJ -> LiDAR integration test.
 
 See `ROADMAP.md` for the staged build plan.
