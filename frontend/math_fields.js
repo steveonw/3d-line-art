@@ -43,10 +43,12 @@
     return 0.5 * Math.atan2(y, x);
   }
 
-  function centered(x, y, width, height) {
-    const cx = width * 0.5;
-    const cy = height * 0.5;
-    const scale = Math.max(1, Math.min(width, height) * 0.5);
+  function centered(x, y, width, height, center = null) {
+    const cx = Number.isFinite(center?.x) ? center.x : width * 0.5;
+    const cy = Number.isFinite(center?.y) ? center.y : height * 0.5;
+    const scale = Number.isFinite(center?.scale) && center.scale > 0
+      ? center.scale
+      : Math.max(1, Math.min(width, height) * 0.5);
     return {
       dx: (x - cx) / scale,
       dy: (y - cy) / scale,
@@ -64,16 +66,16 @@
     return Math.atan2(vector.y, vector.x);
   }
 
-  function radialFlow(x, y, width, height) {
-    return centered(x, y, width, height).theta;
+  function radialFlow(x, y, width, height, center = null) {
+    return centered(x, y, width, height, center).theta;
   }
 
-  function vortexFlow(x, y, width, height) {
-    return radialFlow(x, y, width, height) + Math.PI / 2;
+  function vortexFlow(x, y, width, height, center = null) {
+    return radialFlow(x, y, width, height, center) + Math.PI / 2;
   }
 
-  function spiralFlow(x, y, width, height, pitch = 0.62) {
-    const p = centered(x, y, width, height);
+  function spiralFlow(x, y, width, height, pitch = 0.62, center = null) {
+    const p = centered(x, y, width, height, center);
     const blend = clamp(Number(pitch), 0, 1);
     return p.theta + blend * (Math.PI / 2);
   }
@@ -87,37 +89,37 @@
     return Math.atan2(slope, 1);
   }
 
-  function roseFlow(x, y, width, height, petals = 5) {
-    const p = centered(x, y, width, height);
+  function roseFlow(x, y, width, height, petals = 5, center = null) {
+    const p = centered(x, y, width, height, center);
     const k = Math.max(2, Math.round(Number(petals) || 5));
     const r = Math.cos(k * p.theta);
     const dr = -k * Math.sin(k * p.theta);
     return polarTangent(p.theta, r, dr, p.theta + Math.PI / 2);
   }
 
-  function cardioidFlow(x, y, width, height) {
-    const p = centered(x, y, width, height);
+  function cardioidFlow(x, y, width, height, center = null) {
+    const p = centered(x, y, width, height, center);
     const r = 1 - Math.cos(p.theta);
     const dr = Math.sin(p.theta);
     return polarTangent(p.theta, r, dr, p.theta + Math.PI / 2);
   }
 
-  function logarithmicSpiralFlow(x, y, width, height, growth = 0.24) {
-    const p = centered(x, y, width, height);
+  function logarithmicSpiralFlow(x, y, width, height, growth = 0.24, center = null) {
+    const p = centered(x, y, width, height, center);
     const b = clamp(Number(growth), 0.05, 1);
     // r = exp(b*theta), so dr/dtheta = b*r. The common r factor cancels.
     return polarTangent(p.theta, 1, b, p.theta + Math.PI / 2);
   }
 
-  function fieldAnglesAt(x, y, width, height, seed) {
+  function fieldAnglesAt(x, y, width, height, seed, center = null) {
     return Object.freeze({
-      radial: radialFlow(x, y, width, height),
-      vortex: vortexFlow(x, y, width, height),
-      spiral: spiralFlow(x, y, width, height),
+      radial: radialFlow(x, y, width, height, center),
+      vortex: vortexFlow(x, y, width, height, center),
+      spiral: spiralFlow(x, y, width, height, 0.62, center),
       wave: waveFlow(x, y, width, height, seed),
-      rose: roseFlow(x, y, width, height),
-      cardioid: cardioidFlow(x, y, width, height),
-      logSpiral: logarithmicSpiralFlow(x, y, width, height)
+      rose: roseFlow(x, y, width, height, 5, center),
+      cardioid: cardioidFlow(x, y, width, height, center),
+      logSpiral: logarithmicSpiralFlow(x, y, width, height, 0.24, center)
     });
   }
 
@@ -131,7 +133,8 @@
     depthAngle = null,
     depthCoherence = 0,
     procedural = null,
-    mixer = null
+    mixer = null,
+    fieldCenter = null
   }) {
     const m = mixer || {};
     const fields = [];
@@ -146,9 +149,10 @@
       fields.push({ angle: depthAngle, weight: depthWeight });
     }
 
-    const math = fieldAnglesAt(x, y, width, height, seed);
+    const math = fieldAnglesAt(x, y, width, height, seed, fieldCenter);
+    const mathEmphasis = clamp(Number(m.mathEmphasis ?? 1), 0.25, 3);
     for (const key of ['radial', 'vortex', 'spiral', 'wave', 'rose', 'cardioid', 'logSpiral']) {
-      const weight = clamp(Number(m[key] ?? 0), 0, 1);
+      const weight = clamp(Number(m[key] ?? 0), 0, 1) * mathEmphasis;
       if (weight > 0) fields.push({ angle: math[key], weight });
     }
 

@@ -381,6 +381,26 @@ should not raycast three times.
 
 ---
 
+## Phase 11.5 — LiDAR art mapping polish
+
+Focused visual-quality pass before multi-view.
+
+- [x] Optional clean-background mode uses the LiDAR no-hit mask
+- [x] Stroke origins and paths stay inside the occupied LiDAR region when clean background is enabled
+- [x] Confidence density can be smoothed without bleeding into empty background
+- [x] Depth Contours gain deterministic iso-depth bands for smooth surfaces
+- [x] Mathematical fields can center on the projected LiDAR object
+- [x] Math emphasis can strengthen Vortex / Rose / Log Spiral and related fields
+- [x] All new controls remain art-only and do not invalidate or rerun the Phase 11 scan cache
+
+Defaults preserve pre-11.5 project behavior. LiDAR-specific presets opt into the new polish controls.
+
+**Done when:** LiDAR drawings gain cleaner silhouettes and stronger sensor-driven structure without extra raycasts.
+
+**Phase 11.5 validation:** GitHub Actions passes shallow-depth contour-gain tests, masked confidence-smoothing roughness tests, hard background-mask stroke containment, object-centered/math-emphasis tests, all previous deterministic renderer and project tests, and real Chromium verification that the new art controls issue no additional `/api/lidar/scan` request.
+
+---
+
 ## Phase 12 — Fixed multi-view scanning
 
 Start with predictable views:
@@ -557,12 +577,12 @@ This should be treated as a later experimental plugin rather than a core phase.
 
 These are **not** Phase 11 requirements. Preserve them for later visual-polish work after scan caching is solid.
 
-- [ ] Add an optional clean-background mode for LiDAR sources so known no-hit background does not receive faint paper-grain strokes
-- [ ] Let mathematical fields optionally center on the projected object/occupied scan region instead of always the canvas center
-- [ ] Improve visible readability/strength tuning for Vortex, Rose, and Log Spiral fields
-- [ ] Improve Depth Contours coverage on smooth/slowly varying surfaces without destroying contour structure
-- [ ] Reduce cell-scale speckle when Confidence is used as a density source
-- [ ] Keep explicit scan-state UI unambiguous: current/cached/running/stale should be visually distinct
+- [x] Add an optional clean-background mode for LiDAR sources so known no-hit background does not receive faint paper-grain strokes
+- [x] Let mathematical fields optionally center on the projected object/occupied scan region instead of always the canvas center
+- [x] Improve visible readability/strength tuning for Vortex, Rose, and Log Spiral fields
+- [x] Improve Depth Contours coverage on smooth/slowly varying surfaces without destroying contour structure
+- [x] Reduce cell-scale speckle when Confidence is used as a density source
+- [x] Keep explicit scan-state UI unambiguous: current/cached/running/stale should be visually distinct
 - [ ] Consider treating the versioned project JSON as a supported automation/headless input contract, since automated reference rendering worked cleanly through it
 
 Manual reference-review observations (environment-specific, **not performance SLAs**):
@@ -622,6 +642,7 @@ ART SYSTEM CHECKPOINT / v0.2
 10. Undo / autosave                            [x]
 11. Project files                              [x]
 12. Scan caching                               [x]
+   LiDAR art mapping polish (Phase 11.5)        [x]
 ---------------------------------------------------
 USABILITY CHECKPOINT / v0.3
 

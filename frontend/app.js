@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase11';
+  const BUILD_VERSION = '5.3-phase11.5';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -44,7 +44,8 @@
       wave: 0.0,
       rose: 0.0,
       cardioid: 0.0,
-      logSpiral: 0.0
+      logSpiral: 0.0,
+      mathEmphasis: 1.0
     },
     lidar: {
       scanResolution: '320x240',
@@ -57,7 +58,11 @@
       densitySource: 'tone',
       directionSource: 'mixed',
       geometryEdgeStrength: 1.0,
-      depthInfluence: 0.75
+      depthInfluence: 0.75,
+      depthContourStrength: 0.0,
+      confidenceSmoothing: 0.0,
+      cleanBackground: false,
+      objectCenteredFields: false
     }
   };
 
@@ -101,31 +106,31 @@
       mode: 'black', palette: 'monochrome', lineCount: 85000, strokeLength: 5.5,
       strokeWeight: 0.68, detail: 2.8, opacity: 0.46, colorStrength: 1.0,
       paletteStrength: 1.0, directionNoise: 0.10, angleQuantize: 0, sampleBias: 0.82, flowStrength: 0.82,
-      lidar: { densitySource: 'tone', directionSource: 'mixed', geometryEdgeStrength: 1.55, depthInfluence: 0.72 }
+      lidar: { densitySource: 'tone', directionSource: 'mixed', geometryEdgeStrength: 1.55, depthInfluence: 0.72, depthContourStrength: 0.35, confidenceSmoothing: 0.35, cleanBackground: true, objectCenteredFields: true }
     },
     depthContours: {
       mode: 'black', palette: 'monochrome', lineCount: 95000, strokeLength: 9,
       strokeWeight: 0.65, detail: 1.7, opacity: 0.36, colorStrength: 1.0,
       paletteStrength: 1.0, directionNoise: 0.05, angleQuantize: 0, sampleBias: 0.84, flowStrength: 0.96,
-      lidar: { densitySource: 'depthChange', directionSource: 'depthTangent', geometryEdgeStrength: 0.45, depthInfluence: 1.0 }
+      lidar: { densitySource: 'depthChange', directionSource: 'depthTangent', geometryEdgeStrength: 0.45, depthInfluence: 1.0, depthContourStrength: 0.90, confidenceSmoothing: 0.30, cleanBackground: true, objectCenteredFields: true }
     },
     sensorSketch: {
       mode: 'black', palette: 'muted', lineCount: 70000, strokeLength: 7.5,
       strokeWeight: 0.82, detail: 2.0, opacity: 0.38, colorStrength: 1.0,
       paletteStrength: 0.75, directionNoise: 0.28, angleQuantize: 0, sampleBias: 0.72, flowStrength: 0.78,
-      lidar: { densitySource: 'confidence', directionSource: 'mixed', geometryEdgeStrength: 1.05, depthInfluence: 0.68 }
+      lidar: { densitySource: 'confidence', directionSource: 'mixed', geometryEdgeStrength: 1.05, depthInfluence: 0.68, depthContourStrength: 0.35, confidenceSmoothing: 0.80, cleanBackground: true, objectCenteredFields: true }
     },
     architecturalScan: {
       mode: 'black', palette: 'monochrome', lineCount: 72000, strokeLength: 11,
       strokeWeight: 0.80, detail: 3.0, opacity: 0.50, colorStrength: 1.0,
       paletteStrength: 1.0, directionNoise: 0.06, angleQuantize: Math.PI / 4, sampleBias: 0.84, flowStrength: 0.28,
-      lidar: { densitySource: 'geometryEdge', directionSource: 'mixed', geometryEdgeStrength: 1.85, depthInfluence: 0.38 }
+      lidar: { densitySource: 'geometryEdge', directionSource: 'mixed', geometryEdgeStrength: 1.85, depthInfluence: 0.38, depthContourStrength: 0.50, confidenceSmoothing: 0.40, cleanBackground: true, objectCenteredFields: true }
     },
     uncertainScribble: {
       mode: 'black', palette: 'muted', lineCount: 110000, strokeLength: 6.5,
       strokeWeight: 0.92, detail: 1.65, opacity: 0.27, colorStrength: 1.0,
       paletteStrength: 0.65, directionNoise: 0.92, angleQuantize: 0, sampleBias: 0.60, flowStrength: 0.56,
-      lidar: { densitySource: 'tone', directionSource: 'mixed', geometryEdgeStrength: 0.85, depthInfluence: 0.48 }
+      lidar: { densitySource: 'tone', directionSource: 'mixed', geometryEdgeStrength: 0.85, depthInfluence: 0.48, depthContourStrength: 0.30, confidenceSmoothing: 0.55, cleanBackground: true, objectCenteredFields: true }
     }
   };
 
@@ -149,7 +154,8 @@
     { key: 'wave', id: 'mixWave' },
     { key: 'rose', id: 'mixRose' },
     { key: 'cardioid', id: 'mixCardioid' },
-    { key: 'logSpiral', id: 'mixLogSpiral' }
+    { key: 'logSpiral', id: 'mixLogSpiral' },
+    { key: 'mathEmphasis', id: 'mixMathEmphasis', min: 0.25, max: 3 }
   ];
 
   const canvas = document.getElementById('canvas');
@@ -176,6 +182,12 @@
   const geometryEdgeStrengthValue = document.getElementById('geometryEdgeStrengthValue');
   const depthInfluence = document.getElementById('depthInfluence');
   const depthInfluenceValue = document.getElementById('depthInfluenceValue');
+  const depthContourStrength = document.getElementById('depthContourStrength');
+  const depthContourStrengthValue = document.getElementById('depthContourStrengthValue');
+  const confidenceSmoothing = document.getElementById('confidenceSmoothing');
+  const confidenceSmoothingValue = document.getElementById('confidenceSmoothingValue');
+  const cleanBackground = document.getElementById('cleanBackground');
+  const objectCenteredFields = document.getElementById('objectCenteredFields');
   const presetSelect = document.getElementById('preset');
   const modeControl = document.getElementById('modeControl');
   const paletteSelect = document.getElementById('palette');
@@ -458,7 +470,11 @@
     next.procedural.octaves = clamp(Math.round(Number(next.procedural.octaves)), 1, 7);
 
     for (const def of mixerDefs) {
-      next.flowMixer[def.key] = clamp(Number(next.flowMixer[def.key]), 0, 1);
+      next.flowMixer[def.key] = clamp(
+        Number(next.flowMixer[def.key]),
+        Number(def.min ?? 0),
+        Number(def.max ?? 1)
+      );
     }
 
     const resolutions = new Set(['160x120', '320x240', '480x360', '640x480']);
@@ -478,6 +494,10 @@
     if (!directionSources.has(next.lidar.directionSource)) next.lidar.directionSource = 'mixed';
     next.lidar.geometryEdgeStrength = clamp(Number(next.lidar.geometryEdgeStrength), 0, 2);
     next.lidar.depthInfluence = clamp(Number(next.lidar.depthInfluence), 0, 1);
+    next.lidar.depthContourStrength = clamp(Number(next.lidar.depthContourStrength), 0, 1);
+    next.lidar.confidenceSmoothing = clamp(Number(next.lidar.confidenceSmoothing), 0, 1);
+    next.lidar.cleanBackground = !!next.lidar.cleanBackground;
+    next.lidar.objectCenteredFields = !!next.lidar.objectCenteredFields;
 
     if (next.preset !== 'custom' && !presets[next.preset]) next.preset = 'custom';
     return next;
@@ -708,7 +728,14 @@
     cameraYaw, cameraElevation, cameraDistance, cameraFov
   ];
   const lidarArtControlEls = [
-    densitySource, directionSource, geometryEdgeStrength, depthInfluence
+    densitySource,
+    directionSource,
+    geometryEdgeStrength,
+    depthInfluence,
+    depthContourStrength,
+    confidenceSmoothing,
+    cleanBackground,
+    objectCenteredFields
   ];
 
   function syncLidarControls() {
@@ -724,12 +751,18 @@
     directionSource.value = s.directionSource;
     geometryEdgeStrength.value = s.geometryEdgeStrength;
     depthInfluence.value = s.depthInfluence;
+    depthContourStrength.value = s.depthContourStrength;
+    confidenceSmoothing.value = s.confidenceSmoothing;
+    cleanBackground.checked = !!s.cleanBackground;
+    objectCenteredFields.checked = !!s.objectCenteredFields;
     cameraYawValue.textContent = `${Math.round(s.cameraYaw)}°`;
     cameraElevationValue.textContent = `${Math.round(s.cameraElevation)}°`;
     cameraDistanceValue.textContent = `${Number(s.cameraDistance).toFixed(1)}×`;
     cameraFovValue.textContent = `${Math.round(s.cameraFov)}°`;
     geometryEdgeStrengthValue.textContent = `${Math.round(s.geometryEdgeStrength * 100)}%`;
     depthInfluenceValue.textContent = `${Math.round(s.depthInfluence * 100)}%`;
+    depthContourStrengthValue.textContent = `${Math.round(s.depthContourStrength * 100)}%`;
+    confidenceSmoothingValue.textContent = `${Math.round(s.confidenceSmoothing * 100)}%`;
   }
 
   function syncProceduralControls() {
@@ -783,7 +816,10 @@
       depthDirection: maps.depthDirection || null,
       depthCoherence: maps.depthCoherence || null,
       depthChange: maps.depthChange || null,
-      confidence: maps.confidence || null
+      confidence: maps.confidence || null,
+      strokeMask: maps.strokeMask || null,
+      eligibleIndices: maps.eligibleIndices || null,
+      fieldCenter: maps.fieldCenter || null
     });
   }
 
@@ -793,7 +829,11 @@
       densitySource: settings.lidar.densitySource,
       directionSource: settings.lidar.directionSource,
       geometryEdgeStrength: settings.lidar.geometryEdgeStrength,
-      depthInfluence: settings.lidar.depthInfluence
+      depthInfluence: settings.lidar.depthInfluence,
+      depthContourStrength: settings.lidar.depthContourStrength,
+      confidenceSmoothing: settings.lidar.confidenceSmoothing,
+      cleanBackground: settings.lidar.cleanBackground,
+      objectCenteredFields: settings.lidar.objectCenteredFields
     });
   }
 
@@ -1682,6 +1722,7 @@
   document.body.dataset.phase9Ready = 'true';
   document.body.dataset.phase10Ready = 'true';
   document.body.dataset.phase11Ready = 'true';
+  document.body.dataset.phase115Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -1757,6 +1798,27 @@
     settings.lidar.depthInfluence = Number(depthInfluence.value);
     depthInfluenceValue.textContent = `${Math.round(settings.lidar.depthInfluence * 100)}%`;
     recomposeLidarSource({ historyKey: 'lidar:depthInfluence' });
+  });
+
+  depthContourStrength.addEventListener('input', () => {
+    settings.lidar.depthContourStrength = Number(depthContourStrength.value);
+    depthContourStrengthValue.textContent =
+      `${Math.round(settings.lidar.depthContourStrength * 100)}%`;
+    recomposeLidarSource({ historyKey: 'lidar:depthContourStrength' });
+  });
+  confidenceSmoothing.addEventListener('input', () => {
+    settings.lidar.confidenceSmoothing = Number(confidenceSmoothing.value);
+    confidenceSmoothingValue.textContent =
+      `${Math.round(settings.lidar.confidenceSmoothing * 100)}%`;
+    recomposeLidarSource({ historyKey: 'lidar:confidenceSmoothing' });
+  });
+  cleanBackground.addEventListener('change', () => {
+    settings.lidar.cleanBackground = cleanBackground.checked;
+    recomposeLidarSource({ historyKey: 'lidar:cleanBackground' });
+  });
+  objectCenteredFields.addEventListener('change', () => {
+    settings.lidar.objectCenteredFields = objectCenteredFields.checked;
+    recomposeLidarSource({ historyKey: 'lidar:objectCenteredFields' });
   });
 
   presetSelect.addEventListener('change', () => {

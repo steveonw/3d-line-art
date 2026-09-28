@@ -16,6 +16,9 @@
     let depthCoherence = null;
     let depthChange = null;
     let sensorConfidence = null;
+    let strokeMask = null;
+    let eligibleIndices = null;
+    let fieldCenter = null;
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
     function blend(a, b, t) { return a + (b - a) * t; }
@@ -58,6 +61,7 @@
         const x = 1 + Math.floor(ux * Math.max(1, w - 2));
         const y = 1 + Math.floor(uy * Math.max(1, h - 2));
         const idx = y * w + x;
+        if (strokeMask && !strokeMask[idx]) continue;
         const darkness = 1 - luminance[idx] / 255;
         const edge = edgeStrength[idx] / 255;
         const localDepthChange = depthChange ? depthChange[idx] / 255 : 0;
@@ -106,7 +110,59 @@
           out.score = scores.selectionScore;
         }
       }
-      return out;
+
+      // A hard clean-background mask can reject all six random candidates.
+      // Fall back to one deterministic occupied pixel so line-count prefix
+      // stability is preserved without leaking strokes into known empty space.
+      if (bestScore === -Infinity && eligibleIndices?.length) {
+        const pick = Math.min(
+          eligibleIndices.length - 1,
+          Math.floor(
+            RandomField.randomForIndex(strokeIndex, seed, 97) *
+            eligibleIndices.length
+          )
+        );
+        const idx = eligibleIndices[pick];
+        const x = idx % w;
+        const y = Math.floor(idx / w);
+        const darkness = 1 - luminance[idx] / 255;
+        const edge = edgeStrength[idx] / 255;
+        const localDepthChange = depthChange ? depthChange[idx] / 255 : 0;
+        const confidence = sensorConfidence ? sensorConfidence[idx] / 255 : 0;
+        const targetInk = renderSettings.mode === 'color' ? colorInkNeed[idx] : darkness;
+        const cellX = Math.floor(x / COVERAGE_CELL);
+        const cellY = Math.floor(y / COVERAGE_CELL);
+        const cellIndex = cellY * coverageWidth + cellX;
+        const existingInk = coverage[cellIndex];
+        const remainingNeed = Math.max(0, targetInk - existingInk);
+        const spacingClear = Placement.spacingClear(placement, x, y);
+        const scoreJitter = RandomField.randomForIndex(strokeIndex, seed, 98);
+        const scores = Placement.scoreCandidate(
+          { remainingNeed, darkness, edge, depthChange: localDepthChange, confidence },
+          renderSettings,
+          spacingClear,
+          scoreJitter
+        );
+        Placement.recordCandidate(placement, remainingNeed, spacingClear);
+        out.x = x;
+        out.y = y;
+        out.darkness = darkness;
+        out.targetInk = targetInk;
+        out.remainingNeed = remainingNeed;
+        out.edge = edge;
+        out.depthChange = localDepthChange;
+        out.confidence = confidence;
+        out.spacingClear = spacingClear;
+        out.cellIndex = cellIndex;
+        out.direction = strokeDirection[idx];
+        out.coherence = directionCoherence[idx] / 255;
+        out.importance = scores.importance;
+        out.qualityScore = scores.qualityScore;
+        out.score = scores.selectionScore;
+        bestScore = scores.selectionScore;
+      }
+
+      return bestScore === -Infinity ? null : out;
     }
 
     function depositCoverage(renderState, x1, y1, x2, y2, alpha, weight) {
@@ -235,6 +291,37 @@
       return angle;
     }
 
+    function maskAllows(x, y) {
+      if (!strokeMask) return true;
+      const w = sourceImage.width;
+      const h = sourceImage.height;
+      const ix = clamp(Math.round(x), 0, w - 1);
+      const iy = clamp(Math.round(y), 0, h - 1);
+      return !!strokeMask[iy * w + ix];
+    }
+
+    function maskedEndpoint(x, y, angle, distance) {
+      if (!strokeMask) {
+        return {
+          x: clamp(x + Math.cos(angle) * distance, 0, sourceImage.width - 1),
+          y: clamp(y + Math.sin(angle) * distance, 0, sourceImage.height - 1)
+        };
+      }
+
+      const steps = Math.max(1, Math.ceil(distance));
+      let lastX = x;
+      let lastY = y;
+      for (let step = 1; step <= steps; step++) {
+        const d = distance * (step / steps);
+        const nx = clamp(x + Math.cos(angle) * d, 0, sourceImage.width - 1);
+        const ny = clamp(y + Math.sin(angle) * d, 0, sourceImage.height - 1);
+        if (!maskAllows(nx, ny)) break;
+        lastX = nx;
+        lastY = ny;
+      }
+      return { x: lastX, y: lastY };
+    }
+
     function mixedFieldAngleAt(x, y, baseAngle, renderState) {
       const w = sourceImage.width;
       const h = sourceImage.height;
@@ -254,7 +341,8 @@
         depthAngle: localDepthAngle,
         depthCoherence: localDepthCoherence,
         procedural: renderState.settings.procedural,
-        mixer: renderState.settings.flowMixer
+        mixer: renderState.settings.flowMixer,
+        fieldCenter
       });
     }
     
@@ -302,10 +390,12 @@
           : localNoise * 0.5 * (0.10 + s.directionNoise * 0.22);
         if (s.angleQuantize > 0) angle = Math.round(angle / s.angleQuantize) * s.angleQuantize;
         const half = length * 0.5;
-        out[0] = candidate.x - Math.cos(angle) * half;
-        out[1] = candidate.y - Math.sin(angle) * half;
-        out[2] = candidate.x + Math.cos(angle) * half;
-        out[3] = candidate.y + Math.sin(angle) * half;
+        const left = maskedEndpoint(candidate.x, candidate.y, angle + Math.PI, half);
+        const right = maskedEndpoint(candidate.x, candidate.y, angle, half);
+        out[0] = left.x;
+        out[1] = left.y;
+        out[2] = right.x;
+        out[3] = right.y;
         return 2;
       }
     
@@ -331,6 +421,7 @@
         let ny = by + Math.sin(bAngle) * stepLength;
         const clampedX = clamp(nx, 0, sourceImage.width - 1);
         const clampedY = clamp(ny, 0, sourceImage.height - 1);
+        if (!maskAllows(clampedX, clampedY)) break;
         back[backCount * 2] = clampedX;
         back[backCount * 2 + 1] = clampedY;
         backCount++;
@@ -348,6 +439,7 @@
         let ny = fy + Math.sin(fAngle) * stepLength;
         const clampedX = clamp(nx, 0, sourceImage.width - 1);
         const clampedY = clamp(ny, 0, sourceImage.height - 1);
+        if (!maskAllows(clampedX, clampedY)) break;
         fwd[fwdCount * 2] = clampedX;
         fwd[fwdCount * 2 + 1] = clampedY;
         fwdCount++;
@@ -400,6 +492,7 @@
     function drawOneStroke(renderState) {
       const s = renderState.settings;
       const c = strokeCandidate(s, renderState, renderState.candidate);
+      if (!c) return false;
       const importance = c.importance;
       const lengthJitter = RandomField.randomForIndex(
         renderState.drawn | 0,
@@ -444,6 +537,7 @@
       depositPathCoverage(renderState, path, pointCount, baseAlpha, baseWeight);
       Placement.recordSelection(renderState.placement, c);
       recordStroke(renderState.strokes, path, pointCount, weight, r, g, b, alphaByte);
+      return true;
     }
 
     function setSource(next) {
@@ -458,6 +552,9 @@
       depthCoherence = next.depthCoherence || null;
       depthChange = next.depthChange || null;
       sensorConfidence = next.confidence || null;
+      strokeMask = next.strokeMask || null;
+      eligibleIndices = next.eligibleIndices || null;
+      fieldCenter = next.fieldCenter || null;
     }
 
     return Object.freeze({

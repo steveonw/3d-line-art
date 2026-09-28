@@ -52,6 +52,34 @@
     if (input !== field) field.set(input);
   }
 
+  function smoothMaskedUint8(source, mask, w, h, radius = 2) {
+    const count = w * h;
+    const weighted = new Float32Array(count);
+    const weights = new Float32Array(count);
+    const weightedBlur = new Float32Array(count);
+    const weightsBlur = new Float32Array(count);
+    const tempA = new Float32Array(count);
+    const tempB = new Float32Array(count);
+    const out = new Uint8Array(count);
+
+    for (let i = 0; i < count; i++) {
+      if (!mask[i]) continue;
+      weighted[i] = source[i] / 255;
+      weights[i] = 1;
+    }
+
+    boxBlurFloat(weighted, w, h, radius, weightedBlur, tempA);
+    boxBlurFloat(weights, w, h, radius, weightsBlur, tempB);
+
+    for (let i = 0; i < count; i++) {
+      if (!mask[i]) continue;
+      const denom = weightsBlur[i];
+      const value = denom > 1e-6 ? weightedBlur[i] / denom : weighted[i];
+      out[i] = Math.round(clamp(value, 0, 1) * 255);
+    }
+    return out;
+  }
+
   function buildAnalysisMaps(imageData, w, h) {
     const sharp = new Uint8Array(w * h);
     const colorNeed = new Float32Array(w * h);
@@ -166,20 +194,61 @@
     const variance = redChannel(varianceData, count);
     const confidence = redChannel(confidenceData, count);
     const depth = new Float32Array(count);
+    const occupancy = new Uint8Array(count);
     const depthDirection = new Float32Array(base.strokeDirection);
     const depthCoherence = new Uint8Array(count);
     const depthChange = new Uint8Array(count);
+    const depthContour = new Uint8Array(count);
     const dd = depthData.data;
+
+    let occupiedCount = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let minX = w;
+    let minY = h;
+    let maxX = -1;
+    let maxY = -1;
 
     for (let p = 0, i = 0; p < count; p++, i += 4) {
       const raw = dd[i];
-      depth[p] = raw > 0 ? (raw - 1) / 254 : 0;
+      if (raw <= 0) continue;
+      depth[p] = (raw - 1) / 254;
+      occupancy[p] = 1;
+      const x = p % w;
+      const y = Math.floor(p / w);
+      occupiedCount++;
+      sumX += x;
+      sumY += y;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
     }
+
+    const occupiedIndices = new Uint32Array(occupiedCount);
+    for (let i = 0, cursor = 0; i < count; i++) {
+      if (occupancy[i]) occupiedIndices[cursor++] = i;
+    }
+
+    const objectCenter = occupiedCount
+      ? Object.freeze({
+          x: sumX / occupiedCount,
+          y: sumY / occupiedCount,
+          scale: Math.max(
+            1,
+            Math.max(maxX - minX + 1, maxY - minY + 1) * 0.5
+          )
+        })
+      : Object.freeze({
+          x: w * 0.5,
+          y: h * 0.5,
+          scale: Math.max(1, Math.min(w, h) * 0.5)
+        });
 
     function depthAt(x, y, fallback) {
       if (x < 0 || y < 0 || x >= w || y >= h) return fallback;
-      const value = depth[y * w + x];
-      return value > 0 ? value : fallback;
+      const idx = y * w + x;
+      return occupancy[idx] ? depth[idx] : fallback;
     }
 
     for (let y = 0; y < h; y++) {
@@ -187,7 +256,7 @@
       for (let x = 0; x < w; x++) {
         const idx = row + x;
         const center = depth[idx];
-        if (center <= 0) continue;
+        if (!occupancy[idx]) continue;
 
         const left = depthAt(x - 1, y, center);
         const right = depthAt(x + 1, y, center);
@@ -195,16 +264,50 @@
         const down = depthAt(x, y + 1, center);
         const gx = right - left;
         const gy = down - up;
-        const magnitude = Math.hypot(gx, gy);
-        const change = clamp(magnitude * 8, 0, 1);
+        const fineMagnitude = Math.hypot(gx, gy);
+
+        const leftWide = depthAt(x - 3, y, center);
+        const rightWide = depthAt(x + 3, y, center);
+        const upWide = depthAt(x, y - 3, center);
+        const downWide = depthAt(x, y + 3, center);
+        const wideMagnitude = Math.hypot(
+          rightWide - leftWide,
+          downWide - upWide
+        ) / 3;
+
+        const magnitude = Math.max(fineMagnitude, wideMagnitude);
+        const change = clamp(
+          Math.max(fineMagnitude * 8, wideMagnitude * 5),
+          0,
+          1
+        );
+
+        // Quantized depth bands keep "Depth Contours" useful on broad smooth
+        // surfaces where a pure local gradient otherwise becomes too sparse.
+        const contourPosition = center * 12;
+        const contourFraction = contourPosition - Math.floor(contourPosition);
+        const contourDistance = Math.min(contourFraction, 1 - contourFraction);
+        const contourBand = clamp(1 - contourDistance / 0.14, 0, 1);
 
         depthChange[idx] = Math.round(change * 255);
+        depthContour[idx] = Math.round(
+          clamp(Math.max(change * 0.65, contourBand * 0.92), 0, 1) * 255
+        );
+
         if (magnitude > 1e-6) {
           depthDirection[idx] = Math.atan2(gy, gx) + Math.PI / 2;
           depthCoherence[idx] = Math.round(clamp(change * 1.6, 0, 1) * 255);
         }
       }
     }
+
+    const confidenceSmoothed = smoothMaskedUint8(
+      confidence,
+      occupancy,
+      w,
+      h,
+      2
+    );
 
     return Object.freeze({
       width: w,
@@ -215,11 +318,16 @@
       imageCoherence: base.directionCoherence,
       geometryEdge,
       depth,
+      occupancy,
+      occupiedIndices,
+      objectCenter,
       depthChange,
+      depthContour,
       depthDirection,
       depthCoherence,
       variance,
-      confidence
+      confidence,
+      confidenceSmoothed
     });
   }
 
@@ -238,19 +346,55 @@
     const directionSource = options.directionSource || 'mixed';
     const edgeScale = clamp(Number(options.geometryEdgeStrength ?? 1), 0, 2);
     const depthInfluence = clamp(Number(options.depthInfluence ?? 0.75), 0, 1);
+    const depthContourStrength = clamp(
+      Number(options.depthContourStrength ?? 0),
+      0,
+      1
+    );
+    const confidenceSmoothing = clamp(
+      Number(options.confidenceSmoothing ?? 0),
+      0,
+      1
+    );
+    const cleanBackground = !!options.cleanBackground;
+    const objectCenteredFields = !!options.objectCenteredFields;
 
     const luminance = new Uint8Array(count);
     const edgeStrength = new Uint8Array(count);
     const colorInkNeed = new Float32Array(count);
     const strokeDirection = new Float32Array(count);
     const directionCoherence = new Uint8Array(count);
+    const confidenceForArt = new Uint8Array(count);
 
     for (let i = 0; i < count; i++) {
+      const occupied = !source.occupancy || !!source.occupancy[i];
       const geom = clamp(source.geometryEdge[i] / 255 * edgeScale, 0, 1);
-      const depthNeed = clamp(source.depthChange[i] / 255 * depthInfluence, 0, 1);
-      const conf = source.confidence[i] / 255;
-      let need;
+      const rawDepth = source.depthChange[i] / 255;
+      const contourDepth = source.depthContour
+        ? source.depthContour[i] / 255
+        : rawDepth;
+      const depthEvidence = rawDepth * (1 - depthContourStrength) +
+        Math.max(rawDepth, contourDepth) * depthContourStrength;
+      const depthNeed = clamp(depthEvidence * depthInfluence, 0, 1);
+      const rawConf = source.confidence[i] / 255;
+      const smoothConf = source.confidenceSmoothed
+        ? source.confidenceSmoothed[i] / 255
+        : rawConf;
+      const conf = rawConf * (1 - confidenceSmoothing) +
+        smoothConf * confidenceSmoothing;
+      confidenceForArt[i] = Math.round(clamp(conf, 0, 1) * 255);
 
+      if (cleanBackground && !occupied) {
+        luminance[i] = 255;
+        edgeStrength[i] = 0;
+        colorInkNeed[i] = 0;
+        strokeDirection[i] = source.imageDirection[i];
+        directionCoherence[i] = 0;
+        confidenceForArt[i] = 0;
+        continue;
+      }
+
+      let need;
       if (densitySource === 'geometryEdge') need = geom;
       else if (densitySource === 'depthChange') need = depthNeed;
       else if (densitySource === 'confidence') need = conf;
@@ -300,7 +444,10 @@
       depthDirection: source.depthDirection,
       depthCoherence: source.depthCoherence,
       depthChange: source.depthChange,
-      confidence: source.confidence
+      confidence: confidenceForArt,
+      strokeMask: cleanBackground ? source.occupancy : null,
+      eligibleIndices: cleanBackground ? source.occupiedIndices : null,
+      fieldCenter: objectCenteredFields ? source.objectCenter : null
     };
   }
 
