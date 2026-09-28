@@ -158,20 +158,20 @@ Do not start the advanced math or 3D Ink work until this checkpoint is solid.
 
 ## Phase 4 — Proper LiDAR controls
 
-- [ ] Camera controls
-- [ ] Smart sampling controls
-- [ ] Scan resolution
-- [ ] Geometry-edge strength
-- [ ] Depth influence
-- [ ] Depth variance/confidence if reliable
+- [x] Camera controls
+- [x] Smart sampling controls
+- [x] Scan resolution
+- [x] Geometry-edge strength
+- [x] Depth influence
+- [x] Depth variance/confidence if reliable
 
 Add LiDAR-oriented presets:
 
-- [ ] Technical Pencil
-- [ ] Depth Contours
-- [ ] Sensor Sketch
-- [ ] Architectural
-- [ ] Uncertain Scribble
+- [x] Technical Pencil
+- [x] Depth Contours
+- [x] Sensor Sketch
+- [x] Architectural
+- [x] Uncertain Scribble
 
 Add source selectors:
 
@@ -189,6 +189,8 @@ Direction Source
 ```
 
 **Done when:** LiDAR information clearly changes how the drawing is constructed.
+
+**Phase 4 validation:** GitHub Actions passes JavaScript syntax checks, the browser-side LiDAR map-composition smoke test, the server/API suite, and a real smart-sampled cube OBJ scan through the vendored LiDAR engine. Scan controls require an explicit rescan; density/direction/edge/depth art controls remix the current scan without rerunning LiDAR.
 
 ---
 
@@ -571,7 +573,7 @@ Use useful packaging/runtime-management ideas from `LocalChatBox` only after the
 ---------------------------------------------------
 FIRST MAJOR CHECKPOINT / v0.1
 
-5. LiDAR controls                              [ ]
+5. LiDAR controls                              [x]
 6. Stable seeded randomness                    [ ]
 7. Procedural noise                            [ ]
 8. Mathematical flow mixer                     [ ]
