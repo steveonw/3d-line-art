@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase6" />
+  <meta name="application-version" content="5.3-phase7" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -207,6 +207,59 @@
 
       <div class="section">
         <div class="label-row">
+          <span class="group-label">Flow Mixer</span>
+          <span class="value">weighted fields</span>
+        </div>
+        <div class="source-help">Mix image/LiDAR direction, depth contours, procedural flow, and mathematical direction fields.</div>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixSurface">Surface Flow</label><span class="value" id="mixSurfaceValue">100%</span></div>
+          <input id="mixSurface" type="range" min="0" max="1" step="0.05" value="1" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixDepth">Depth Contour</label><span class="value" id="mixDepthValue">0%</span></div>
+          <input id="mixDepth" type="range" min="0" max="1" step="0.05" value="0" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixProcedural">Procedural Noise</label><span class="value" id="mixProceduralValue">100%</span></div>
+          <input id="mixProcedural" type="range" min="0" max="1" step="0.05" value="1" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixRadial">Radial</label><span class="value" id="mixRadialValue">0%</span></div>
+          <input id="mixRadial" type="range" min="0" max="1" step="0.05" value="0" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixVortex">Vortex</label><span class="value" id="mixVortexValue">0%</span></div>
+          <input id="mixVortex" type="range" min="0" max="1" step="0.05" value="0" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixSpiral">Spiral</label><span class="value" id="mixSpiralValue">0%</span></div>
+          <input id="mixSpiral" type="range" min="0" max="1" step="0.05" value="0" />
+        </div>
+        <div class="compact-slider">
+          <div class="label-row"><label for="mixWave">Wave</label><span class="value" id="mixWaveValue">0%</span></div>
+          <input id="mixWave" type="range" min="0" max="1" step="0.05" value="0" />
+        </div>
+
+        <details class="mixer-details">
+          <summary>Polar fields</summary>
+          <div class="compact-slider">
+            <div class="label-row"><label for="mixRose">Rose</label><span class="value" id="mixRoseValue">0%</span></div>
+            <input id="mixRose" type="range" min="0" max="1" step="0.05" value="0" />
+          </div>
+          <div class="compact-slider">
+            <div class="label-row"><label for="mixCardioid">Cardioid</label><span class="value" id="mixCardioidValue">0%</span></div>
+            <input id="mixCardioid" type="range" min="0" max="1" step="0.05" value="0" />
+          </div>
+          <div class="compact-slider">
+            <div class="label-row"><label for="mixLogSpiral">Log Spiral</label><span class="value" id="mixLogSpiralValue">0%</span></div>
+            <input id="mixLogSpiral" type="range" min="0" max="1" step="0.05" value="0" />
+          </div>
+        </details>
+      </div>
+
+      <div class="section">
+        <div class="label-row">
           <label for="seedInput">Seed</label>
           <span class="value">coordinate-stable variation</span>
         </div>
@@ -257,6 +310,7 @@
   <script src="analysis_maps.js"></script>
   <script src="random_field.js"></script>
   <script src="procedural_flow.js"></script>
+  <script src="math_fields.js"></script>
   <script src="line_renderer.js"></script>
   <script src="export.js"></script>
   <script src="lidar_client.js"></script>
