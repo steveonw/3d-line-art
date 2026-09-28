@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase7';
+  const BUILD_VERSION = '5.3-phase8';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -353,7 +353,9 @@
       strokeDirection,
       directionCoherence,
       depthDirection: maps.depthDirection || null,
-      depthCoherence: maps.depthCoherence || null
+      depthCoherence: maps.depthCoherence || null,
+      depthChange: maps.depthChange || null,
+      confidence: maps.confidence || null
     });
   }
 
@@ -951,6 +953,7 @@
         width: canvas.width,
         height: canvas.height,
         settings: { ...rs.settings },
+        placement: renderer.summarizePlacement(rs),
         elapsed: seconds
       };
       displayStrokeStore = rs.strokes;
@@ -981,6 +984,7 @@
   document.body.dataset.phase5Ready = 'true';
   document.body.dataset.phase6Ready = 'true';
   document.body.dataset.phase7Ready = 'true';
+  document.body.dataset.phase8Ready = 'true';
   syncLidarControls();
   syncProceduralControls();
   syncFlowMixerControls();

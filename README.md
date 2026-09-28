@@ -227,6 +227,54 @@ stable local jitter
 
 Default mixer settings preserve Phase 6 behavior: Surface Flow is 100%, Procedural Noise is 100%, all mathematical fields are 0%, and Depth Contour is 0%.
 
+## Phase 8 deliberate stroke placement
+
+Phase 8 improves where strokes start without changing the Phase 7 flow solver.
+
+The renderer now generates six deterministic position candidates per stroke and scores each candidate using:
+
+- remaining coverage need,
+- darkness,
+- geometry/image edge strength,
+- LiDAR depth change,
+- LiDAR sensor confidence,
+- deterministic tie-breaking,
+- minimum-spacing preference.
+
+The coverage grid remains authoritative. Minimum spacing is a preference rather than a hard rejection, so dense 100k–400k renders can continue filling areas that genuinely still need ink.
+
+The spacing radius is derived only from source dimensions, not requested line count. This preserves the Phase 5 guarantee that increasing line count keeps the existing stroke prefix stable.
+
+Conceptually:
+
+```text
+deterministic candidate positions
+              │
+              ▼
+    ┌─────────────────────┐
+    │ placement evidence  │
+    │                     │
+    │ remaining coverage  │
+    │ darkness            │
+    │ geometry edge       │
+    │ depth change        │
+    │ confidence          │
+    │ seed spacing        │
+    └─────────┬───────────┘
+              ▼
+       best candidate
+              │
+              ▼
+       Phase 7 flow mixer
+              │
+              ▼
+          streamline
+```
+
+Completed renders store placement diagnostics in render metadata, including candidate attempts, useful-selection rate, average remaining need, spacing selections, and high-density spacing fallbacks.
+
+The deterministic Phase 7-vs-Phase 8 benchmark in `tests/frontend_stroke_placement_smoke.js` uses the same seed and synthetic evidence field for both samplers. The current fixture improves useful selections from about 90.7% to 96.8% and raises average remaining need selected from about 0.327 to 0.366.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`

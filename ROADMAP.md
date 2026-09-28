@@ -273,17 +273,19 @@ The LiDAR + mathematical art system is now established.
 
 ## Phase 8 — Improve stroke seeding
 
-- [ ] Generate stroke-position candidates
-- [ ] Score candidates using remaining coverage
-- [ ] Score candidates using darkness
-- [ ] Score candidates using geometry edge
-- [ ] Score candidates using depth change
-- [ ] Score candidates using confidence
-- [ ] Add minimum-spacing logic
-- [ ] Keep the existing coverage grid as the final authority
-- [ ] Compare old and new sampling efficiency
+- [x] Generate stroke-position candidates
+- [x] Score candidates using remaining coverage
+- [x] Score candidates using darkness
+- [x] Score candidates using geometry edge
+- [x] Score candidates using depth change
+- [x] Score candidates using confidence
+- [x] Add minimum-spacing logic
+- [x] Keep the existing coverage grid as the final authority
+- [x] Compare old and new sampling efficiency
 
 **Done when:** fewer attempted strokes are wasted and coverage becomes more deliberate.
+
+**Phase 8 validation:** GitHub Actions passes evidence-weight tests for remaining coverage, darkness, geometry edge, depth change, and confidence; minimum-spacing near/far and dense-fallback tests; deterministic short-vs-long stroke-prefix regression; the Phase 7-vs-Phase 8 efficiency fixture; all flow/LiDAR frontend tests; the server/API suite; and the real cube OBJ LiDAR integration test. In the deterministic efficiency fixture, useful selections improve from about 90.7% to 96.8% and average selected remaining need improves from about 0.327 to 0.366.
 
 ---
 
@@ -583,7 +585,7 @@ FIRST MAJOR CHECKPOINT / v0.1
 6. Stable seeded randomness                    [x]
 7. Procedural noise                            [x]
 8. Mathematical flow mixer                     [x]
-9. Better stroke placement                     [ ]
+9. Better stroke placement                     [x]
 ---------------------------------------------------
 ART SYSTEM CHECKPOINT / v0.2
 
