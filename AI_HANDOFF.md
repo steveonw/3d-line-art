@@ -15,15 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-12-fixed-multiview
-PR:     #15 — Phase 12: add fixed multi-view LiDAR scanning
-base:   phase-11-5-lidar-art-polish
+branch: phase-13-auto-view-selection
+PR:     #16 — Phase 13: add automatic LiDAR view selection
+base:   phase-12-fixed-multiview
 CI:     passed
 ```
 
-Resume from **Phase 13 — Automatic view selection**.
+Resume from **Phase 14 — Confidence fusion**.
 
-Do **not** start Phase 14 confidence fusion until Phase 13 is implemented, tested, committed, and green.
+Do **not** start Phase 15 3D inspection viewer until Phase 14 is implemented, tested, committed, and green.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -64,22 +64,24 @@ main
   ↓
 #14 phase-11-5-lidar-art-polish
   ↓
-#15 phase-12-fixed-multiview    ← CURRENT HEAD
+#15 phase-12-fixed-multiview
+  ↓
+#16 phase-13-auto-view-selection ← CURRENT HEAD
 ```
 
-For Phase 13:
+For Phase 14:
 
-1. Branch from `phase-12-fixed-multiview`.
+1. Branch from `phase-13-auto-view-selection`.
 2. Suggested branch name:
 
    ```text
-   phase-13-auto-view-selection
+   phase-14-confidence-fusion
    ```
 
 3. Open the new PR against:
 
    ```text
-   phase-12-fixed-multiview
+   phase-13-auto-view-selection
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -707,30 +709,58 @@ Validation includes:
 - portable project state round-trips the Phase 12 controls,
 - real Chromium verifies local view switching/combining/debugging and cached replay.
 
-## 12.5. Next task: Phase 13 — Automatic view selection
+## 12.5. Completed Phase 13 — Automatic view selection
 
-Roadmap concept:
+Phase 13 is complete.
+
+Planner:
 
 ```text
-scan
-  -> measure weak coverage
-  -> choose another useful camera
-  -> scan again
-  -> stop at target coverage
+deterministic candidate cameras
+  -> acquire through existing scan() cache path
+  -> score scan quality
+  -> update quality-weighted view-space coverage
+  -> choose the largest expected coverage gain
+  -> reject near-duplicate viewpoints
+  -> stop at target / diminishing returns / max views
 ```
 
-Requirements:
+Implementation:
 
-- add coverage scoring,
-- generate candidate cameras,
-- avoid nearly duplicate viewpoints,
-- choose the most useful next view,
-- add an Auto Scan button,
-- add stopping criteria.
+- `POST /api/lidar/auto` runs automatic acquisition.
+- Candidate cameras are deterministic: low, staggered mid, high, and near-top views.
+- The default near-duplicate threshold is 35°.
+- Per-view quality combines saturated ray-hit visibility with mean confidence over hit pixels.
+- Coverage is explicitly named **quality-weighted view-space coverage**; it is not object-space surface reconstruction.
+- Every acquired camera calls the existing Phase 11 `scan()` path, so content-addressed caching remains authoritative.
+- Auto-selected views preserve independent `scan_id` values and all five PNG channels.
+- The Phase 12 current-view and combined-view browser paths accept variable automatic view sets.
+- Automatic view names receive deterministic debug colors while preserving the original five fixed-view colors.
+- Default stop criteria are target coverage 0.72, minimum 3 views, maximum 6 views, and minimum expected gain 0.035.
 
-Use the owner's `steveonw/lidar-probe` active-perception ideas where useful. Phase 13 should reuse the Phase 11 cache and Phase 12 named/inspectable scan representation rather than introducing another sensor pipeline.
+Validation includes:
 
-Important: do not implement Phase 14 confidence fusion during Phase 13. Auto Scan should decide **which views to acquire**; confidence fusion remains the later step that combines sensor confidence across viewpoints.
+- deterministic candidate generation and view ordering,
+- angular separation / duplicate rejection,
+- scan-quality and view-space coverage scoring,
+- explicit stopping-rule tests,
+- real cube acquisition with independently retrievable channels,
+- repeat Auto Scan with LiDAR engine loading disabled and all selected views restored from cache,
+- HTTP API coverage,
+- frontend debug-color smoke coverage,
+- real Chromium Auto Scan, view switching, stale/fresh sensor settings, and cache replay.
+
+## 12.75. Next task: Phase 14 — Confidence fusion
+
+Roadmap scope:
+
+- fuse evidence from multiple scans,
+- produce confidence as a first-class multi-view map,
+- allow confidence to affect stroke length,
+- allow confidence to affect opacity,
+- allow confidence to affect fragmentation.
+
+Use selected multi-view ideas from `steveonw/lidar-numpy` where useful. Preserve the Phase 13 planner as an acquisition layer; Phase 14 should consume acquired views rather than replacing automatic view selection or the Phase 11 cache.
 
 ## 13. Determinism and behavior invariants
 
@@ -884,28 +914,29 @@ For every major phase:
 Start here:
 
 ```text
-Phase 13 — Automatic view selection
+Phase 14 — Confidence fusion
 ```
 
-Branch from `phase-12-fixed-multiview` and base the Phase 13 PR on `phase-12-fixed-multiview`.
+Branch from `phase-13-auto-view-selection` and base the Phase 14 PR on `phase-13-auto-view-selection`.
 
 First inspect:
 
 ```text
+server/auto_view.py
 server/state.py
 server/lidar_bridge.py
 server/api.py
+frontend/analysis_maps.js
 frontend/multiview.js
 frontend/app.js
-frontend/lidar_client.js
 tests/test_lidar_bridge.py
 tests/frontend_multiview_smoke.js
 tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Preserve the Phase 11 content-addressed LRU cache, the Phase 11.5 common art-mapping path, and Phase 12's independently inspectable scan IDs/view sets.
+Preserve the Phase 11 content-addressed LRU cache, the Phase 11.5 common art-mapping path, Phase 12's independently inspectable scan IDs/view sets, and Phase 13 automatic acquisition.
 
-Use coverage scoring and candidate-camera selection to choose additional useful viewpoints. Avoid nearly duplicate cameras and define deterministic stopping criteria.
+Implement multi-view confidence fusion as a separate evidence-combination step over acquired scans. Keep the distinction between Phase 13 view-space acquisition coverage and Phase 14 fused sensor confidence explicit.
 
-Do not touch Phase 14 confidence fusion.
+Do not touch Phase 15 3D inspection viewer.
