@@ -64,7 +64,10 @@ const source = A.buildLidarSourceMaps(
 assert(source.occupancy[3 * w] === 0, 'no-hit background was not preserved');
 assert(source.occupancy[3 * w + 1] === 1, 'occupied depth pixel was lost');
 assert(source.occupiedIndices.length === h * (w - 1), 'occupied index list is wrong');
-assert(source.objectCenter.x > w * 0.5, 'object center did not move toward occupied region');
+assert(
+  source.objectCenter.x > (w - 1) * 0.5,
+  'object center did not move toward occupied region'
+);
 assert(source.objectCenter.scale > 0, 'object field scale is invalid');
 
 const edgeMode = A.composeLidarAnalysisMaps(source, {
