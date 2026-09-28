@@ -122,6 +122,75 @@ class FakeLidarBridge:
             "cache": self.state.scan_cache_stats(),
         }
 
+    def scan_auto_views(self, options: dict | None = None) -> dict:
+        if self.state.get_scene_object() is None:
+            raise ValueError("no 3D model is loaded")
+        base = dict(options or {})
+        descriptors = [
+            ("auto_low_000", "Low 0°", 0.0, 20.0, 0.78),
+            ("auto_low_180", "Low 180°", 180.0, 20.0, 0.81),
+            ("auto_high_090", "High 90°", 90.0, 70.0, 0.74),
+        ]
+        views = {}
+        order = []
+        for name, label, yaw, elevation, quality in descriptors:
+            metadata = {
+                "scan_id": f"fake-{name}",
+                "cache_hit": False,
+                "cache_key": f"fake-cache-{name}",
+                "width": int(base.get("width", 320)),
+                "height": int(base.get("height", 240)),
+                "rays_per_pixel": int(base.get("rays_per_pixel", 2)),
+                "seed": int(base.get("seed", 42)),
+                "smart_sampling": bool(base.get("smart_sampling", False)),
+                "coverage": 0.70,
+                "mean_confidence": quality,
+                "quality_score": quality,
+                "camera": {
+                    "yaw_deg": yaw,
+                    "elevation_deg": elevation,
+                    "distance_scale": float(base.get("distance_scale", 3.0)),
+                    "fov_deg": float(base.get("fov_deg", 55)),
+                },
+                "scene": {"name": self.state.snapshot()["workspace"]["scene"]["name"]},
+                "view": {
+                    "name": name,
+                    "label": label,
+                    "yaw_deg": yaw,
+                    "elevation_deg": elevation,
+                    "quality_score": quality,
+                    "kind": "auto",
+                },
+            }
+            channels = {channel: PNG + name.encode("ascii") for channel in CHANNELS}
+            self.scans[metadata["scan_id"]] = {
+                "metadata": dict(metadata),
+                "channels": channels,
+            }
+            self.state.set_scan(metadata["scan_id"], metadata, channels)
+            view = dict(metadata)
+            view["channels"] = {
+                channel: f"/api/lidar/maps/{channel}.png?scan_id={metadata['scan_id']}"
+                for channel in CHANNELS
+            }
+            view["cache"] = self.state.scan_cache_stats()
+            views[name] = view
+            order.append(name)
+        return {
+            "mode": "auto",
+            "order": order,
+            "views": views,
+            "current_view": order[0],
+            "planner": {
+                "metric": "quality-weighted view-space coverage",
+                "coverage_score": 0.76,
+                "target": 0.72,
+                "stop_reason": "target_reached",
+                "steps": [],
+            },
+            "cache": self.state.scan_cache_stats(),
+        }
+
     def maps_summary(self, scan_id: str | None = None) -> dict:
         if scan_id:
             stored = self.scans.get(scan_id)
@@ -246,8 +315,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.4-phase12")
-        self.assertEqual(payload["api_version"], 4)
+        self.assertEqual(payload["server_version"], "0.4-phase13")
+        self.assertEqual(payload["api_version"], 5)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -395,6 +464,28 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body.endswith(b"front"))
         self.assertEqual(content_type, "image/png")
+
+    def test_auto_multiview_endpoint(self) -> None:
+        self.upload_fake_scene()
+        status, payload = self.json_request(
+            "/api/lidar/auto",
+            method="POST",
+            body=json.dumps({
+                "width": 160,
+                "height": 120,
+                "rays_per_pixel": 1,
+                "distance_scale": 3.2,
+                "fov_deg": 50,
+            }).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        multiview = payload["multiview"]
+        self.assertEqual(multiview["mode"], "auto")
+        self.assertEqual(len(multiview["order"]), 3)
+        self.assertEqual(multiview["planner"]["stop_reason"], "target_reached")
+        first = multiview["views"][multiview["order"][0]]
+        self.assertEqual(first["view"]["kind"], "auto")
 
     def test_reset_discards_scene_and_scan(self) -> None:
         self.upload_fake_scene()
