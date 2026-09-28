@@ -174,6 +174,22 @@
       return true;
     }
 
+    function replaceCurrent(state, { autosave = true } = {}) {
+      const snapshot = clone(state);
+      const signature = stableString(snapshot);
+      if (index < 0) {
+        initialize(snapshot, { autosave });
+        return true;
+      }
+      entries[index] = snapshot;
+      signatures[index] = signature;
+      lastCoalesceKey = null;
+      lastRecordTime = -Infinity;
+      if (autosave) scheduleAutosave(snapshot);
+      else emit();
+      return true;
+    }
+
     function undo() {
       if (index <= 0) return null;
       index--;
