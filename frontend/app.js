@@ -1014,17 +1014,71 @@
   async function restoreServerScene() {
     try {
       const result = await LidarClient.getState();
-      const scene = result.state?.workspace?.scene;
-      if (scene?.loaded) {
-        sceneLoaded = true;
-        scanDirty = true;
-        scanSummary.textContent = 'ready to scan';
-        modelStatus.textContent =
-          `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
-        refreshButtons();
+      const workspace = result.state?.workspace;
+      const scene = workspace?.scene;
+      if (!scene?.loaded) return null;
+
+      sceneLoaded = true;
+      modelStatus.textContent =
+        `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
+
+      if (workspace?.scan?.status === 'ready') {
+        try {
+          const mapsResponse = await LidarClient.getMaps();
+          const scan = mapsResponse.scan;
+          const images = await LidarClient.fetchScanMaps(scan);
+
+          lidarSourceMaps = LineArtAnalysis.buildLidarSourceMaps(
+            images.shaded.imageData,
+            images.depth.imageData,
+            images.edge.imageData,
+            images.variance.imageData,
+            images.confidence.imageData,
+            images.shaded.width,
+            images.shaded.height
+          );
+          const maps = composeCurrentLidarMaps();
+
+          for (const [name, item] of Object.entries(images)) {
+            if (name !== 'shaded') {
+              item.canvas.width = 0;
+              item.canvas.height = 0;
+            }
+          }
+
+          scanDirty = scanSettingsSignature(settings) !== scanMetadataSignature(scan);
+          scanBtn.textContent = 'Rescan LiDAR';
+          const smartText = scan.smart_sampling ? ' · smart' : '';
+          const staleText = scanDirty ? ' · settings changed' : '';
+          scanSummary.textContent = `${scan.width}×${scan.height}${smartText}${staleText}`;
+          modelStatus.textContent =
+            `${scan.scene?.name || scene.name || '3D model'} - restored server scan · ${Math.round(scan.coverage * 100)}% coverage`;
+
+          installSource(
+            images.shaded.canvas,
+            images.shaded.imageData,
+            maps,
+            images.shaded.width,
+            images.shaded.height,
+            `Restored LiDAR scan - ${images.shaded.width} x ${images.shaded.height}px. Building preview...`,
+            'lidar',
+            scan.scene?.name || scene.name || '3D model'
+          );
+          if (scanDirty) scanBtn.textContent = 'Rescan LiDAR';
+          return 'lidar';
+        } catch (error) {
+          console.warn('Could not restore the previous LiDAR scan:', error);
+        }
       }
+
+      scanDirty = true;
+      scanSummary.textContent = 'ready to scan';
+      scanBtn.textContent = 'Scan LiDAR';
+      refreshButtons();
+      return 'scene';
     } catch (_) {
       modelStatus.textContent = '3D mode requires the local Python server.';
+      return null;
     }
   }
 
