@@ -1,0 +1,211 @@
+"""Headless-browser regressions for Phase 10 project/source state."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+
+from PIL import Image
+from playwright.sync_api import sync_playwright
+
+from server.api import create_server
+from server.errors import ErrorRecorder
+from server.state import StudioState
+
+
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND = ROOT / "frontend"
+CUBE_OBJ = ROOT / "samples" / "cube.obj"
+CUBE_PROJECT = ROOT / "samples" / "cube.lidar-ink.json"
+
+UI_TIMEOUT_MS = 15_000
+SCAN_TIMEOUT_MS = 90_000
+
+
+class BrowserRegressionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.playwright = sync_playwright().start()
+        cls.browser = cls.playwright.chromium.launch()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.browser.close()
+        cls.playwright.stop()
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        tmp = Path(self.tmp.name)
+        self.server = create_server(
+            FRONTEND,
+            port=0,
+            state=StudioState(),
+            error_recorder=ErrorRecorder(tmp / "errors.jsonl"),
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        port = self.server.server_address[1]
+        self.url = f"http://127.0.0.1:{port}/"
+
+        self.image_a = tmp / "a.png"
+        self.image_b = tmp / "b.png"
+        Image.new("RGB", (200, 150), (40, 80, 160)).save(self.image_a)
+        Image.new("RGB", (220, 160), (200, 120, 40)).save(self.image_b)
+
+        self.context = self.browser.new_context()
+        self.page = self.context.new_page()
+        self.page.set_default_timeout(UI_TIMEOUT_MS)
+        self.page_errors: list[str] = []
+        self.page.on("pageerror", lambda error: self.page_errors.append(str(error)))
+
+    def tearDown(self) -> None:
+        self.context.close()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.tmp.cleanup()
+        self.assertEqual(self.page_errors, [], "uncaught page errors")
+
+    def open_app(self) -> None:
+        self.page.goto(self.url)
+        self.page.wait_for_function("document.body.dataset.phase10Ready === 'true'")
+
+    def reload_app(self) -> None:
+        self.page.reload()
+        self.page.wait_for_function("document.body.dataset.phase10Ready === 'true'")
+
+    def load_image(self, path: Path) -> None:
+        with Image.open(path) as img:
+            width, height = img.size
+        self.page.set_input_files("#imageInput", str(path))
+        self.page.wait_for_function(
+            "([w, h]) => { const c = document.getElementById('canvas');"
+            " return c.width === w && c.height === h; }",
+            arg=[width, height],
+        )
+
+    def open_project(self, path: Path) -> None:
+        self.page.set_input_files("#projectFileInput", str(path))
+        self.page.wait_for_function(
+            "name => document.getElementById('projectStatus').textContent.includes('Opened ' + name)",
+            arg=path.name,
+        )
+
+    def upload_cube_and_scan(self) -> None:
+        self.page.set_input_files("#modelInput", str(CUBE_OBJ))
+        self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
+        self.page.click("#scanBtn")
+        self.page.wait_for_function(
+            "/^\\d+×\\d+/.test(document.getElementById('scanSummary').textContent)"
+            " && !document.getElementById('scanBtn').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+    def write_project(self, name: str, mutate=None) -> Path:
+        project = json.loads(CUBE_PROJECT.read_text(encoding="utf-8"))
+        project["settings"]["lidar"]["scanResolution"] = "160x120"
+        project["settings"]["lidar"]["raysPerPixel"] = 1
+        project["settings"]["lidar"]["smartSampling"] = False
+        if mutate:
+            mutate(project)
+        path = Path(self.tmp.name) / name
+        path.write_text(json.dumps(project), encoding="utf-8")
+        return path
+
+    def is_disabled(self, selector: str) -> bool:
+        return self.page.is_disabled(selector)
+
+    def text(self, selector: str) -> str:
+        return self.page.text_content(selector) or ""
+
+    def test_autosave_restore_does_not_lock_future_sources(self) -> None:
+        self.open_app()
+        self.load_image(self.image_a)
+        self.page.wait_for_function("!document.getElementById('renderBtn').disabled")
+        self.reload_app()
+        self.load_image(self.image_b)
+        self.assertFalse(
+            self.is_disabled("#renderBtn"),
+            f"new image blocked after autosave restore: {self.text('#projectStatus')!r}",
+        )
+
+    def test_autosave_lock_does_not_persist_across_reloads(self) -> None:
+        self.open_app()
+        self.load_image(self.image_a)
+        self.reload_app()
+        self.load_image(self.image_b)
+        self.reload_app()
+        self.assertNotIn(
+            "a.png",
+            self.text("#projectStatus"),
+            "autosave still demands the original image after switching sources",
+        )
+
+    def test_explicit_project_still_blocks_mismatched_source(self) -> None:
+        size = self.image_a.stat().st_size
+
+        def reference_image_a(project: dict) -> None:
+            project["source"] = {
+                "kind": "image",
+                "name": "a.png",
+                "size": size,
+                "lastModified": None,
+                "type": "image/png",
+                "sha256": None,
+            }
+
+        project = self.write_project("image-a.lidar-ink.json", reference_image_a)
+        self.open_app()
+        self.open_project(project)
+        self.load_image(self.image_b)
+        self.assertTrue(
+            self.is_disabled("#renderBtn"),
+            "explicit project rendered against the wrong image",
+        )
+        self.load_image(self.image_a)
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+    def test_opening_project_with_same_camera_keeps_scan_fresh(self) -> None:
+        project = self.write_project("cube.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.upload_cube_and_scan()
+        self.open_project(project)
+        self.assertNotIn("settings changed", self.text("#scanSummary"))
+        self.assertFalse(self.is_disabled("#saveBtn"))
+
+    def test_opening_project_with_different_camera_marks_scan_stale(self) -> None:
+        base = self.write_project("cube.lidar-ink.json")
+
+        def move_camera(project: dict) -> None:
+            project["settings"]["lidar"]["cameraYaw"] = 200
+
+        moved = self.write_project("cube-yaw200.lidar-ink.json", move_camera)
+        self.open_app()
+        self.open_project(base)
+        self.upload_cube_and_scan()
+        self.open_project(moved)
+        self.assertEqual(self.page.input_value("#cameraYaw"), "200")
+        self.assertIn("settings changed", self.text("#scanSummary"))
+        self.assertTrue(self.is_disabled("#renderBtn"))
+        self.assertTrue(self.is_disabled("#saveBtn"))
+
+    def test_slider_returning_to_scanned_value_is_not_stale(self) -> None:
+        project = self.write_project("cube.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.upload_cube_and_scan()
+        original = self.page.input_value("#cameraYaw")
+        for value in ("120", original):
+            self.page.fill("#cameraYaw", value)
+            self.page.dispatch_event("#cameraYaw", "input")
+            self.page.dispatch_event("#cameraYaw", "change")
+        self.assertNotIn("settings changed", self.text("#scanSummary"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
+
+if __name__ == "__main__":
+    unittest.main()
