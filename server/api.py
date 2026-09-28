@@ -17,8 +17,8 @@ from .state import StudioState
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.2-phase3"
-API_VERSION = 2
+SERVER_VERSION = "0.3-phase4"
+API_VERSION = 3
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
