@@ -311,6 +311,7 @@
   function currentSourceReference() {
     if (requiredSourceReference) return requiredSourceReference;
     if (sourceKind === 'lidar' && modelReference) return modelReference;
+    if (modelReference && sceneLoaded && !sourceImage) return modelReference;
     if (sourceReference) return sourceReference;
     if (sourceKind === 'none' && restoredSourceHint) return restoredSourceHint;
     return { kind: sourceKind, name: sourceName };
@@ -1233,6 +1234,7 @@
       const workspace = result.state?.workspace;
       const scene = workspace?.scene;
       if (!scene?.loaded) return null;
+      if (requiredSourceReference?.kind === 'image') return null;
 
       sceneLoaded = true;
       const serverReference = {
