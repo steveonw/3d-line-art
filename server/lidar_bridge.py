@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import math
 import os
@@ -22,6 +23,10 @@ DEFAULT_FOV_DEG = 55.0
 
 class LidarUnavailableError(RuntimeError):
     """Raised when optional LiDAR runtime dependencies are unavailable."""
+
+
+class ScanIdMismatchError(RuntimeError):
+    """Raised when a channel request targets a scan that is no longer current."""
 
 
 def _patch_engine_for_mesh_scenes(engine) -> None:
@@ -165,6 +170,21 @@ def _load_mesh(engine, filename: str, raw: bytes):
     raise ValueError(f"unsupported file type {extension!r}; use .stl or .obj")
 
 
+def _validate_mesh_geometry(engine, mesh) -> None:
+    np = engine.np
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or vertices.shape[0] < 3:
+        raise ValueError("mesh must contain at least three 3D vertices")
+    if not np.all(np.isfinite(vertices)):
+        raise ValueError("mesh contains non-finite vertex coordinates")
+
+    extent = np.max(vertices, axis=0) - np.min(vertices, axis=0)
+    if not np.all(np.isfinite(extent)):
+        raise ValueError("mesh bounds are not finite")
+    if float(np.max(extent)) <= 1e-9:
+        raise ValueError("mesh has near-zero extent")
+
+
 def _normalize_mesh(engine, mesh, target_size: float = 6.0):
     """Center X/Z, put the base on Y=0, and normalize the longest dimension."""
     np = engine.np
@@ -172,7 +192,9 @@ def _normalize_mesh(engine, mesh, target_size: float = 6.0):
     maximum = mesh.aabb_max.astype(np.float64)
     center = (minimum + maximum) / 2.0
     size = float(np.max(maximum - minimum))
-    scale = target_size / size if size > 1e-9 else 1.0
+    if not math.isfinite(size) or size <= 1e-9:
+        raise ValueError("mesh has near-zero or non-finite extent")
+    scale = target_size / size
 
     vertices = (np.asarray(mesh.vertices, dtype=np.float64) - center) * scale
     vertices[:, 1] -= vertices[:, 1].min()
@@ -352,6 +374,7 @@ class LidarBridge:
 
         engine = _load_engine()
         mesh = _load_mesh(engine, filename, raw)
+        _validate_mesh_geometry(engine, mesh)
         triangle_count = int(mesh.faces.shape[0])
         if triangle_count > MAX_TRIANGLES:
             raise ValueError(
@@ -360,7 +383,9 @@ class LidarBridge:
             )
 
         mesh = _normalize_mesh(engine, mesh)
+        _validate_mesh_geometry(engine, mesh)
         scene = engine.Scene(meshes=[mesh])
+        fingerprint = hashlib.sha256(raw).hexdigest()
         info = {
             "name": filename,
             "format": os.path.splitext(filename)[1].lower().lstrip("."),
@@ -369,6 +394,7 @@ class LidarBridge:
             "bounds_min": [round(float(x), 4) for x in mesh.aabb_min],
             "bounds_max": [round(float(x), 4) for x in mesh.aabb_max],
             "normalized": True,
+            "sha256": fingerprint,
         }
         self.state.set_scene(scene, info)
         return info
@@ -477,6 +503,7 @@ class LidarBridge:
                 "name": scene_info.get("name"),
                 "triangles": scene_info.get("triangles"),
                 "vertices": scene_info.get("vertices"),
+                "sha256": scene_info.get("sha256"),
             },
         }
         image_bytes = {
@@ -501,10 +528,20 @@ class LidarBridge:
         }
         return metadata
 
-    def channel_png(self, channel: str) -> bytes:
+    def channel_png(self, channel: str, scan_id: str | None = None) -> bytes:
         allowed = {"shaded", "depth", "edge", "variance", "confidence"}
         if channel not in allowed:
             raise ValueError(f"unknown LiDAR channel {channel!r}")
+
+        scan = self.state.get_scan()
+        if scan is None:
+            raise ValueError("no LiDAR scan is available")
+        current_scan_id = str(scan["metadata"].get("scan_id") or "")
+        if scan_id and scan_id != current_scan_id:
+            raise ScanIdMismatchError(
+                f"requested scan {scan_id!r} is no longer current"
+            )
+
         payload = self.state.get_scan_channel(channel)
         if payload is None:
             raise ValueError("no LiDAR scan is available")
