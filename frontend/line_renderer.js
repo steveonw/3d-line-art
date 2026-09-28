@@ -14,14 +14,18 @@
     let directionCoherence = null;
     let depthDirection = null;
     let depthCoherence = null;
+    let depthChange = null;
+    let sensorConfidence = null;
 
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
     function blend(a, b, t) { return a + (b - a) * t; }
 
     const RandomField = window.LineArtRandom;
     const MathFields = window.LineArtMathFields;
+    const Placement = window.LineArtStrokePlacement;
     if (!RandomField) throw new Error('LineArtRandom must load before line_renderer.js');
     if (!MathFields) throw new Error('LineArtMathFields must load before line_renderer.js');
+    if (!Placement) throw new Error('LineArtStrokePlacement must load before line_renderer.js');
 
     const limitedPalette = [
       [28, 30, 33],
@@ -39,11 +43,14 @@
       const coverageWidth = renderState.coverageWidth;
       const strokeIndex = renderState.drawn | 0;
       const seed = renderState.seed >>> 0;
+      const placement = renderState.placement || (
+        renderState.placement = Placement.createPlacementState(w, h)
+      );
       let bestScore = -Infinity;
 
-      // Each stroke index owns its candidate samples. Local path/noise choices
-      // cannot consume RNG state and shift where later strokes are proposed.
-      for (let attempt = 0; attempt < 4; attempt++) {
+      // Six deterministic candidates is still cheap at high line counts, while
+      // giving coverage, LiDAR evidence, and spacing enough choices to matter.
+      for (let attempt = 0; attempt < 6; attempt++) {
         const channel = attempt * 4;
         const ux = RandomField.randomForIndex(strokeIndex, seed, channel);
         const uy = RandomField.randomForIndex(strokeIndex, seed, channel + 1);
@@ -53,6 +60,8 @@
         const idx = y * w + x;
         const darkness = 1 - luminance[idx] / 255;
         const edge = edgeStrength[idx] / 255;
+        const localDepthChange = depthChange ? depthChange[idx] / 255 : 0;
+        const confidence = sensorConfidence ? sensorConfidence[idx] / 255 : 0;
 
         // In black mode the target is tonal darkness. In color mode, use the
         // per-channel distance from white so pale colors still ask for ink.
@@ -62,33 +71,44 @@
         const cellIndex = cellY * coverageWidth + cellX;
         const existingInk = coverage[cellIndex];
         const remainingNeed = Math.max(0, targetInk - existingInk);
+        const spacingClear = Placement.spacingClear(placement, x, y);
 
-        // Coverage is the dominant term: once an area has enough ink it loses
-        // the sampling lottery. Edges remain attractive so contours stay crisp.
-        const importance = clamp(
-          0.02 + remainingNeed * 0.85 + edge * 0.25 * renderSettings.detail,
-          0.02,
-          1
+        const scores = Placement.scoreCandidate(
+          {
+            remainingNeed,
+            darkness,
+            edge,
+            depthChange: localDepthChange,
+            confidence
+          },
+          renderSettings,
+          spacingClear,
+          scoreJitter
         );
-        const score = importance + scoreJitter * (1 - renderSettings.sampleBias);
-        if (score > bestScore) {
-          bestScore = score;
+        Placement.recordCandidate(placement, remainingNeed, spacingClear);
+
+        if (scores.selectionScore > bestScore) {
+          bestScore = scores.selectionScore;
           out.x = x;
           out.y = y;
           out.darkness = darkness;
           out.targetInk = targetInk;
           out.remainingNeed = remainingNeed;
           out.edge = edge;
+          out.depthChange = localDepthChange;
+          out.confidence = confidence;
+          out.spacingClear = spacingClear;
           out.cellIndex = cellIndex;
           out.direction = strokeDirection[idx];
           out.coherence = directionCoherence[idx] / 255;
-          out.importance = importance;
-          out.score = score;
+          out.importance = scores.importance;
+          out.qualityScore = scores.qualityScore;
+          out.score = scores.selectionScore;
         }
       }
       return out;
     }
-    
+
     function depositCoverage(renderState, x1, y1, x2, y2, alpha, weight) {
       const dx = x2 - x1;
       const dy = y2 - y1;
@@ -422,6 +442,7 @@
       ctx.stroke();
     
       depositPathCoverage(renderState, path, pointCount, baseAlpha, baseWeight);
+      Placement.recordSelection(renderState.placement, c);
       recordStroke(renderState.strokes, path, pointCount, weight, r, g, b, alphaByte);
     }
 
@@ -435,12 +456,17 @@
       directionCoherence = next.directionCoherence;
       depthDirection = next.depthDirection || null;
       depthCoherence = next.depthCoherence || null;
+      depthChange = next.depthChange || null;
+      sensorConfidence = next.confidence || null;
     }
 
     return Object.freeze({
       setSource,
       createStrokeStore,
-      drawOneStroke
+      drawOneStroke,
+      summarizePlacement: renderState => renderState?.placement
+        ? Placement.summarize(renderState.placement)
+        : null
     });
   }
 
