@@ -415,7 +415,7 @@
     if (!installedScanSignature || sourceKind !== 'lidar') {
       scanDirty = sourceKind === 'lidar' && !!sourceImage;
       if (sceneLoaded && sourceKind !== 'lidar') {
-        scanSummary.textContent = 'ready to scan';
+        scanSummary.textContent = 'Scan stale · ready to scan';
         scanBtn.textContent = 'Scan LiDAR';
       }
       return scanDirty;
@@ -1243,8 +1243,8 @@
       scanDirty = true;
       scanBtn.textContent = 'Scan LiDAR';
       scanSummary.textContent = sourceKind === 'lidar' && sourceImage
-        ? `${installedScanLabel || 'scan'} · settings changed`
-        : 'ready to scan';
+        ? `Scan stale · ${installedScanLabel || 'scan'}`
+        : 'Scan stale · ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
 
@@ -1417,7 +1417,7 @@
 
       if (!projectModelReady()) {
         scanDirty = true;
-        scanSummary.textContent = 'different project model';
+        scanSummary.textContent = 'Scan stale · different project model';
         scanBtn.textContent = 'Scan LiDAR';
         setProjectStatus(
           `Local server has a different model. Load ${requiredSourceLabel()}.`,
