@@ -321,8 +321,10 @@ frontend/project_state.js
 Current schema version:
 
 ```text
-1
+2
 ```
+
+Phase 10 keeps backward migration for the Phase 9 version-1 autosave shape.
 
 Unknown fields are ignored, invalid primitive types fall back to current defaults, and unsupported future project-state versions are rejected rather than guessed at.
 
@@ -351,6 +353,134 @@ After a reload or browser crash:
 Local image bytes are intentionally **not** stored in localStorage. This avoids browser-storage quota problems and avoids silently copying arbitrary user files into persistent browser storage. Full portable project files belong to Phase 10.
 
 Source hints are updated in the current autosave snapshot without becoming undo operations, so loading an image or LiDAR source does not create a misleading "undo source file" action.
+
+## Phase 10 portable project files
+
+Phase 10 adds explicit **Open Project** and **Save Project** controls.
+
+Projects are saved as readable JSON files:
+
+```text
+<source-name>.lidar-ink.json
+```
+
+For example, the repository includes:
+
+```text
+samples/cube.lidar-ink.json
+samples/cube.obj
+```
+
+Open the project JSON, load `samples/cube.obj`, then run LiDAR if the local server does not already hold a matching current scan.
+
+### Project format
+
+The current portable project schema is:
+
+```json
+{
+  "format": "lidar-ink-project",
+  "version": 2,
+  "settings": {
+    "palette": "monochrome",
+    "seed": 2841,
+    "procedural": {},
+    "flowMixer": {},
+    "lidar": {}
+  },
+  "source": {
+    "kind": "lidar",
+    "name": "cube.obj",
+    "size": 254,
+    "lastModified": null,
+    "type": "text/plain"
+  },
+  "export": {
+    "pngScale": "2"
+  }
+}
+```
+
+The full `settings` object stores:
+
+- camera orbit, elevation, distance, and field of view,
+- LiDAR resolution, rays per pixel, and smart sampling,
+- LiDAR density/direction mapping,
+- geometry-edge and depth influence,
+- line-art style settings,
+- palette,
+- seed,
+- procedural-flow settings,
+- the complete mathematical flow mixer.
+
+The `export` section currently stores PNG export scale. SVG uses the deterministic completed stroke store and does not yet need a separate project option.
+
+### Source references
+
+Project files reference the intended source rather than embedding the source bytes.
+
+For local files the reference includes:
+
+```text
+kind
+filename
+file size
+last-modified timestamp when available
+media type when available
+```
+
+When reopening a project, LiDAR Ink checks the reference before enabling rendering. A different image/model cannot silently become the source for the saved settings.
+
+For server-restored LiDAR models, filename matching is accepted when browser file metadata is no longer available.
+
+### Reopening and reproduction
+
+For a 2D project:
+
+```text
+Open Project
+    ↓
+settings + export state restore
+    ↓
+reselect the referenced image
+    ↓
+deterministic preview/render
+```
+
+For a LiDAR project:
+
+```text
+Open Project
+    ↓
+settings + camera + sensor state restore
+    ↓
+matching model already on local server?
+        ├─ yes → restore its current scan when available
+        └─ no  → load the referenced STL/OBJ
+    ↓
+Rescan LiDAR if the restored scan uses different scan settings
+    ↓
+deterministic line-art render
+```
+
+A mismatched source blocks rendering/export until the correct referenced source is loaded.
+
+### What is not embedded yet
+
+Phase 10 deliberately does **not** put large scan products into the JSON file.
+
+These remain Phase 11 work:
+
+```text
+scans/shaded.png
+scans/depth.bin
+scans/edge.png
+scans/confidence.bin
+```
+
+So the Phase 10 project file is portable creative state plus a source reference, not a self-contained archive of the source model and LiDAR cache.
+
+Project JSON is capped at 1 MB when opened. Unknown future schema versions and foreign project formats are rejected instead of guessed at.
 
 ## Mesh guardrails
 
@@ -457,6 +587,24 @@ Run the mathematical-flow mixer regression test:
 
 ```bash
 node tests/frontend_math_fields_smoke.js
+```
+
+Run the stroke-placement regression test:
+
+```bash
+node tests/frontend_stroke_placement_smoke.js
+```
+
+Run the history/autosave regression test:
+
+```bash
+node tests/frontend_history_smoke.js
+```
+
+Run the portable-project regression test:
+
+```bash
+node tests/frontend_project_file_smoke.js
 ```
 
 GitHub Actions also runs JavaScript syntax checks, deterministic prefix/repeatability checks, procedural-flow and mathematical-field checks, plus the real cube-OBJ -> LiDAR integration test.
