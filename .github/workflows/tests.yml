@@ -52,6 +52,9 @@ jobs:
       - name: Run fixed multi-view smoke test
         run: node tests/frontend_multiview_smoke.js
 
+      - name: Run multi-view debug renderer smoke test
+        run: node tests/frontend_multiview_renderer_smoke.js
+
       - name: Run stable randomness smoke test
         run: node tests/frontend_randomness_smoke.js
 
