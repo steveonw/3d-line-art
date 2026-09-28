@@ -198,12 +198,14 @@ Direction Source
 
 Borrow the coordinate-stable randomness idea from `other-tools/Quiet Roads`.
 
-- [ ] Add a deterministic `randomAt(x, y, seed)`
-- [ ] Replace unstable random choices where appropriate
-- [ ] Keep local variation stable for the same seed
-- [ ] Avoid scrambling the whole image when stroke count changes
+- [x] Add a deterministic `randomAt(x, y, seed)`
+- [x] Replace unstable random choices where appropriate
+- [x] Keep local variation stable for the same seed
+- [x] Avoid scrambling the whole image when stroke count changes
 
 **Done when:** editing settings changes the artwork predictably rather than completely reshuffling it.
+
+**Phase 5 validation:** GitHub Actions passes deterministic hash call-order tests, repeated-render equality, short-vs-long high-quality stroke-prefix equality, preview-geometry stability under opacity/weight amplification, all frontend syntax/map tests, and the existing real LiDAR integration suite. Local path noise is coordinate/seed based and candidate sampling is stroke-index/seed based.
 
 ---
 
@@ -574,7 +576,7 @@ Use useful packaging/runtime-management ideas from `LocalChatBox` only after the
 FIRST MAJOR CHECKPOINT / v0.1
 
 5. LiDAR controls                              [x]
-6. Stable seeded randomness                    [ ]
+6. Stable seeded randomness                    [x]
 7. Procedural noise                            [ ]
 8. Mathematical flow mixer                     [ ]
 9. Better stroke placement                     [ ]
