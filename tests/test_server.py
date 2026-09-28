@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 from server.api import HOST, create_server
 from server.errors import ErrorRecorder
+from server.lidar_bridge import FIXED_VIEW_ORDER, FIXED_VIEWS
 from server.state import StudioState
 
 
@@ -20,6 +21,7 @@ CHANNELS = ("shaded", "depth", "edge", "variance", "confidence")
 class FakeLidarBridge:
     def __init__(self, state: StudioState) -> None:
         self.state = state
+        self.scans: dict[str, dict] = {}
 
     def upload_scene(self, filename: str, raw: bytes) -> dict:
         if not filename:
@@ -59,19 +61,82 @@ class FakeLidarBridge:
             "scene": {"name": self.state.snapshot()["workspace"]["scene"]["name"]},
         }
         self.state.set_scan(
-            "fake123",
+            metadata["scan_id"],
             metadata,
             {name: PNG for name in CHANNELS},
         )
+        self.scans[metadata["scan_id"]] = {
+            "metadata": dict(metadata),
+            "channels": {name: PNG for name in CHANNELS},
+        }
         return self.maps_summary()
 
-    def maps_summary(self) -> dict:
-        scan = self.state.get_scan()
-        if scan is None:
-            raise ValueError("no LiDAR scan is available")
-        metadata = dict(scan["metadata"])
+    def scan_fixed_views(self, options: dict | None = None) -> dict:
+        if self.state.get_scene_object() is None:
+            raise ValueError("no 3D model is loaded")
+        base = dict(options or {})
+        views = {}
+        for name in FIXED_VIEW_ORDER:
+            descriptor = FIXED_VIEWS[name]
+            metadata = {
+                "scan_id": f"fake-{name}",
+                "cache_hit": False,
+                "cache_key": f"fake-cache-{name}",
+                "width": int(base.get("width", 320)),
+                "height": int(base.get("height", 240)),
+                "rays_per_pixel": int(base.get("rays_per_pixel", 2)),
+                "seed": int(base.get("seed", 42)),
+                "smart_sampling": bool(base.get("smart_sampling", False)),
+                "coverage": 0.70,
+                "camera": {
+                    "yaw_deg": descriptor["yaw_deg"],
+                    "elevation_deg": descriptor["elevation_deg"],
+                    "distance_scale": float(base.get("distance_scale", 3.0)),
+                    "fov_deg": float(base.get("fov_deg", 55)),
+                },
+                "scene": {"name": self.state.snapshot()["workspace"]["scene"]["name"]},
+                "view": {
+                    "name": name,
+                    "label": descriptor["label"],
+                    "yaw_deg": descriptor["yaw_deg"],
+                    "elevation_deg": descriptor["elevation_deg"],
+                },
+            }
+            channels = {channel: PNG + name.encode("ascii") for channel in CHANNELS}
+            self.scans[metadata["scan_id"]] = {
+                "metadata": dict(metadata),
+                "channels": channels,
+            }
+            self.state.set_scan(metadata["scan_id"], metadata, channels)
+            view = dict(metadata)
+            view["channels"] = {
+                channel: f"/api/lidar/maps/{channel}.png?scan_id={metadata['scan_id']}"
+                for channel in CHANNELS
+            }
+            view["cache"] = self.state.scan_cache_stats()
+            views[name] = view
+        return {
+            "order": list(FIXED_VIEW_ORDER),
+            "views": views,
+            "current_view": FIXED_VIEW_ORDER[-1],
+            "cache": self.state.scan_cache_stats(),
+        }
+
+    def maps_summary(self, scan_id: str | None = None) -> dict:
+        if scan_id:
+            stored = self.scans.get(scan_id)
+            if stored is None:
+                from server.lidar_bridge import ScanIdMismatchError
+                raise ScanIdMismatchError("requested scan is not available")
+            metadata = dict(stored["metadata"])
+        else:
+            scan = self.state.get_scan()
+            if scan is None:
+                raise ValueError("no LiDAR scan is available")
+            metadata = dict(scan["metadata"])
+        resolved = metadata["scan_id"]
         metadata["channels"] = {
-            name: f"/api/lidar/maps/{name}.png?scan_id=fake123"
+            name: f"/api/lidar/maps/{name}.png?scan_id={resolved}"
             for name in CHANNELS
         }
         metadata["cache"] = self.state.scan_cache_stats()
@@ -80,10 +145,12 @@ class FakeLidarBridge:
     def channel_png(self, channel: str, scan_id: str | None = None) -> bytes:
         if channel not in set(CHANNELS):
             raise ValueError("unknown LiDAR channel")
-        current = self.state.get_scan()
-        if scan_id and scan_id != current["metadata"]["scan_id"]:
-            from server.lidar_bridge import ScanIdMismatchError
-            raise ScanIdMismatchError("requested scan is no longer current")
+        if scan_id:
+            stored = self.scans.get(scan_id)
+            if stored is None:
+                from server.lidar_bridge import ScanIdMismatchError
+                raise ScanIdMismatchError("requested scan is not available")
+            return stored["channels"][channel]
         payload = self.state.get_scan_channel(channel)
         if payload is None:
             raise ValueError("no LiDAR scan is available")
