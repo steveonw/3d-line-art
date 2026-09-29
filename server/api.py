@@ -17,8 +17,8 @@ from .state import StudioState
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.4-phase14"
-API_VERSION = 6
+SERVER_VERSION = "0.4-phase15"
+API_VERSION = 7
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
@@ -323,6 +323,25 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if method == "GET" and path == "/api/inspection/scene":
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "inspection": self.server.lidar.inspection_scene()},
+            )
+            return
+
+        if method == "GET" and path == "/api/inspection/scan":
+            params = parse_qs(query, keep_blank_values=True)
+            scan_id = (params.get("scan_id") or [None])[0]
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "inspection": self.server.lidar.inspection_scan(scan_id=scan_id),
+                },
+            )
+            return
+
         if method == "GET" and path == "/api/lidar/maps":
             params = parse_qs(query, keep_blank_values=True)
             scan_id = (params.get("scan_id") or [None])[0]
@@ -359,6 +378,8 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             "/api/lidar/auto",
             "/api/lidar/fusion",
             "/api/lidar/maps",
+            "/api/inspection/scene",
+            "/api/inspection/scan",
         }
         if (
             path in known_paths
