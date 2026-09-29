@@ -629,10 +629,17 @@ The review concluded that the 2D renderer/art engine is currently stronger than 
 
 These are quality and scale follow-ups, not blockers for the Phase 16 world-space geometry contract:
 
+- [x] Add authoritative Model Transform controls for position, XYZ rotation, uniform scale, reset, project/autosave persistence, and transform-sensitive LiDAR/cache identity
 - [ ] Revisit the 5,000-stroke 3D Ink projection prefix so dense 2D drawings can retain more visual density without making projection latency or JSON payloads unbounded
 - [ ] Make ink-only inspection readable when the mesh is hidden instead of placing dark ink on the near-black inspector background
 - [ ] Preserve stroke-width differences in 3D with a portable geometry-based line/ribbon path rather than relying on platform-limited WebGL line width
 - [ ] Replace triangle-order sampling in the bounded mesh preview with a topology-aware simplification/LOD strategy so very dense meshes do not appear perforated
+
+### Model Transform validation
+
+The post-v0.5 Model Transform follow-up applies position, X→Y→Z rotation, and uniform scale to the **authoritative normalized triangle scene**, not only to its Three.js display. The original source SHA-256 remains stable for project/source identity while a separate transform-sensitive `geometry_sha256` namespaces LiDAR/cache/fusion/3D-Ink geometry. Applying or resetting a transform invalidates current scan/view/fusion/inspection/3D-Ink state without firing LiDAR automatically; returning to the exact identity transform can reuse the previously cached identity scan. Project/autosave settings preserve the canonical transform, generated-scene recovery reapplies it after a server reset, and transform edits participate in Undo/Redo.
+
+GitHub Actions passes transform-math and fingerprint tests, cache-namespace/stale-3D-Ink tests, API/project round trips, generated-scene transform recovery, and a real Chromium Apply → Undo → Redo → Rescan → Reset workflow.
 
 ## Mathematical experimental modes
 
