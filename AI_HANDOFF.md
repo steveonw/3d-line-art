@@ -15,15 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-14-confidence-fusion
-PR:     #17 — Phase 14: add multi-view confidence fusion
-base:   phase-13-auto-view-selection
+branch: phase-15-3d-inspection-viewer
+PR:     #18 — Phase 15: add 3D LiDAR inspection viewer
+base:   phase-14-confidence-fusion
 CI:     passed
 ```
 
-Resume from **Phase 15 — 3D inspection viewer**.
+Resume from **Phase 16 — 3D Ink**.
 
-Do **not** start Phase 16 3D Ink until Phase 15 is implemented, tested, committed, and green.
+Do **not** start Phase 17 simple geometry creation until Phase 16 is implemented, tested, committed, and green.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -68,22 +68,24 @@ main
   ↓
 #16 phase-13-auto-view-selection
   ↓
-#17 phase-14-confidence-fusion ← CURRENT HEAD
+#17 phase-14-confidence-fusion
+  ↓
+#18 phase-15-3d-inspection-viewer ← CURRENT HEAD
 ```
 
-For Phase 15:
+For Phase 16:
 
-1. Branch from `phase-14-confidence-fusion`.
+1. Branch from `phase-15-3d-inspection-viewer`.
 2. Suggested branch name:
 
    ```text
-   phase-15-3d-inspection-viewer
+   phase-16-3d-ink
    ```
 
 3. Open the new PR against:
 
    ```text
-   phase-14-confidence-fusion
+   phase-15-3d-inspection-viewer
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -803,21 +805,69 @@ The world-space reconstruction is intentionally approximate because `depth_per_p
 
 The Phase 12 Combined Views image remains a 2D compositor. Do not conflate that overlay with the separate world-space confidence-fusion layer.
 
-## 12.9. Next task: Phase 15 — 3D inspection viewer
+## 12.9. Completed Phase 15 — 3D inspection viewer
+
+Phase 15 is complete.
+
+Architecture:
+
+```text
+normalized server mesh
+  -> deterministic bounded triangle preview
+  -> offline Three.js inspector
+
+cached Phase 14 scan evidence
+  -> approximate world hit points
+  -> bounded confidence-colored point cloud
+  -> bounded camera-to-hit ray preview
+
+existing scan metadata
+  -> camera markers
+  -> selected camera direction gizmo + frustum
+  -> Current View synchronization
+```
+
+Key invariants:
+
+- the Three.js runtime is vendored locally; inspection does not require a CDN, internet access, or an LLM,
+- the viewer reuses the already-normalized server scene rather than loading a second mesh representation,
+- inspection point/ray data comes from cached Phase 14 evidence and performs **zero additional LiDAR raycasts**,
+- scene preview is capped at 20,000 triangles,
+- hit cloud is capped at 12,000 points,
+- ray preview is capped at 320 cached hit rays,
+- fixed and automatic scan IDs remain independently selectable,
+- viewpoint dropdown/buttons and clickable 3D camera markers synchronize the existing Current View without rescanning or re-fusing,
+- browser-side inspection snapshots are reused when revisiting a scan,
+- orbit / pan / zoom and layer visibility are inspection-only state and do not affect deterministic 2D rendering.
+
+The point cloud and hit-ray preview are intentionally approximate because they reconstruct Phase 14's per-pixel mean `depth_per_pixel` through each pixel center. They are **not** retained raw LiDAR rays, a new authoritative surface reconstruction, or a substitute for actual mesh geometry.
+
+Useful patterns were adapted from the owner's `Math-tools` Three.js camera interaction work and `text-to-3d` viewer conventions. The offline Three.js r128 build itself is copied from `steveonw/text-to-3d/vendor/three.r128.min.js`.
+
+## 12.95. Next task: Phase 16 — 3D Ink
 
 Roadmap scope:
 
-- add Three.js without an LLM dependency,
-- show source mesh,
-- show LiDAR camera,
-- show ray/hit preview,
-- show point cloud,
-- show selected scan,
-- add orbit controls,
-- add camera direction gizmo,
-- allow scan-viewpoint selection.
+Store stroke data in world space:
 
-Inspect the owner's `Math-tools` for reusable camera/viewer ideas and `text-to-3d` for non-LLM viewer/scaffold ideas where useful. Preserve the Phase 11 cache, Phase 13 automatic acquisition, and Phase 14 confidence products.
+```text
+XYZ
+surface normal
+tangent
+depth
+confidence
+material
+```
+
+Then:
+
+- follow surface tangents,
+- grow strokes across actual geometry,
+- render lines in Three.js,
+- add explicit **2D Ink** mode,
+- add explicit **3D Ink** mode.
+
+Phase 16 should use the real normalized mesh / surface geometry as the authoritative geometric substrate. Do not promote the Phase 15 approximate mean-depth inspection cloud into an exact surface model just because it is already visible in Three.js. Reuse the Phase 15 viewer as the visualization host where helpful, but keep world-space stroke generation as its own explicit subsystem.
 
 ## 13. Determinism and behavior invariants
 
@@ -976,27 +1026,30 @@ For every major phase:
 Start here:
 
 ```text
-Phase 15 — 3D inspection viewer
+Phase 16 — 3D Ink
 ```
 
-Branch from `phase-14-confidence-fusion` and base the Phase 15 PR on `phase-14-confidence-fusion`.
+Branch from `phase-15-3d-inspection-viewer` and base the Phase 16 PR on `phase-15-3d-inspection-viewer`.
 
 First inspect:
 
 ```text
-server/state.py
-server/lidar_bridge.py
+server/inspection.py
 server/confidence_fusion.py
+server/lidar_bridge.py
+frontend/inspection_viewer.js
+frontend/line_renderer.js
+frontend/stroke_placement.js
+frontend/analysis_maps.js
 frontend/app.js
-frontend/multiview.js
-frontend/lidar_client.js
+tests/test_inspection.py
 tests/test_lidar_bridge.py
 tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Also inspect owner-controlled `steveonw/Math-tools` for camera/viewer interaction ideas and `steveonw/text-to-3d` for useful non-LLM Three.js viewer/scaffold patterns.
+Preserve the Phase 11 content-addressed LRU cache, Phase 12/13 multi-view acquisition, Phase 14 confidence fusion, and Phase 15 offline inspector. The Phase 15 point cloud/ray preview is approximate visualization from cached per-pixel mean depth; use the normalized mesh and actual surface geometry as the authoritative substrate for world-space stroke growth.
 
-Preserve the Phase 11 content-addressed LRU cache, Phase 12/13 scan IDs and multi-view acquisition, and Phase 14 confidence fusion. The viewer should inspect those products rather than introducing a second scan or reconstruction pipeline.
+Implement 3D Ink as a new world-space stroke representation with XYZ, surface normal, tangent, depth, confidence, and material metadata. Keep 2D Ink explicitly available rather than silently changing the meaning of the existing renderer.
 
-Do not touch Phase 16 3D Ink.
+Do not touch Phase 17 simple geometry creation.

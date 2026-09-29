@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase12" />
+  <meta name="application-version" content="5.3-phase15" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -55,6 +55,46 @@
         </div>
         <input id="modelInput" type="file" accept=".stl,.obj,model/stl,text/plain" />
         <div class="source-help" id="modelStatus">No 3D model loaded.</div>
+      </div>
+
+      <div class="section inspector-section" id="inspectionControls">
+        <div class="label-row">
+          <span class="group-label">3D Inspection</span>
+          <span class="value">Phase 15</span>
+        </div>
+        <button class="secondary inspection-toggle" id="inspectionToggle" type="button" disabled>Open 3D Inspector</button>
+
+        <label class="control-field" for="inspectionScanSelect">
+          <span>Selected scan</span>
+          <select id="inspectionScanSelect" disabled>
+            <option value="">No scan yet</option>
+          </select>
+        </label>
+
+        <div class="inspection-layer-grid" role="group" aria-label="3D inspection layers">
+          <label class="checkbox-row" for="inspectionShowMesh">
+            <input id="inspectionShowMesh" type="checkbox" checked disabled />
+            <span>Mesh</span>
+          </label>
+          <label class="checkbox-row" for="inspectionShowPoints">
+            <input id="inspectionShowPoints" type="checkbox" checked disabled />
+            <span>Point cloud</span>
+          </label>
+          <label class="checkbox-row" for="inspectionShowRays">
+            <input id="inspectionShowRays" type="checkbox" checked disabled />
+            <span>Hit rays</span>
+          </label>
+          <label class="checkbox-row" for="inspectionShowCameras">
+            <input id="inspectionShowCameras" type="checkbox" checked disabled />
+            <span>Cameras</span>
+          </label>
+        </div>
+
+        <div class="source-actions inspection-actions">
+          <button class="secondary" id="inspectionResetView" type="button" disabled>Reset Orbit</button>
+        </div>
+        <div class="inspection-viewpoints" id="inspectionViewpoints" aria-label="Scan viewpoints"></div>
+        <div class="source-help" id="inspectionStatus">Load a 3D model to inspect its normalized mesh.</div>
       </div>
 
       <div class="section lidar-section" id="lidarScanControls">
@@ -401,10 +441,19 @@
         <div class="canvas-shell" id="canvasShell" hidden>
           <canvas id="canvas" width="900" height="600" role="img" aria-label="Generated line-art preview"></canvas>
         </div>
+        <div class="inspection-shell" id="inspectionShell" hidden>
+          <div class="inspection-viewport" id="inspectionViewport"></div>
+          <div class="inspection-hud">
+            <strong id="inspectionHudTitle">3D inspection</strong>
+            <span id="inspectionHudDetail">Drag to orbit · Shift/right-drag to pan · Wheel to zoom · Click a camera marker to select its scan.</span>
+          </div>
+        </div>
       </div>
     </main>
   </div>
 
+  <script src="vendor/three.r128.min.js"></script>
+  <script src="inspection_viewer.js"></script>
   <script src="analysis_maps.js"></script>
   <script src="multiview.js"></script>
   <script src="random_field.js"></script>

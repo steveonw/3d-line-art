@@ -718,6 +718,35 @@ At high confidence, strokes can remain longer, darker, and more continuous. Lowe
 
 Important boundary: the Phase 12 **Combined Views** picture is still a 2D compositor. Confidence fusion is geometrically reprojected evidence, but the cached metric depth is a per-pixel mean reconstructed through the pixel center rather than a retained raw point cloud. Phase 15's 3D inspection tools can make that geometry/evidence relationship directly inspectable.
 
+## Phase 15 3D inspection viewer
+
+Phase 15 adds a local **3D Inspector** without changing the LiDAR sensor pipeline or introducing an LLM dependency.
+
+The browser loads a vendored Three.js r128 build from `frontend/vendor/three.r128.min.js`, copied from the owner's `steveonw/text-to-3d` repository. Runtime inspection therefore remains offline and does not depend on a CDN.
+
+The inspector can show:
+
+- the normalized source mesh,
+- every acquired fixed or automatic LiDAR camera,
+- the selected camera frustum and direction gizmo,
+- a confidence-colored cached hit point cloud,
+- a bounded cached hit-ray preview,
+- the currently selected scan/viewpoint.
+
+Interaction supports left-drag orbit, Shift/right-drag pan, wheel zoom, layer toggles, Reset Orbit, a scan dropdown, viewpoint buttons, and clickable 3D camera markers. Selecting a multi-view viewpoint synchronizes the existing **Current View** selection. These actions are inspection-only: they do not fire LiDAR rays or rerun Phase 14 confidence fusion.
+
+The inspection API is intentionally bounded:
+
+```text
+mesh preview       <= 20,000 triangles
+hit cloud          <= 12,000 points
+hit-ray preview    <= 320 rays
+```
+
+The mesh preview comes from the already-normalized server scene. Point and ray previews are reconstructed from the same Phase 14 cached metric `depth_per_pixel` evidence; they can be rebuilt with LiDAR engine loading disabled. Because that depth is a per-pixel mean reconstructed through the pixel center, the point cloud and hit rays are approximate inspection products rather than retained raw sensor rays or a new canonical 3D surface representation.
+
+This boundary matters for Phase 16: the inspector visualizes existing scene and sensor evidence, but **3D Ink** still needs an explicit world-space stroke representation tied to actual geometry.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -739,6 +768,9 @@ POST /api/lidar/multiview
 POST /api/lidar/auto
 POST /api/lidar/fusion
 GET  /api/lidar/maps[?scan_id=<id>]
+
+GET  /api/inspection/scene
+GET  /api/inspection/scan[?scan_id=<id>]
 
 GET  /api/lidar/fusion/confidence.png?fusion_id=<id>&scan_id=<id>
 GET  /api/lidar/fusion/support.png?fusion_id=<id>&scan_id=<id>
@@ -813,6 +845,12 @@ Run the frontend LiDAR-map smoke test:
 
 ```bash
 node tests/frontend_maps_smoke.js
+```
+
+Run the Phase 15 inspection-viewer smoke test:
+
+```bash
+node tests/frontend_inspection_viewer_smoke.js
 ```
 
 Run the deterministic-randomness regression test:

@@ -12,6 +12,8 @@ import tempfile
 import uuid
 from typing import Any
 
+from .inspection import scene_inspection_snapshot, scan_inspection_snapshot
+
 from .confidence_fusion import (
     EVIDENCE_VERSION,
     encode_scan_evidence,
@@ -834,6 +836,28 @@ class LidarBridge:
             },
             "cache": self.state.scan_cache_stats(),
         }
+
+    def inspection_scene(self) -> dict[str, Any]:
+        scene = self.state.get_scene_object()
+        if scene is None:
+            raise ValueError("no 3D model is loaded")
+        scene_info = self.state.snapshot()["workspace"]["scene"]
+        return scene_inspection_snapshot(scene, scene_info)
+
+    def inspection_scan(self, scan_id: str | None = None) -> dict[str, Any]:
+        requested = str(scan_id or "").strip()
+        if requested:
+            stored = self.state.get_scan_by_id(requested)
+        else:
+            current = self.state.get_scan()
+            stored = (
+                self.state.get_scan_by_id(current["metadata"].get("scan_id"))
+                if current
+                else None
+            )
+        if stored is None:
+            raise ScanIdMismatchError("requested inspection scan is not available")
+        return scan_inspection_snapshot(stored)
 
     def clear_fusion_cache(self) -> None:
         self._fusion_cache.clear()

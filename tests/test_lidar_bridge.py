@@ -323,6 +323,42 @@ f 1 2 3
         self.assertEqual(stats["misses"], 5)
         self.assertEqual(stats["hits"], 5)
 
+    def test_inspection_snapshots_use_loaded_mesh_and_cached_scan_without_engine(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        scan = bridge.scan({
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "seed": 29,
+            "smart_sampling": False,
+            "yaw_deg": 35,
+            "elevation_deg": 25,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+        })
+
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=AssertionError(
+                "inspection must use the normalized scene and cached scan evidence"
+            ),
+        ):
+            scene_snapshot = bridge.inspection_scene()
+            scan_snapshot = bridge.inspection_scan(scan["scan_id"])
+
+        self.assertEqual(scene_snapshot["scene"]["name"], "cube.obj")
+        self.assertGreater(scene_snapshot["preview"]["triangle_count"], 0)
+        self.assertLessEqual(
+            scene_snapshot["preview"]["triangle_count"],
+            scene_snapshot["preview"]["source_triangle_count"],
+        )
+        self.assertEqual(scan_snapshot["scan_id"], scan["scan_id"])
+        self.assertGreater(scan_snapshot["points"]["source_count"], 0)
+        self.assertGreater(scan_snapshot["points"]["preview_count"], 0)
+        self.assertGreater(scan_snapshot["rays"]["count"], 0)
+
     def test_confidence_fusion_rebuilds_from_cached_scan_evidence_without_engine(self) -> None:
         state = StudioState()
         bridge = LidarBridge(state)

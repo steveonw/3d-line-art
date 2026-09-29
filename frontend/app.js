@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase14';
+  const BUILD_VERSION = '5.3-phase15';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -176,6 +176,19 @@
   const multiViewCurrent = document.getElementById('multiViewCurrent');
   const multiViewDebugColors = document.getElementById('multiViewDebugColors');
   const multiViewSummary = document.getElementById('multiViewSummary');
+  const inspectionToggle = document.getElementById('inspectionToggle');
+  const inspectionScanSelect = document.getElementById('inspectionScanSelect');
+  const inspectionShowMesh = document.getElementById('inspectionShowMesh');
+  const inspectionShowPoints = document.getElementById('inspectionShowPoints');
+  const inspectionShowRays = document.getElementById('inspectionShowRays');
+  const inspectionShowCameras = document.getElementById('inspectionShowCameras');
+  const inspectionResetView = document.getElementById('inspectionResetView');
+  const inspectionViewpoints = document.getElementById('inspectionViewpoints');
+  const inspectionStatus = document.getElementById('inspectionStatus');
+  const inspectionShell = document.getElementById('inspectionShell');
+  const inspectionViewport = document.getElementById('inspectionViewport');
+  const inspectionHudTitle = document.getElementById('inspectionHudTitle');
+  const inspectionHudDetail = document.getElementById('inspectionHudDetail');
   const modelStatus = document.getElementById('modelStatus');
   const scanSummary = document.getElementById('scanSummary');
   const scanResolution = document.getElementById('scanResolution');
@@ -275,6 +288,7 @@
   let lidarSourceMaps = null;
   let installedScanSignature = null;
   let installedScanId = null;
+  let installedScanMetadata = null;
   let installedScanLabel = null;
   let installedScanCacheHit = false;
   let installedScanMode = 'single';
@@ -282,6 +296,14 @@
   let multiViewBundle = null;
   let scanDirty = false;
   let activeRender = null;
+
+  let inspectionViewer = null;
+  let inspectionOpen = false;
+  let inspectionLoading = false;
+  let inspectionSceneCache = null;
+  let inspectionSceneSha = null;
+  const inspectionScanCache = new Map();
+  let inspectionSerial = 0;
 
   let displayStrokeStore = null;
   let displayRenderMeta = null;
@@ -478,6 +500,7 @@
     installedScanMode = 'single';
     installedScanSignature = scanMetadataSignature(scan);
     installedScanId = scan.scan_id || null;
+    installedScanMetadata = scan ? { ...scan } : null;
     installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
     installedScanCacheHit = !!scan.cache_hit;
     return updateScanFreshness();
@@ -485,6 +508,7 @@
 
   function rememberInstalledMultiView(multiview) {
     installedScanMode = 'multi';
+    installedScanMetadata = null;
     installedMultiViewSignature = multiViewMetadataSignature(multiview);
     const order = multiview?.order || [];
     const scans = order.map(name => multiview.views?.[name]).filter(Boolean);
@@ -499,6 +523,7 @@
   function clearInstalledScan() {
     installedScanSignature = null;
     installedScanId = null;
+    installedScanMetadata = null;
     installedScanLabel = null;
     installedScanCacheHit = false;
     installedScanMode = 'single';
@@ -1187,6 +1212,309 @@
     confidenceFragmentation.disabled = !available;
   }
 
+  function inspectionEntries() {
+    if (multiViewBundle?.order?.length) {
+      return multiViewBundle.order
+        .map(name => {
+          const view = multiViewBundle.views?.[name];
+          if (!view?.scan?.scan_id) return null;
+          return {
+            name,
+            label: multiViewViewLabel(name),
+            scan: view.scan
+          };
+        })
+        .filter(Boolean);
+    }
+    if (installedScanMetadata?.scan_id) {
+      return [{
+        name: 'single',
+        label: 'Current scan',
+        scan: installedScanMetadata
+      }];
+    }
+    return [];
+  }
+
+  function inspectionCurrentScanId() {
+    if (multiViewBundle?.order?.length) {
+      const current = multiViewBundle.views?.[resolveMultiViewCurrent()];
+      return current?.scan?.scan_id || null;
+    }
+    return installedScanId || installedScanMetadata?.scan_id || null;
+  }
+
+  function inspectionCameraViews() {
+    return inspectionEntries().map(entry => ({
+      scanId: entry.scan.scan_id,
+      name: entry.name,
+      label: entry.label,
+      position: entry.scan.camera_position,
+      target: entry.scan.camera_target,
+      fov: entry.scan.camera?.fov_deg,
+      width: entry.scan.width,
+      height: entry.scan.height
+    }));
+  }
+
+  function inspectionLayerState() {
+    return {
+      mesh: inspectionShowMesh.checked,
+      points: inspectionShowPoints.checked,
+      rays: inspectionShowRays.checked,
+      cameras: inspectionShowCameras.checked
+    };
+  }
+
+  function ensureInspectionViewer() {
+    if (inspectionViewer) return inspectionViewer;
+    if (!window.LineArtInspectionViewer) {
+      throw new Error('3D inspection viewer is unavailable.');
+    }
+    inspectionViewer = LineArtInspectionViewer.createInspectionViewer({
+      container: inspectionViewport,
+      onSelectScan: scanId => {
+        selectInspectionScanById(scanId).catch(error => {
+          console.error(error);
+          inspectionStatus.textContent = `Could not select scan: ${error.message}`;
+        });
+      }
+    });
+    inspectionViewer.setLayers(inspectionLayerState());
+    return inspectionViewer;
+  }
+
+  function syncInspectionControls() {
+    const entries = inspectionEntries();
+    const selected = inspectionCurrentScanId();
+
+    inspectionScanSelect.innerHTML = '';
+    if (!entries.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No scan yet';
+      inspectionScanSelect.appendChild(option);
+    } else {
+      for (const entry of entries) {
+        const option = document.createElement('option');
+        option.value = entry.scan.scan_id;
+        option.textContent = entry.label;
+        inspectionScanSelect.appendChild(option);
+      }
+      if (entries.some(entry => entry.scan.scan_id === selected)) {
+        inspectionScanSelect.value = selected;
+      }
+    }
+
+    inspectionViewpoints.innerHTML = '';
+    for (const entry of entries) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.scanId = entry.scan.scan_id;
+      button.textContent = entry.label;
+      button.classList.toggle('active', entry.scan.scan_id === selected);
+      button.disabled = !inspectionOpen || inspectionLoading;
+      button.addEventListener('click', () => {
+        selectInspectionScanById(entry.scan.scan_id).catch(error => {
+          console.error(error);
+          inspectionStatus.textContent = `Could not select scan: ${error.message}`;
+        });
+      });
+      inspectionViewpoints.appendChild(button);
+    }
+
+    if (inspectionViewer) {
+      inspectionViewer.setCameraViews(inspectionCameraViews(), selected);
+      inspectionViewer.setLayers(inspectionLayerState());
+    }
+  }
+
+  function updateInspectionHud(sceneSnapshot = inspectionSceneCache, scanSnapshot = null) {
+    const sceneInfo = sceneSnapshot?.scene;
+    const preview = sceneSnapshot?.preview;
+    const scanId = scanSnapshot?.scan_id || inspectionCurrentScanId();
+    const entry = inspectionEntries().find(item => item.scan.scan_id === scanId);
+    inspectionHudTitle.textContent = entry
+      ? `3D inspection · ${entry.label}`
+      : `3D inspection · ${sceneInfo?.name || 'normalized mesh'}`;
+
+    if (scanSnapshot) {
+      inspectionHudDetail.textContent =
+        `${preview?.triangle_count || 0} mesh triangles · ` +
+        `${scanSnapshot.points?.preview_count || 0}/${scanSnapshot.points?.source_count || 0} hit points · ` +
+        `${scanSnapshot.rays?.count || 0} cached hit rays · drag to orbit, Shift/right-drag to pan, wheel to zoom`;
+    } else {
+      inspectionHudDetail.textContent =
+        `${preview?.triangle_count || 0} preview triangles · run LiDAR to add point cloud and hit rays · drag to orbit`;
+    }
+  }
+
+  async function loadInspectionScene({ force = false } = {}) {
+    const viewer = ensureInspectionViewer();
+    const expectedSha = modelReference?.sha256 || null;
+    if (
+      !force &&
+      inspectionSceneCache &&
+      (!expectedSha || inspectionSceneSha === expectedSha)
+    ) {
+      viewer.setSceneSnapshot(inspectionSceneCache);
+      syncInspectionControls();
+      updateInspectionHud(inspectionSceneCache, null);
+      return inspectionSceneCache;
+    }
+
+    const serial = ++inspectionSerial;
+    inspectionLoading = true;
+    refreshButtons();
+    inspectionStatus.textContent = 'Loading normalized mesh preview…';
+    try {
+      const response = await LidarClient.getInspectionScene();
+      if (serial !== inspectionSerial) return null;
+      const snapshot = response.inspection;
+      inspectionSceneCache = snapshot;
+      inspectionSceneSha = snapshot?.scene?.sha256 || expectedSha;
+      viewer.setSceneSnapshot(snapshot);
+      syncInspectionControls();
+      inspectionStatus.textContent =
+        `Mesh ready · ${formatCount(snapshot.preview?.triangle_count || 0)} of ` +
+        `${formatCount(snapshot.preview?.source_triangle_count || 0)} triangles shown.`;
+      updateInspectionHud(snapshot, null);
+      return snapshot;
+    } finally {
+      if (serial === inspectionSerial) {
+        inspectionLoading = false;
+        refreshButtons();
+        syncInspectionControls();
+      }
+    }
+  }
+
+  async function loadInspectionScan(scanId) {
+    const viewer = ensureInspectionViewer();
+    if (!scanId) {
+      viewer.setScanSnapshot({
+        scan_id: null,
+        points: { positions: [], confidence: [] },
+        rays: { positions: [] }
+      });
+      updateInspectionHud(inspectionSceneCache, null);
+      return null;
+    }
+
+    const serial = ++inspectionSerial;
+    inspectionLoading = true;
+    refreshButtons();
+    syncInspectionControls();
+    inspectionStatus.textContent = 'Loading cached hit cloud…';
+    try {
+      let snapshot = inspectionScanCache.get(scanId);
+      if (!snapshot) {
+        const response = await LidarClient.getInspectionScan(scanId);
+        snapshot = response.inspection;
+        inspectionScanCache.set(scanId, snapshot);
+      }
+      if (serial !== inspectionSerial) return null;
+
+      viewer.setSelectedScan(scanId);
+      viewer.setScanSnapshot(snapshot);
+      const entry = inspectionEntries().find(item => item.scan.scan_id === scanId);
+      inspectionStatus.textContent =
+        `${entry?.label || 'Scan'} · ${formatCount(snapshot.points?.preview_count || 0)} points · ` +
+        `${formatCount(snapshot.rays?.count || 0)} hit rays.`;
+      updateInspectionHud(inspectionSceneCache, snapshot);
+      syncInspectionControls();
+      return snapshot;
+    } finally {
+      if (serial === inspectionSerial) {
+        inspectionLoading = false;
+        refreshButtons();
+        syncInspectionControls();
+      }
+    }
+  }
+
+  async function selectInspectionScanById(scanId, { syncArt = true } = {}) {
+    if (!scanId) return;
+    const entries = inspectionEntries();
+    const entry = entries.find(item => item.scan.scan_id === scanId);
+    if (!entry) return;
+
+    if (syncArt && multiViewBundle?.order?.includes(entry.name)) {
+      settings.lidar.multiViewCurrent = entry.name;
+      multiViewCurrent.value = entry.name;
+      activateMultiViewSource({ historyKey: 'lidar:multiViewCurrent' });
+    }
+
+    inspectionScanSelect.value = scanId;
+    inspectionViewer?.setSelectedScan(scanId);
+    syncInspectionControls();
+    await loadInspectionScan(scanId);
+  }
+
+  async function setInspectionOpen(nextOpen) {
+    if (nextOpen && !sceneLoaded) return;
+    inspectionOpen = !!nextOpen;
+    inspectionToggle.textContent = inspectionOpen
+      ? 'Close 3D Inspector'
+      : 'Open 3D Inspector';
+
+    if (!inspectionOpen) {
+      inspectionSerial++;
+      inspectionLoading = false;
+      inspectionShell.hidden = true;
+      canvasShell.hidden = !sourceImage;
+      emptyState.hidden = !!sourceImage;
+      refreshButtons();
+      syncInspectionControls();
+      return;
+    }
+
+    stopRender(false);
+    inspectionShell.hidden = false;
+    canvasShell.hidden = true;
+    emptyState.hidden = true;
+    ensureInspectionViewer();
+    syncInspectionControls();
+    refreshButtons();
+
+    try {
+      await loadInspectionScene();
+      if (!inspectionOpen) return;
+      const scanId = inspectionCurrentScanId();
+      await loadInspectionScan(scanId);
+    } catch (error) {
+      console.error(error);
+      inspectionStatus.textContent = `3D inspection failed: ${error.message}`;
+    }
+  }
+
+  function resetInspectionForScene() {
+    inspectionSerial++;
+    inspectionLoading = false;
+    inspectionSceneCache = null;
+    inspectionSceneSha = null;
+    inspectionScanCache.clear();
+    if (inspectionViewer) {
+      inspectionViewer.setSceneSnapshot({
+        preview: { positions: [], center: [0, 1, 0], radius: 1 }
+      });
+      inspectionViewer.setScanSnapshot({
+        scan_id: null,
+        points: { positions: [], confidence: [] },
+        rays: { positions: [] }
+      });
+      inspectionViewer.setCameraViews([], null);
+    }
+    syncInspectionControls();
+  }
+
+  async function refreshInspectionAfterAcquisition() {
+    syncInspectionControls();
+    if (!inspectionOpen) return;
+    const scanId = inspectionCurrentScanId();
+    if (scanId) await selectInspectionScanById(scanId, { syncArt: false });
+  }
+
   function markSettingsChanged(markPreset = true, historyKey = null) {
     if (markPreset && settings.preset !== 'custom') {
       settings.preset = 'custom';
@@ -1388,6 +1716,25 @@
     scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
     scanMultiBtn.disabled = scanBtn.disabled;
     scanAutoBtn.disabled = scanBtn.disabled;
+
+    const inspectionLocked = modelLoading || scanRunning || highActive || exportBusy;
+    inspectionToggle.disabled = !sceneLoaded || inspectionLocked;
+    const inspectionHasScans = inspectionEntries().length > 0;
+    inspectionScanSelect.disabled =
+      !inspectionOpen || inspectionLoading || !inspectionHasScans || inspectionLocked;
+    [
+      inspectionShowMesh,
+      inspectionShowPoints,
+      inspectionShowRays,
+      inspectionShowCameras,
+      inspectionResetView
+    ].forEach(el => {
+      el.disabled = !inspectionOpen || inspectionLoading || inspectionLocked;
+    });
+    inspectionViewpoints.querySelectorAll('button').forEach(button => {
+      button.disabled = !inspectionOpen || inspectionLoading || inspectionLocked;
+    });
+
     const multiViewAvailable = !!multiViewBundle && modelReady && !modelLoading;
     multiViewMode.disabled = !multiViewAvailable || uiLocked;
     multiViewDebugColors.disabled = !multiViewAvailable || uiLocked;
@@ -1481,7 +1828,8 @@
     canvas.setAttribute('aria-label', `Generated line-art preview, ${w} by ${h} pixels`);
 
     emptyState.hidden = true;
-    canvasShell.hidden = false;
+    canvasShell.hidden = inspectionOpen;
+    if (inspectionOpen) inspectionShell.hidden = false;
     loadingImage = false;
     scanRunning = false;
     updateLidarArtControlAvailability(false);
@@ -1611,6 +1959,7 @@
       installedMultiViewSignature = null;
       installedScanSignature = null;
       installedScanId = null;
+      installedScanMetadata = null;
       installedScanCacheHit = false;
       installedScanMode = 'single';
       updateMultiViewSummary();
@@ -1625,6 +1974,10 @@
         : 'Scan stale · ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
+      resetInspectionForScene();
+      if (inspectionOpen) {
+        await loadInspectionScene({ force: true });
+      }
 
       if (!projectModelReady()) {
         const needed = requiredSourceLabel();
@@ -1737,6 +2090,7 @@
           sha256: scan.scene?.sha256 || null
         }
       );
+      await refreshInspectionAfterAcquisition();
     } catch (error) {
       console.error(error);
       if (shadedCanvas && shadedCanvas !== sourceCanvas) {
@@ -1921,6 +2275,7 @@
         `${loadedViews[0].scan.scene?.name || '3D model'} - 5 fixed views · ${Math.round(averageCoverage * 100)}% average coverage · ${Math.round(meanFusion * 100)}% fused confidence`;
 
       activateMultiViewSource({ install: true });
+      await refreshInspectionAfterAcquisition();
     } catch (error) {
       console.error(error);
       if (serial !== loadSerial) return;
@@ -2040,6 +2395,7 @@
         `${loadedViews[0].scan.scene?.name || '3D model'} - ${order.length} auto views · ${coverageScore}% view-space coverage · ${Math.round(meanFusion * 100)}% fused confidence · ${planner.stop_reason || 'complete'}`;
 
       activateMultiViewSource({ install: true });
+      await refreshInspectionAfterAcquisition();
     } catch (error) {
       console.error(error);
       if (serial !== loadSerial) return;
@@ -2090,6 +2446,7 @@
               ? restoredSourceHint
               : serverReference);
       modelReference = hintedReference;
+      resetInspectionForScene();
 
       modelStatus.textContent =
         `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
@@ -2155,6 +2512,7 @@
             'lidar',
             modelReference
           );
+          await refreshInspectionAfterAcquisition();
 
           if (scanDirty) {
             setProjectStatus(
@@ -2175,6 +2533,7 @@
       if (requiredSourceReference?.kind === 'lidar') {
         setProjectStatus('Referenced model is loaded. Run LiDAR to reproduce the project.', true);
       }
+      syncInspectionControls();
       refreshButtons();
       return 'scene';
     } catch (_) {
@@ -2347,6 +2706,7 @@
   }
 
   syncUI();
+  syncInspectionControls();
   history.initialize(captureProjectState());
   historyReady = true;
   refreshButtons();
@@ -2365,6 +2725,7 @@
   document.body.dataset.phase12Ready = 'true';
   document.body.dataset.phase13Ready = 'true';
   document.body.dataset.phase14Ready = 'true';
+  document.body.dataset.phase15Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -2395,6 +2756,31 @@
   scanBtn.addEventListener('click', runLidarScan);
   scanMultiBtn.addEventListener('click', runFixedMultiViewScan);
   scanAutoBtn.addEventListener('click', runAutoViewScan);
+
+  inspectionToggle.addEventListener('click', () => {
+    setInspectionOpen(!inspectionOpen).catch(error => {
+      console.error(error);
+      inspectionStatus.textContent = `3D inspection failed: ${error.message}`;
+    });
+  });
+  inspectionScanSelect.addEventListener('change', () => {
+    selectInspectionScanById(inspectionScanSelect.value).catch(error => {
+      console.error(error);
+      inspectionStatus.textContent = `Could not select scan: ${error.message}`;
+    });
+  });
+  [
+    inspectionShowMesh,
+    inspectionShowPoints,
+    inspectionShowRays,
+    inspectionShowCameras
+  ].forEach(control => {
+    control.addEventListener('change', () => {
+      inspectionViewer?.setLayers(inspectionLayerState());
+    });
+  });
+  inspectionResetView.addEventListener('click', () => inspectionViewer?.resetView());
+
   multiViewMode.addEventListener('change', () => {
     settings.lidar.multiViewMode = multiViewMode.value === 'combined'
       ? 'combined'
@@ -2406,6 +2792,7 @@
     if (!multiViewBundle?.order.includes(multiViewCurrent.value)) return;
     settings.lidar.multiViewCurrent = multiViewCurrent.value;
     activateMultiViewSource({ historyKey: 'lidar:multiViewCurrent' });
+    refreshInspectionAfterAcquisition().catch(error => console.error(error));
   });
   multiViewDebugColors.addEventListener('change', () => {
     settings.lidar.multiViewDebugColors = multiViewDebugColors.checked;
