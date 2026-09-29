@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase16';
+  const BUILD_VERSION = '5.3-phase17';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -430,6 +430,59 @@
       type: file.type || null,
       sha256: knownSha256 || await sha256File(file)
     };
+  }
+
+  function generatedSourceReference(scene) {
+    return {
+      kind: 'lidar',
+      name: scene?.name || 'generated.obj',
+      size: null,
+      lastModified: null,
+      type: 'text/plain',
+      sha256: scene?.sha256 || null,
+      generator: scene?.generator || null
+    };
+  }
+
+  function serverSceneReference(scene) {
+    if (!scene?.loaded) return null;
+    return {
+      kind: 'lidar',
+      name: scene.name || '3D model',
+      size: null,
+      lastModified: null,
+      type: null,
+      sha256: scene.sha256 || null,
+      generator: scene.generator || null
+    };
+  }
+
+  function readGeometrySpec() {
+    return LineArtGeometryBuilder.buildSpec({
+      type: geometryType.value,
+      radius: geometryRadius.value,
+      width: geometryWidth.value,
+      height: geometryHeight.value,
+      depth: geometryDepth.value,
+      segments: geometrySegments.value,
+      rings: geometryRings.value,
+      profile: geometryProfile.value,
+      pattern: geometryPattern.value,
+      amplitude: geometryAmplitude.value,
+      frequency: geometryFrequency.value,
+      grid: geometryGrid.value
+    });
+  }
+
+  function syncGeometryBuilderFields() {
+    const type = geometryType.value;
+    document.querySelectorAll('[data-geometry-types]').forEach(group => {
+      const types = String(group.dataset.geometryTypes || '').split(/\s+/).filter(Boolean);
+      group.hidden = !types.includes(type);
+    });
+    const ringsField = geometryRings.closest('.control-field');
+    if (ringsField) ringsField.hidden = type !== 'sphere';
+    generateGeometryBtn.textContent = modelLoading ? 'Creating…' : 'Create Geometry';
   }
 
   function currentSourceReference() {
