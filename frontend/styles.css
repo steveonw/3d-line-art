@@ -575,3 +575,25 @@
     min-height: 380px;
   }
 }
+
+
+/* Phase 16 — explicit 2D / world-space 3D Ink modes */
+.ink-space-section {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.022), transparent);
+}
+
+.ink3d-actions {
+  margin-top: 8px;
+}
+
+.ink3d-actions .secondary {
+  font-weight: 700;
+}
+
+#ink3dStatus {
+  min-height: 30px;
+}
+
+#inkSpaceControl button {
+  font-weight: 700;
+}
