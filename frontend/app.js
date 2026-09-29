@@ -2336,9 +2336,100 @@
     }
   }
 
-  async function installLoadedScene(scene, reference, { generated = false } = {}) {
+  function identityModelTransform() {
+    return normalizeModelTransform(DEFAULT_SETTINGS.modelTransform);
+  }
+
+  function invalidateGeometryDerivedState() {
+    multiViewBundle = null;
+    installedMultiViewSignature = null;
+    installedScanSignature = null;
+    installedScanId = null;
+    installedScanMetadata = null;
+    installedScanLabel = null;
+    installedScanCacheHit = false;
+    installedScanMode = 'single';
+    scanDirty = sourceKind === 'lidar' ? !!sourceImage : true;
+    updateMultiViewSummary();
+    resetInk3D('3D Ink is stale because the model transform changed.');
+    if (settings.inkSpace === '3d') {
+      settings.inkSpace = '2d';
+      syncInkSpaceButtons();
+    }
+    scanBtn.textContent = 'Scan LiDAR';
+    scanMultiBtn.textContent = 'Scan 5 Views';
+    scanSummary.textContent = 'Scan stale · ready to scan';
+    resetInspectionForScene();
+  }
+
+  async function applyAuthoritativeModelTransform(
+    transform,
+    { autosave = true, force = false } = {}
+  ) {
+    if (!sceneLoaded) {
+      modelTransformStatus.textContent = 'Load or create a 3D model first.';
+      return null;
+    }
+    const canonical = normalizeModelTransform(transform);
+    const signature = modelTransformSignature(canonical);
+    if (!force && signature === appliedModelTransformSignature) {
+      settings.modelTransform = canonical;
+      syncModelTransformControls();
+      modelTransformStatus.textContent = modelTransformIsIdentity(canonical)
+        ? 'Normalized pose is already applied.'
+        : 'Transform is already applied to the scan geometry.';
+      return canonical;
+    }
+
+    modelLoading = true;
+    modelTransformStatus.textContent = 'Applying transform to the real model geometry…';
+    refreshButtons();
+    try {
+      const response = await LidarClient.transformScene(canonical);
+      const scene = response.scene;
+      settings.modelTransform = normalizeModelTransform(scene.transform || canonical);
+      appliedModelTransformSignature = modelTransformSignature(settings.modelTransform);
+      syncModelTransformControls();
+      invalidateGeometryDerivedState();
+      modelStatus.textContent =
+        `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles · transformed`;
+      const t = settings.modelTransform;
+      modelTransformStatus.textContent = modelTransformIsIdentity(t)
+        ? 'Reset to normalized model pose.'
+        : `Applied · pos ${t.position.x}, ${t.position.y}, ${t.position.z} · rot ${t.rotation.x}°, ${t.rotation.y}°, ${t.rotation.z}° · scale ${t.scale}`;
+      if (inspectionOpen) {
+        await loadInspectionScene({ force: true });
+      }
+      updateScanFreshness();
+      if (autosave) autosaveCurrentState();
+      return settings.modelTransform;
+    } catch (error) {
+      console.error(error);
+      modelTransformStatus.textContent = `Transform failed: ${error.message}`;
+      throw error;
+    } finally {
+      modelLoading = false;
+      refreshButtons();
+    }
+  }
+
+  async function installLoadedScene(
+    scene,
+    reference,
+    { generated = false, preserveTransform = false } = {}
+  ) {
     sceneLoaded = true;
     modelReference = reference;
+    if (!preserveTransform) {
+      settings.modelTransform = identityModelTransform();
+    }
+    appliedModelTransformSignature = modelTransformSignature(
+      scene?.transform || identityModelTransform()
+    );
+    syncModelTransformControls();
+    modelTransformStatus.textContent = modelTransformIsIdentity(settings.modelTransform)
+      ? 'Normalized model pose ready.'
+      : 'Saved project transform applied.';
     const previousScanLabel = installedScanLabel;
     multiViewBundle = null;
     installedMultiViewSignature = null;
