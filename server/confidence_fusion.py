@@ -90,6 +90,18 @@ def _world_points(depth: np.ndarray, metadata: dict[str, Any]) -> tuple[np.ndarr
     return points, flat
 
 
+def world_points_from_scan(
+    scan: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return approximate world-space hit points + confidence from cached evidence."""
+    depth, confidence = decode_scan_evidence(scan["evidence"])
+    points, flat = _world_points(depth, scan["metadata"])
+    if not len(points):
+        return points, np.empty(0, dtype=np.float64)
+    values = confidence.reshape(-1)[flat]
+    return points, values
+
+
 def _project_points(
     points: np.ndarray,
     metadata: dict[str, Any],
