@@ -1972,6 +1972,25 @@
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
+    const geometryLocked = uiLocked || modelLoading;
+    [
+      geometryType,
+      geometryRadius,
+      geometryWidth,
+      geometryHeight,
+      geometryDepth,
+      geometrySegments,
+      geometryRings,
+      geometryProfile,
+      geometryPattern,
+      geometryAmplitude,
+      geometryFrequency,
+      geometryGrid,
+      generateGeometryBtn
+    ].forEach(element => {
+      element.disabled = geometryLocked;
+    });
+    syncGeometryBuilderFields();
     openProjectBtn.disabled = uiLocked || modelLoading;
     saveProjectBtn.disabled = highActive || exportBusy || scanRunning || modelLoading || ink3dLoading;
 
@@ -3096,6 +3115,7 @@
 
   syncUI();
   syncInspectionControls();
+  syncGeometryBuilderFields();
   history.initialize(captureProjectState());
   historyReady = true;
   refreshButtons();
@@ -3116,6 +3136,7 @@
   document.body.dataset.phase14Ready = 'true';
   document.body.dataset.phase15Ready = 'true';
   document.body.dataset.phase16Ready = 'true';
+  document.body.dataset.phase17Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -3143,6 +3164,13 @@
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
+  geometryType.addEventListener('change', syncGeometryBuilderFields);
+  generateGeometryBtn.addEventListener('click', () => {
+    generateGeometryScene().catch(error => {
+      console.error(error);
+      geometryStatus.textContent = `Geometry creation failed: ${error.message}`;
+    });
+  });
   scanBtn.addEventListener('click', runLidarScan);
   scanMultiBtn.addEventListener('click', runFixedMultiViewScan);
   scanAutoBtn.addEventListener('click', runAutoViewScan);
