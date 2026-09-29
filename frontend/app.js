@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase15';
+  const BUILD_VERSION = '5.3-phase16';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -29,6 +29,7 @@
     sampleBias: 0.70,
     flowStrength: 0.65,
     seed: 2841,
+    inkSpace: '2d',
     procedural: {
       scale: 120,
       turbulence: 0,
@@ -169,6 +170,9 @@
   const ctx = canvas.getContext('2d', { alpha: false });
   const imageInput = document.getElementById('imageInput');
   const modelInput = document.getElementById('modelInput');
+  const inkSpaceControl = document.getElementById('inkSpaceControl');
+  const buildInk3DBtn = document.getElementById('buildInk3DBtn');
+  const ink3dStatus = document.getElementById('ink3dStatus');
   const scanBtn = document.getElementById('scanBtn');
   const scanMultiBtn = document.getElementById('scanMultiBtn');
   const scanAutoBtn = document.getElementById('scanAutoBtn');
@@ -182,6 +186,7 @@
   const inspectionShowPoints = document.getElementById('inspectionShowPoints');
   const inspectionShowRays = document.getElementById('inspectionShowRays');
   const inspectionShowCameras = document.getElementById('inspectionShowCameras');
+  const inspectionShowInk = document.getElementById('inspectionShowInk');
   const inspectionResetView = document.getElementById('inspectionResetView');
   const inspectionViewpoints = document.getElementById('inspectionViewpoints');
   const inspectionStatus = document.getElementById('inspectionStatus');
@@ -304,6 +309,11 @@
   let inspectionSceneSha = null;
   const inspectionScanCache = new Map();
   let inspectionSerial = 0;
+
+  let ink3dSnapshot = null;
+  let ink3dDirty = true;
+  let ink3dLoading = false;
+  let ink3dSerial = 0;
 
   let displayStrokeStore = null;
   let displayRenderMeta = null;
