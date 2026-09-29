@@ -1820,7 +1820,8 @@
     canvas.setAttribute('aria-label', `Generated line-art preview, ${w} by ${h} pixels`);
 
     emptyState.hidden = true;
-    canvasShell.hidden = false;
+    canvasShell.hidden = inspectionOpen;
+    if (inspectionOpen) inspectionShell.hidden = false;
     loadingImage = false;
     scanRunning = false;
     updateLidarArtControlAvailability(false);
