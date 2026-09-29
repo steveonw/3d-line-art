@@ -337,6 +337,53 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertEqual(len(scan_requests), 1)
         self.assertIn("surface strokes", self.text("#inspectionHudDetail"))
 
+    def test_generated_geometry_autosave_regenerates_after_server_reset(self) -> None:
+        self.open_app()
+        generate_requests = []
+        self.page.on(
+            "request",
+            lambda request: (
+                generate_requests.append(request.url)
+                if request.url.endswith("/api/scene/generate")
+                else None
+            ),
+        )
+
+        self.page.select_option("#geometryType", "box")
+        self.page.fill("#geometryWidth", "2")
+        self.page.fill("#geometryHeight", "3")
+        self.page.fill("#geometryDepth", "1.5")
+        self.page.click("#generateGeometryBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelStatus').textContent.includes('generated-box.obj')"
+            " && !document.getElementById('scanBtn').disabled"
+        )
+        self.assertEqual(len(generate_requests), 1)
+
+        self.page.evaluate(
+            """async () => {
+              const response = await fetch('/api/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+              });
+              if (!response.ok) throw new Error('reset failed');
+            }"""
+        )
+        self.reload_app()
+        self.page.wait_for_function(
+            "document.body.dataset.phase17Ready === 'true'"
+            " && document.getElementById('modelStatus').textContent.includes('generated-box.obj')"
+            " && document.getElementById('geometryStatus').textContent.includes('Restored generated box')"
+            " && !document.getElementById('scanBtn').disabled",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(
+            len(generate_requests),
+            2,
+            "autosave recovery should regenerate the saved procedural scene after a server reset",
+        )
+
     def test_3d_ink_projects_current_art_without_rescanning(self) -> None:
         project = self.write_project("cube-3d-ink.lidar-ink.json")
         self.open_app()
