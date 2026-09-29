@@ -292,7 +292,8 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.click("#inspectionToggle")
         self.page.wait_for_function(
             "!document.getElementById('inspectionShell').hidden"
-            " && document.getElementById('inspectionStatus').textContent.includes('Mesh ready')",
+            " && document.querySelectorAll('#inspectionViewport canvas').length === 1"
+            " && document.getElementById('inspectionStatus').textContent.includes('hit rays')",
             timeout=UI_TIMEOUT_MS,
         )
         before_inspection = len(inspection_scene_requests)
