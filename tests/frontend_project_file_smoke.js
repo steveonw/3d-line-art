@@ -119,7 +119,13 @@ const source = {
   name: 'test-cube.obj',
   size: 12345,
   lastModified: 1700000000000,
-  type: 'text/plain'
+  type: 'text/plain',
+  generator: {
+    type: 'sphere',
+    radius: 1.25,
+    segments: 24,
+    rings: 12
+  }
 };
 
 const project = Project.create(settings, source, { pngScale: '4' });
@@ -159,6 +165,22 @@ assert(reopened.settings.lidar.multiViewCurrent === 'right', 'current fixed view
 assert(reopened.settings.lidar.multiViewDebugColors === true, 'debug view colors did not round-trip');
 assert(reopened.export.pngScale === '4', 'export settings did not round-trip');
 assert(reopened.source.name === source.name, 'source reference did not round-trip');
+assert(reopened.source.generator?.type === 'sphere', 'generated source type did not round-trip');
+assert(reopened.source.generator?.segments === 24, 'generated source settings did not round-trip');
+assert(
+  Project.sourceMatches(
+    reopened.source,
+    { ...source, name: 'renamed-generated.obj', size: null, generator: { ...source.generator } }
+  ),
+  'matching generated source specs should restore without a file'
+);
+assert(
+  !Project.sourceMatches(
+    reopened.source,
+    { ...source, generator: { ...source.generator, radius: 2 } }
+  ),
+  'different generated source specs must not match'
+);
 
 // Phase 9 autosaves used a v1 settings/source shape. They must migrate.
 const legacy = {
