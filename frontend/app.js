@@ -2230,6 +2230,73 @@
     }
   }
 
+  async function installLoadedScene(scene, reference, { generated = false } = {}) {
+    sceneLoaded = true;
+    modelReference = reference;
+    const previousScanLabel = installedScanLabel;
+    multiViewBundle = null;
+    installedMultiViewSignature = null;
+    installedScanSignature = null;
+    installedScanId = null;
+    installedScanMetadata = null;
+    installedScanCacheHit = false;
+    installedScanMode = 'single';
+    updateMultiViewSummary();
+
+    // Replacing the model never relabels the old canvas. The installed
+    // drawing stays tied to sourceReference until a new scan is installed.
+    scanDirty = true;
+    scanBtn.textContent = 'Scan LiDAR';
+    scanSummary.textContent = sourceKind === 'lidar' && sourceImage
+      ? `Scan stale · ${previousScanLabel || 'scan'}`
+      : 'Scan stale · ready to scan';
+    modelStatus.textContent =
+      `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
+    resetInspectionForScene();
+    if (inspectionOpen) {
+      await loadInspectionScene({ force: true });
+    }
+
+    if (!projectModelReady()) {
+      const needed = requiredSourceLabel();
+      setProjectStatus(`Loaded model does not match this project. Load ${needed}.`, true);
+      setStatus(`Model loaded, but the project is waiting for ${needed}.`, 0);
+    } else {
+      setProjectStatus(
+        requiredSourceReference
+          ? 'Referenced model loaded. Run LiDAR to reproduce the project.'
+          : (generated ? 'Generated 3D model loaded.' : '3D model loaded.')
+      );
+      setStatus(
+        generated
+          ? 'Generated 3D model loaded. Adjust scan controls, then run LiDAR.'
+          : '3D model loaded. Adjust scan controls, then run LiDAR.',
+        0
+      );
+    }
+    autosaveCurrentState();
+  }
+
+  function captureModelLoadState() {
+    return {
+      sceneLoaded,
+      modelReference,
+      scanDirty,
+      modelStatus: modelStatus.textContent,
+      scanSummary: scanSummary.textContent,
+      scanButton: scanBtn.textContent
+    };
+  }
+
+  function restoreModelLoadState(previous) {
+    sceneLoaded = previous.sceneLoaded;
+    modelReference = previous.modelReference;
+    scanDirty = previous.scanDirty;
+    modelStatus.textContent = previous.modelStatus;
+    scanSummary.textContent = previous.scanSummary;
+    scanBtn.textContent = previous.scanButton;
+  }
+
   async function uploadModelFile(file) {
     if (!file) return;
 
