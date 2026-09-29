@@ -40,6 +40,10 @@ class ConfidenceFusionTest(unittest.TestCase):
         np.testing.assert_allclose(restored_depth, depth, atol=1e-6)
         np.testing.assert_allclose(restored_conf, confidence, atol=1 / 255 + 1e-9)
 
+    def test_single_source_is_not_artificially_boosted(self) -> None:
+        one = fuse_confidence([scan("a", 0.5)], "a")
+        self.assertAlmostEqual(float(one["confidence"][2, 2]), 0.5, delta=1 / 255)
+
     def test_multi_source_agreement_increases_confidence(self) -> None:
         one = fuse_confidence([scan("a", 0.5)], "a")
         two = fuse_confidence([scan("a", 0.5), scan("b", 0.5)], "a")
