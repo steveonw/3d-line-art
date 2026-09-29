@@ -2428,7 +2428,7 @@
         await loadInspectionScene({ force: true });
       }
       updateScanFreshness();
-      if (autosave) autosaveCurrentState();
+      if (autosave) recordSettingsChange('modelTransform');
       return settings.modelTransform;
     } catch (error) {
       console.error(error);
