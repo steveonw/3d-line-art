@@ -1182,11 +1182,9 @@
     lidarArtControlEls.forEach(el => { el.disabled = !available; });
     const fusionAvailable = available && !!multiViewBundle?.fusion;
     useFusedConfidence.disabled = !fusionAvailable;
-    const confidenceEffectsAvailable = available &&
-      (!settings.lidar.useFusedConfidence || fusionAvailable);
-    confidenceLength.disabled = !confidenceEffectsAvailable;
-    confidenceOpacity.disabled = !confidenceEffectsAvailable;
-    confidenceFragmentation.disabled = !confidenceEffectsAvailable;
+    confidenceLength.disabled = !available;
+    confidenceOpacity.disabled = !available;
+    confidenceFragmentation.disabled = !available;
   }
 
   function markSettingsChanged(markPreset = true, historyKey = null) {
@@ -2472,6 +2470,32 @@
     confidenceSmoothingValue.textContent =
       `${Math.round(settings.lidar.confidenceSmoothing * 100)}%`;
     recomposeLidarSource({ historyKey: 'lidar:confidenceSmoothing' });
+  });
+  useFusedConfidence.addEventListener('change', () => {
+    settings.lidar.useFusedConfidence = useFusedConfidence.checked;
+    recomposeLidarSource({ historyKey: 'lidar:useFusedConfidence' });
+    updateLidarArtControlAvailability(false);
+  });
+  confidenceLength.addEventListener('input', () => {
+    settings.lidar.confidenceLength = Number(confidenceLength.value);
+    confidenceLengthValue.textContent =
+      `${Math.round(settings.lidar.confidenceLength * 100)}%`;
+    markSettingsChanged(true, 'lidar:confidenceLength');
+    schedulePreview();
+  });
+  confidenceOpacity.addEventListener('input', () => {
+    settings.lidar.confidenceOpacity = Number(confidenceOpacity.value);
+    confidenceOpacityValue.textContent =
+      `${Math.round(settings.lidar.confidenceOpacity * 100)}%`;
+    markSettingsChanged(true, 'lidar:confidenceOpacity');
+    schedulePreview();
+  });
+  confidenceFragmentation.addEventListener('input', () => {
+    settings.lidar.confidenceFragmentation = Number(confidenceFragmentation.value);
+    confidenceFragmentationValue.textContent =
+      `${Math.round(settings.lidar.confidenceFragmentation * 100)}%`;
+    markSettingsChanged(true, 'lidar:confidenceFragmentation');
+    schedulePreview();
   });
   cleanBackground.addEventListener('change', () => {
     settings.lidar.cleanBackground = cleanBackground.checked;
