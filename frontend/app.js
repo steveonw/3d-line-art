@@ -1363,11 +1363,13 @@
       return inspectionSceneCache;
     }
 
+    const serial = ++inspectionSerial;
     inspectionLoading = true;
     refreshButtons();
     inspectionStatus.textContent = 'Loading normalized mesh preview…';
     try {
       const response = await LidarClient.getInspectionScene();
+      if (serial !== inspectionSerial) return null;
       const snapshot = response.inspection;
       inspectionSceneCache = snapshot;
       inspectionSceneSha = snapshot?.scene?.sha256 || expectedSha;
@@ -1379,9 +1381,11 @@
       updateInspectionHud(snapshot, null);
       return snapshot;
     } finally {
-      inspectionLoading = false;
-      refreshButtons();
-      syncInspectionControls();
+      if (serial === inspectionSerial) {
+        inspectionLoading = false;
+        refreshButtons();
+        syncInspectionControls();
+      }
     }
   }
 
@@ -1483,6 +1487,7 @@
 
   function resetInspectionForScene() {
     inspectionSerial++;
+    inspectionLoading = false;
     inspectionSceneCache = null;
     inspectionSceneSha = null;
     inspectionScanCache.clear();
