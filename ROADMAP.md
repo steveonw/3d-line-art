@@ -630,10 +630,19 @@ The review concluded that the 2D renderer/art engine is currently stronger than 
 These are quality and scale follow-ups, not blockers for the Phase 16 world-space geometry contract:
 
 - [x] Add authoritative Model Transform controls for position, XYZ rotation, uniform scale, reset, project/autosave persistence, and transform-sensitive LiDAR/cache identity
+- [x] Replace the growing page-height sidebar with a floating/dockable Control Dock so the image / 3D workspace stays fixed while controls scroll independently
 - [ ] Revisit the 5,000-stroke 3D Ink projection prefix so dense 2D drawings can retain more visual density without making projection latency or JSON payloads unbounded
 - [ ] Make ink-only inspection readable when the mesh is hidden instead of placing dark ink on the near-black inspector background
 - [ ] Preserve stroke-width differences in 3D with a portable geometry-based line/ribbon path rather than relying on platform-limited WebGL line width
 - [ ] Replace triangle-order sampling in the bounded mesh preview with a topology-aware simplification/LOD strategy so very dense meshes do not appear perforated
+
+### Control Dock validation
+
+The post-v0.5 Control Dock follow-up adapts the owner's EquationWright scratch-pad window pattern into the Studio: a fixed floating panel with drag, resize, minimize, close/reopen, viewport clamping, and mobile drawer fallback. The existing controls keep their original IDs and behavior but are grouped into Source, Model, LiDAR, Art, and Export tabs.
+
+The canvas / Three.js workspace now owns the browser viewport independently of the controls. Scrolling the dock, moving it, docking it left/right, minimizing it, or closing it does not scroll/recenter the artwork underneath. Dock mode, active tab, float position/size, minimized state, and closed state are local UI preferences stored in `localStorage`, not portable project settings.
+
+GitHub Actions passes the dock state/clamping smoke test plus real Chromium measurement of an unchanged preview rectangle across dock scrolling, right dock, float/drag, left dock, minimize, close/reopen, and reload persistence. Existing LiDAR, transform, multi-view, inspection, 3D Ink, project, and export browser regressions explicitly navigate the appropriate dock tab.
 
 ### Model Transform validation
 
