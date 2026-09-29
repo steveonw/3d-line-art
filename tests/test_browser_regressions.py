@@ -143,6 +143,96 @@ class BrowserRegressionTests(unittest.TestCase):
         path = Path(download_info.value.path())
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
+    def test_control_dock_moves_without_moving_workspace(self) -> None:
+        self.open_app()
+        self.page.wait_for_function("document.body.dataset.controlDockReady === 'true'")
+        self.load_image(self.image_a)
+        self.page.wait_for_function("!document.getElementById('canvasShell').hidden")
+
+        def canvas_rect():
+            return self.page.evaluate(
+                """() => {
+                  const r = document.getElementById('canvasShell').getBoundingClientRect();
+                  return { left: r.left, top: r.top, width: r.width, height: r.height };
+                }"""
+            )
+
+        def assert_same_rect(before, after, message):
+            for key in ("left", "top", "width", "height"):
+                self.assertAlmostEqual(
+                    before[key],
+                    after[key],
+                    delta=0.75,
+                    msg=f"{message}: {key} changed from {before[key]} to {after[key]}",
+                )
+
+        baseline = canvas_rect()
+        self.assertEqual(self.page.evaluate("window.scrollY"), 0)
+
+        self.page.click('#controlDockTabs button[data-control-tab="art"]')
+        self.page.wait_for_function("document.body.dataset.controlDockTab === 'art'")
+        self.page.evaluate(
+            "document.getElementById('controlDockBody').scrollTop = "
+            "document.getElementById('controlDockBody').scrollHeight"
+        )
+        self.assertEqual(self.page.evaluate("window.scrollY"), 0)
+        assert_same_rect(baseline, canvas_rect(), "scrolling Control Dock moved preview")
+
+        self.page.click("#controlDockRight")
+        self.page.wait_for_function("document.body.dataset.controlDockMode === 'right'")
+        assert_same_rect(baseline, canvas_rect(), "right docking moved preview")
+
+        self.page.click("#controlDockFloat")
+        self.page.wait_for_function("document.body.dataset.controlDockMode === 'float'")
+        dock = self.page.locator("#controlDock").bounding_box()
+        head = self.page.locator("#controlDockHead").bounding_box()
+        self.assertIsNotNone(dock)
+        self.assertIsNotNone(head)
+        start_left = dock["x"]
+        self.page.mouse.move(head["x"] + 80, head["y"] + 22)
+        self.page.mouse.down()
+        self.page.mouse.move(head["x"] + 180, head["y"] + 100, steps=5)
+        self.page.mouse.up()
+        moved = self.page.locator("#controlDock").bounding_box()
+        self.assertGreater(abs(moved["x"] - start_left), 20)
+        assert_same_rect(baseline, canvas_rect(), "dragging Control Dock moved preview")
+
+        self.page.click("#controlDockLeft")
+        self.page.wait_for_function("document.body.dataset.controlDockMode === 'left'")
+        assert_same_rect(baseline, canvas_rect(), "left docking moved preview")
+
+        self.page.click("#controlDockMinimize")
+        self.page.wait_for_function(
+            "document.getElementById('controlDock').classList.contains('minimized')"
+        )
+        assert_same_rect(baseline, canvas_rect(), "minimizing Control Dock moved preview")
+
+        self.page.click("#controlDockMinimize")
+        self.page.click("#controlDockClose")
+        self.page.wait_for_function(
+            "document.getElementById('controlDock').hidden"
+            " && !document.getElementById('controlDockLaunch').hidden"
+        )
+        assert_same_rect(baseline, canvas_rect(), "closing Control Dock moved preview")
+
+        self.page.click("#controlDockLaunch")
+        self.page.wait_for_function(
+            "!document.getElementById('controlDock').hidden"
+            " && document.body.dataset.controlDockMode === 'left'"
+        )
+        assert_same_rect(baseline, canvas_rect(), "reopening Control Dock moved preview")
+
+        self.page.click('#controlDockTabs button[data-control-tab="lidar"]')
+        self.page.click("#controlDockRight")
+        self.reload_app()
+        self.page.wait_for_function(
+            "document.body.dataset.controlDockReady === 'true'"
+            " && document.body.dataset.controlDockMode === 'right'"
+            " && document.body.dataset.controlDockTab === 'lidar'"
+        )
+        self.assertFalse(self.page.locator("#lidarScanControls").get_attribute("hidden"))
+        self.assertTrue(self.page.locator("#modelTransformSection").get_attribute("hidden") is not None)
+
     def test_autosave_restore_does_not_lock_future_sources(self) -> None:
         self.open_app()
         self.load_image(self.image_a)
