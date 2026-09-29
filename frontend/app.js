@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase14';
+  const BUILD_VERSION = '5.3-phase15';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -176,6 +176,19 @@
   const multiViewCurrent = document.getElementById('multiViewCurrent');
   const multiViewDebugColors = document.getElementById('multiViewDebugColors');
   const multiViewSummary = document.getElementById('multiViewSummary');
+  const inspectionToggle = document.getElementById('inspectionToggle');
+  const inspectionScanSelect = document.getElementById('inspectionScanSelect');
+  const inspectionShowMesh = document.getElementById('inspectionShowMesh');
+  const inspectionShowPoints = document.getElementById('inspectionShowPoints');
+  const inspectionShowRays = document.getElementById('inspectionShowRays');
+  const inspectionShowCameras = document.getElementById('inspectionShowCameras');
+  const inspectionResetView = document.getElementById('inspectionResetView');
+  const inspectionViewpoints = document.getElementById('inspectionViewpoints');
+  const inspectionStatus = document.getElementById('inspectionStatus');
+  const inspectionShell = document.getElementById('inspectionShell');
+  const inspectionViewport = document.getElementById('inspectionViewport');
+  const inspectionHudTitle = document.getElementById('inspectionHudTitle');
+  const inspectionHudDetail = document.getElementById('inspectionHudDetail');
   const modelStatus = document.getElementById('modelStatus');
   const scanSummary = document.getElementById('scanSummary');
   const scanResolution = document.getElementById('scanResolution');
@@ -275,6 +288,7 @@
   let lidarSourceMaps = null;
   let installedScanSignature = null;
   let installedScanId = null;
+  let installedScanMetadata = null;
   let installedScanLabel = null;
   let installedScanCacheHit = false;
   let installedScanMode = 'single';
@@ -282,6 +296,14 @@
   let multiViewBundle = null;
   let scanDirty = false;
   let activeRender = null;
+
+  let inspectionViewer = null;
+  let inspectionOpen = false;
+  let inspectionLoading = false;
+  let inspectionSceneCache = null;
+  let inspectionSceneSha = null;
+  const inspectionScanCache = new Map();
+  let inspectionSerial = 0;
 
   let displayStrokeStore = null;
   let displayRenderMeta = null;
@@ -478,6 +500,7 @@
     installedScanMode = 'single';
     installedScanSignature = scanMetadataSignature(scan);
     installedScanId = scan.scan_id || null;
+    installedScanMetadata = scan ? { ...scan } : null;
     installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
     installedScanCacheHit = !!scan.cache_hit;
     return updateScanFreshness();
@@ -485,6 +508,7 @@
 
   function rememberInstalledMultiView(multiview) {
     installedScanMode = 'multi';
+    installedScanMetadata = null;
     installedMultiViewSignature = multiViewMetadataSignature(multiview);
     const order = multiview?.order || [];
     const scans = order.map(name => multiview.views?.[name]).filter(Boolean);
@@ -499,6 +523,7 @@
   function clearInstalledScan() {
     installedScanSignature = null;
     installedScanId = null;
+    installedScanMetadata = null;
     installedScanLabel = null;
     installedScanCacheHit = false;
     installedScanMode = 'single';
