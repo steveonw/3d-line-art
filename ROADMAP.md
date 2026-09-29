@@ -528,13 +528,19 @@ confidence
 material
 ```
 
-- [ ] Follow surface tangents
-- [ ] Grow strokes across actual geometry
-- [ ] Render lines in Three.js
-- [ ] Add 2D Ink mode
-- [ ] Add 3D Ink mode
+- [x] Follow surface tangents
+- [x] Grow strokes across actual geometry
+- [x] Render lines in Three.js
+- [x] Add 2D Ink mode
+- [x] Add 3D Ink mode
 
 **Done when:** the user can orbit around a model whose illustration exists on the 3D surface.
+
+**Phase 16 validation:** the completed deterministic 2D stroke prefix can now be projected through the selected LiDAR camera onto the authoritative normalized triangle mesh. Each retained world-space point stores XYZ, camera-facing visible-surface normal, a tangent projected into the local surface plane, direct geometric camera-ray depth, cached selected-scan confidence, material RGB, and piece ID. Paths are densely sampled and split at misses, piece boundaries, and large depth discontinuities so the Three.js drawing follows actual hit geometry instead of bridging empty space.
+
+The UI now has explicit **2D Ink** and **3D Ink** modes. 2D Ink preserves the existing canvas renderer and PNG/SVG workflow. 3D Ink reuses the offline Phase 15 Three.js viewer as a visualization host, with a separately toggleable world-space ink layer; a tiny render-only normal lift avoids z-fighting while stored XYZ remains on the hit surface. Combined Views stays explicitly 2D-only because it has no single camera projection.
+
+Projection is bounded to the deterministic first 5,000 completed 2D strokes and at most 80,000 dense projected samples. The new `POST /api/ink3d/project` route has its own 4 MB JSON cap and uses the existing operation gate; the normal 64 KB sensor/control JSON cap is unchanged. 3D Ink uses direct mesh intersections and cached confidence evidence and performs no new LiDAR burst, smart-sampling pass, or confidence fusion. GitHub Actions passes real-mesh projection/determinism/metadata tests, no-rescan bridge coverage, API and frontend packing tests, and real Chromium verification of 2D → 3D Ink → art-only refresh → 2D with zero additional LiDAR/fusion requests.
 
 ## v0.5 checkpoint
 
