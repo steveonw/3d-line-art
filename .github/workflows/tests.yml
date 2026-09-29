@@ -31,6 +31,7 @@ jobs:
       - name: Check frontend JavaScript syntax
         run: |
           node --check frontend/geometry_builder.js
+          node --check frontend/control_dock.js
           node --check frontend/ink3d.js
           node --check frontend/inspection_viewer.js
           node --check frontend/analysis_maps.js
@@ -57,6 +58,9 @@ jobs:
 
       - name: Run geometry builder smoke test
         run: node tests/frontend_geometry_builder_smoke.js
+
+      - name: Run Control Dock smoke test
+        run: node tests/frontend_control_dock_smoke.js
 
       - name: Run 3D Ink smoke test
         run: node tests/frontend_ink3d_smoke.js

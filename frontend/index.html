@@ -4,12 +4,37 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-post-v05-transform" />
+  <meta name="application-version" content="5.3-post-v05-dock" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app">
-    <aside class="panel">
+    <button class="control-dock-launch" id="controlDockLaunch" type="button" hidden>Controls</button>
+
+    <aside class="panel control-dock" id="controlDock" aria-label="Studio controls">
+      <div class="control-dock-head" id="controlDockHead">
+        <div class="control-dock-title">
+          <strong>Line Art Studio 5.3</strong>
+          <span>Control Dock</span>
+        </div>
+        <div class="control-dock-window-actions" aria-label="Control dock layout">
+          <button id="controlDockFloat" type="button" title="Float controls">Float</button>
+          <button id="controlDockLeft" type="button" title="Dock controls left">Left</button>
+          <button id="controlDockRight" type="button" title="Dock controls right">Right</button>
+          <button id="controlDockMinimize" type="button" title="Minimize controls">—</button>
+          <button id="controlDockClose" type="button" title="Close controls">×</button>
+        </div>
+      </div>
+
+      <nav class="control-dock-tabs" id="controlDockTabs" aria-label="Control categories">
+        <button type="button" data-control-tab="source" class="active" aria-pressed="true">Source</button>
+        <button type="button" data-control-tab="model" aria-pressed="false">Model</button>
+        <button type="button" data-control-tab="lidar" aria-pressed="false">LiDAR</button>
+        <button type="button" data-control-tab="art" aria-pressed="false">Art</button>
+        <button type="button" data-control-tab="export" aria-pressed="false">Export</button>
+      </nav>
+
+      <div class="control-dock-body" id="controlDockBody">
       <div class="brand">
         <h1>Line Art Studio 5.3</h1>
         <p>Coverage-aware rendering with smooth direction fields and optional curved streamline strokes.</p>
@@ -593,6 +618,7 @@
           <div class="export-note" id="exportNote">Exports use the last completed high-quality render when available.</div>
         </div>
       </div>
+      </div>
     </aside>
 
     <main class="workspace">
@@ -625,6 +651,7 @@
   <script src="stroke_placement.js"></script>
   <script src="project_state.js"></script>
   <script src="geometry_builder.js"></script>
+  <script src="control_dock.js"></script>
   <script src="history.js"></script>
   <script src="line_renderer.js"></script>
   <script src="export.js"></script>
