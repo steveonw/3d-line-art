@@ -554,17 +554,25 @@ Before relying on LLM-generated scenes, add deterministic built-in geometry tool
 
 Possible generators:
 
-- [ ] Sphere
-- [ ] Box
-- [ ] Cylinder
-- [ ] Lathe/profile
-- [ ] Height field
+- [x] Sphere
+- [x] Box
+- [x] Cylinder
+- [x] Lathe/profile
+- [x] Height field
 
 Use the Math-tools curve/revolution ideas where useful.
 
 Everything should enter the same LiDAR pipeline as an uploaded model.
 
 **Done when:** basic 3D objects can be created inside the studio and scanned normally.
+
+**Phase 17 validation:** the studio now creates deterministic Sphere, Box, Cylinder, Lathe/Profile, and Height Field geometry locally. Each generator emits ordinary OBJ bytes and immediately routes those bytes through the exact existing OBJ loader, mesh validation, 250,000-triangle guardrail, normalization, content fingerprint, and scene-state installation path. There is no procedural-object sensor, renderer, or inspection shortcut.
+
+Generated scene references retain the canonical generator spec in project/autosave JSON. Explicit projects and autosave recovery can therefore regenerate the same source after a local-server reset before normal source-identity checks continue. Overall scale remains normalized like uploaded models; relative box/cylinder dimensions, lathe profile shape, and height-field proportions are preserved.
+
+The local builder exposes custom lathe radius/Y profiles plus deterministic height-field Waves, Ripple, Saddle, and Radial patterns. `POST /api/scene/generate` stays behind the existing 64 KB JSON cap, same-loopback origin checks, strict JSON media type, and non-blocking operation gate. GitHub Actions passes deterministic mesh/count/hash tests for all five generator families, invalid-input guardrails, generated-scene API/state coverage, standard LiDAR scan/inspection coverage, project/autosave generator round trips, and real Chromium flows for custom lathe → LiDAR → inspection → 3D Ink and generated-scene recovery after a server reset.
+
+With Phase 17 complete, the numbered core roadmap through deterministic geometry creation is complete. The LLM Scene Assistant remains optional and should not become a dependency of the core studio.
 
 ---
 
