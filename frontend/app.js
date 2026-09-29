@@ -2784,22 +2784,42 @@
         return null;
       }
 
-      const result = await LidarClient.getState();
+      let result = await LidarClient.getState();
       if (serial !== loadSerial) return null;
 
-      const workspace = result.state?.workspace;
-      const scene = workspace?.scene;
+      let workspace = result.state?.workspace;
+      let scene = workspace?.scene;
+      const requiredGenerator =
+        requiredSourceReference?.kind === 'lidar' &&
+        requiredSourceReference?.generator
+          ? requiredSourceReference.generator
+          : null;
+
+      if (
+        requiredGenerator &&
+        (
+          !scene?.loaded ||
+          !LineArtProjectState.sourceMatches(
+            requiredSourceReference,
+            serverSceneReference(scene)
+          )
+        )
+      ) {
+        geometryStatus.textContent = 'Regenerating the project geometry…';
+        const generated = await LidarClient.generateScene(requiredGenerator);
+        if (serial !== loadSerial) return null;
+        geometryStatus.textContent =
+          `Restored generated ${generated.scene?.generator?.type || 'geometry'} from the project.`;
+        result = await LidarClient.getState();
+        if (serial !== loadSerial) return null;
+        workspace = result.state?.workspace;
+        scene = workspace?.scene;
+      }
+
       if (!scene?.loaded) return null;
 
       sceneLoaded = true;
-      const serverReference = {
-        kind: 'lidar',
-        name: scene.name || '3D model',
-        size: null,
-        lastModified: null,
-        type: null,
-        sha256: scene.sha256 || null
-      };
+      const serverReference = serverSceneReference(scene);
       const hintedReference =
         (requiredSourceReference?.kind === 'lidar' &&
           LineArtProjectState.sourceMatches(requiredSourceReference, serverReference))
