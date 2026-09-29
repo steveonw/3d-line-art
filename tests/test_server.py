@@ -249,6 +249,44 @@ class FakeLidarBridge:
             },
         }
 
+    def project_ink3d(self, payload: dict) -> dict:
+        scan_id = str(payload.get("scan_id") or "")
+        if scan_id not in self.scans:
+            from server.lidar_bridge import ScanIdMismatchError
+            raise ScanIdMismatchError("requested 3D Ink scan is not available")
+        return {
+            "format": "lidar-ink-3d-strokes",
+            "version": 1,
+            "scene_sha256": None,
+            "scan_id": scan_id,
+            "source_stroke_count": 1,
+            "stroke_count": 1,
+            "point_count": 2,
+            "ray_count": 2,
+            "hit_count": 2,
+            "miss_count": 0,
+            "positions": [0.0, 0.5, -1.0, 0.5, 0.5, -1.0],
+            "normals": [0.0, 0.0, -1.0, 0.0, 0.0, -1.0],
+            "tangents": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            "depth": [5.0, 5.0],
+            "confidence": [210, 220],
+            "material_rgb": [180, 180, 190, 180, 180, 190],
+            "piece_ids": [1000, 1000],
+            "stroke_offsets": [0],
+            "stroke_counts": [2],
+            "stroke_widths": [1.0],
+            "stroke_rgba": [12, 12, 12, 220],
+            "source_stroke_indices": [0],
+            "metadata": {
+                "coordinate_space": "normalized-world",
+                "normal_convention": "camera-facing-visible-surface",
+                "tangent_convention": "projected-polyline-surface-tangent",
+                "depth_convention": "camera-ray-distance-to-real-mesh",
+                "confidence_source": "selected-scan-cached-confidence",
+                "material_source": "real-mesh-hit-color-and-piece-id",
+            },
+        }
+
     def clear_fusion_cache(self) -> None:
         pass
 
@@ -421,8 +459,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.4-phase15")
-        self.assertEqual(payload["api_version"], 7)
+        self.assertEqual(payload["server_version"], "0.5-phase16")
+        self.assertEqual(payload["api_version"], 8)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -627,6 +665,42 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(inspection["scan_id"], scan_id)
         self.assertEqual(inspection["points"]["preview_count"], 2)
         self.assertEqual(inspection["rays"]["count"], 2)
+
+    def test_3d_ink_projection_endpoint(self) -> None:
+        self.upload_fake_scene()
+        scan_status, scan_payload = self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=json.dumps({"width": 160, "height": 120}).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(scan_status, 200)
+        scan_id = scan_payload["scan"]["scan_id"]
+        body = {
+            "scan_id": scan_id,
+            "width": 160,
+            "height": 120,
+            "point_counts": [2],
+            "points": [70.0, 60.0, 90.0, 60.0],
+            "widths": [1.0],
+            "rgba": [12, 12, 12, 220],
+        }
+        status, payload = self.json_request(
+            "/api/ink3d/project",
+            method="POST",
+            body=json.dumps(body).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        ink = payload["ink3d"]
+        self.assertEqual(ink["format"], "lidar-ink-3d-strokes")
+        self.assertEqual(ink["scan_id"], scan_id)
+        self.assertEqual(ink["stroke_count"], 1)
+        self.assertEqual(ink["point_count"], 2)
+        self.assertEqual(
+            ink["metadata"]["coordinate_space"],
+            "normalized-world",
+        )
 
     def test_confidence_fusion_endpoint_and_pngs(self) -> None:
         self.upload_fake_scene()

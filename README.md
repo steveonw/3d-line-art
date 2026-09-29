@@ -747,6 +747,44 @@ The mesh preview comes from the already-normalized server scene. Point and ray p
 
 This boundary matters for Phase 16: the inspector visualizes existing scene and sensor evidence, but **3D Ink** still needs an explicit world-space stroke representation tied to actual geometry.
 
+## Phase 16 world-space 3D Ink
+
+Phase 16 adds an explicit **Ink Space** choice:
+
+- **2D Ink** keeps the existing deterministic canvas renderer and PNG/SVG export path.
+- **3D Ink** projects the completed 2D stroke prefix onto the real normalized triangle mesh and renders that illustration in the offline Three.js workspace.
+
+The 2D renderer remains the art-placement authority. For 3D Ink, the browser sends a bounded deterministic prefix of its completed stroke store to the local server. The server densely resamples those image-space paths and intersects the selected LiDAR camera rays with the authoritative normalized scene geometry.
+
+Every retained 3D point carries:
+
+```text
+XYZ
+camera-facing surface normal
+surface tangent
+geometric camera-ray depth
+cached selected-scan confidence
+material RGB
+piece ID
+```
+
+The server splits projected paths when they miss the mesh, cross piece boundaries, or encounter a large depth discontinuity. This prevents a single 2D stroke from becoming a chord through empty 3D space. Tangents are derived from the projected polyline and projected into each point's local tangent plane.
+
+The Phase 15 mean-depth point cloud remains inspection-only. Phase 16 does **not** promote that approximation into surface geometry: world-space ink uses direct intersections with the actual normalized triangle scene. It also does not fire a new LiDAR burst or rerun confidence fusion; confidence metadata comes from the selected scan's existing Phase 14 cached evidence.
+
+3D Ink guardrails are:
+
+```text
+input stroke prefix       <= 5,000 completed 2D strokes
+input points / stroke     <= 8
+dense projected samples   <= 80,000
+projection JSON body      <= 4 MB
+```
+
+The normal sensor/control JSON cap remains 64 KB. `POST /api/ink3d/project` uses the same loopback/origin/content-type protections and non-blocking operation gate as the other mutating local APIs.
+
+The Three.js viewer renders the world-space polyline layer separately from the mesh, point cloud, hit rays, and camera helpers. A tiny visual-only normal offset prevents z-fighting; the stored XYZ values remain exactly on the mesh hit positions. Stroke RGB remains un-premultiplied and the original per-stroke alpha is passed to Three.js per vertex, preserving faint graphite/soft-pencil tones instead of turning them near-black. Selecting a scan/viewpoint frames the orbit camera from that scan's camera position, target, and vertical FOV, after which normal orbit/pan/zoom remains available. Current View can be reprojected after art-only edits without rescanning. **Combined Views** remains a 2D compositor and is intentionally unavailable as a 3D Ink projection source because it has no single camera.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -768,6 +806,8 @@ POST /api/lidar/multiview
 POST /api/lidar/auto
 POST /api/lidar/fusion
 GET  /api/lidar/maps[?scan_id=<id>]
+
+POST /api/ink3d/project
 
 GET  /api/inspection/scene
 GET  /api/inspection/scan[?scan_id=<id>]
@@ -851,6 +891,12 @@ Run the Phase 15 inspection-viewer smoke test:
 
 ```bash
 node tests/frontend_inspection_viewer_smoke.js
+```
+
+Run the Phase 16 3D Ink smoke test:
+
+```bash
+node tests/frontend_ink3d_smoke.js
 ```
 
 Run the deterministic-randomness regression test:

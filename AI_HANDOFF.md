@@ -15,15 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-15-3d-inspection-viewer
-PR:     #18 — Phase 15: add 3D LiDAR inspection viewer
-base:   phase-14-confidence-fusion
+branch: phase-16-3d-ink
+PR:     #19 — Phase 16: add world-space 3D Ink
+base:   phase-15-3d-inspection-viewer
 CI:     passed
 ```
 
-Resume from **Phase 16 — 3D Ink**.
+Resume from **Phase 17 — Simple geometry creation**.
 
-Do **not** start Phase 17 simple geometry creation until Phase 16 is implemented, tested, committed, and green.
+Do **not** start the optional LLM Scene Assistant or later polish as a substitute for completing Phase 17.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -70,22 +70,24 @@ main
   ↓
 #17 phase-14-confidence-fusion
   ↓
-#18 phase-15-3d-inspection-viewer ← CURRENT HEAD
+#18 phase-15-3d-inspection-viewer
+  ↓
+#19 phase-16-3d-ink ← CURRENT HEAD
 ```
 
-For Phase 16:
+For Phase 17:
 
-1. Branch from `phase-15-3d-inspection-viewer`.
+1. Branch from `phase-16-3d-ink`.
 2. Suggested branch name:
 
    ```text
-   phase-16-3d-ink
+   phase-17-simple-geometry
    ```
 
 3. Open the new PR against:
 
    ```text
-   phase-15-3d-inspection-viewer
+   phase-16-3d-ink
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -844,30 +846,96 @@ The point cloud and hit-ray preview are intentionally approximate because they r
 
 Useful patterns were adapted from the owner's `Math-tools` Three.js camera interaction work and `text-to-3d` viewer conventions. The offline Three.js r128 build itself is copied from `steveonw/text-to-3d/vendor/three.r128.min.js`.
 
-## 12.95. Next task: Phase 16 — 3D Ink
+## 12.95. Completed Phase 16 — 3D Ink
+
+Phase 16 is complete.
+
+Architecture:
+
+```text
+existing deterministic 2D stroke store
+  -> deterministic first <= 5,000 strokes
+  -> dense image-space resampling
+  -> selected LiDAR camera rays
+  -> direct intersection with normalized triangle scene
+  -> split on miss / piece boundary / depth discontinuity
+  -> world-space stroke snapshot
+       XYZ
+       camera-facing visible-surface normal
+       surface tangent
+       geometric camera-ray depth
+       cached confidence
+       material RGB
+       piece ID
+  -> Phase 15 Three.js viewer ink layer
+```
+
+Key invariants:
+
+- the existing 2D renderer remains the art-placement and style authority,
+- **2D Ink** preserves the canvas / PNG / SVG workflow,
+- **3D Ink** is an explicit separate Ink Space mode,
+- world-space XYZ comes from direct intersections with the real normalized mesh,
+- Phase 15's reconstructed mean-depth point cloud remains inspection-only,
+- projection fires no LiDAR burst, smart-sampling pass, or confidence fusion,
+- cached selected-scan confidence is metadata/weighting only,
+- paths are densely sampled and broken rather than drawing through geometric discontinuities,
+- stored world points stay exactly on the surface; only Three.js display receives a tiny normal lift to avoid z-fighting,
+- 3D stroke RGB is kept straight/un-premultiplied and the original stroke alpha is sent as a per-vertex alpha attribute,
+- selecting a scan/viewpoint also frames the orbit camera from that scan's position, target, and vertical FOV before free orbit resumes,
+- Combined Views remains 2D-only because it has no single camera frame,
+- changing art settings may rebuild 3D Ink but must not rescan,
+- a later single scan clears stale multi-view browser state before becoming authoritative.
+
+Boundaries:
+
+```text
+input stroke prefix       <= 5,000 strokes
+input points / stroke     <= 8
+dense projected samples   <= 80,000
+POST /api/ink3d/project   <= 4 MB JSON
+ordinary API JSON         <= 64 KB
+```
+
+The 3D Ink endpoint uses the existing local-origin checks and non-blocking operation gate. The larger 4 MB cap is scoped only to the bounded stroke-projection payload and does not widen sensor/control routes.
+
+### Phase 16 review follow-ups that are intentionally still open
+
+These are not blockers for the world-space geometry contract, but a later polish pass should revisit them:
+
+- the 3D projection currently uses the deterministic first 5,000 completed 2D strokes, so very dense 2D drawings appear much sparser in 3D,
+- ink-only mode can have poor contrast because dark ink sits on the inspector's near-black background when the mesh is hidden,
+- portable WebGL line rendering is effectively 1 px wide, so stored 2D stroke widths are not yet represented geometrically in 3D,
+- the bounded Phase 15 mesh preview samples triangles by source order rather than performing topology-aware simplification, so extremely dense meshes may look perforated.
+
+Do not "fix" the 5,000-stroke item by removing bounds. Preserve bounded payload/latency behavior and solve density with an explicit scalable representation or deterministic level-of-detail strategy.
+
+## 12.97. Next task: Phase 17 — Simple geometry creation
 
 Roadmap scope:
 
-Store stroke data in world space:
+Add deterministic built-in generators for:
+
+- Sphere
+- Box
+- Cylinder
+- Lathe/profile
+- Height field
+
+Use the owner's Math-tools curve/revolution ideas where useful.
+
+Every generated object must cross the same standard scene boundary as an uploaded model and then use the existing:
 
 ```text
-XYZ
-surface normal
-tangent
-depth
-confidence
-material
+normalization
+ -> LiDAR scan/cache
+ -> fixed/auto multi-view
+ -> confidence fusion
+ -> Phase 15 inspection
+ -> Phase 16 3D Ink
 ```
 
-Then:
-
-- follow surface tangents,
-- grow strokes across actual geometry,
-- render lines in Three.js,
-- add explicit **2D Ink** mode,
-- add explicit **3D Ink** mode.
-
-Phase 16 should use the real normalized mesh / surface geometry as the authoritative geometric substrate. Do not promote the Phase 15 approximate mean-depth inspection cloud into an exact surface model just because it is already visible in Three.js. Reuse the Phase 15 viewer as the visualization host where helpful, but keep world-space stroke generation as its own explicit subsystem.
+Do not add a separate procedural-object sensor or renderer. A generated object should be indistinguishable from an uploaded OBJ/STL once it enters the normalized scene pipeline, except for its source metadata.
 
 ## 13. Determinism and behavior invariants
 
@@ -1026,30 +1094,28 @@ For every major phase:
 Start here:
 
 ```text
-Phase 16 — 3D Ink
+Phase 17 — Simple geometry creation
 ```
 
-Branch from `phase-15-3d-inspection-viewer` and base the Phase 16 PR on `phase-15-3d-inspection-viewer`.
+Branch from `phase-16-3d-ink` and base the Phase 17 PR on `phase-16-3d-ink`.
 
 First inspect:
 
 ```text
-server/inspection.py
-server/confidence_fusion.py
 server/lidar_bridge.py
-frontend/inspection_viewer.js
-frontend/line_renderer.js
-frontend/stroke_placement.js
-frontend/analysis_maps.js
+server/state.py
+server/ink3d.py
 frontend/app.js
-tests/test_inspection.py
+frontend/inspection_viewer.js
+frontend/lidar_client.js
 tests/test_lidar_bridge.py
+tests/test_ink3d.py
 tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Preserve the Phase 11 content-addressed LRU cache, Phase 12/13 multi-view acquisition, Phase 14 confidence fusion, and Phase 15 offline inspector. The Phase 15 point cloud/ray preview is approximate visualization from cached per-pixel mean depth; use the normalized mesh and actual surface geometry as the authoritative substrate for world-space stroke growth.
+Also inspect the owner's Math-tools for deterministic lathe/profile and height-field/revolution ideas where useful.
 
-Implement 3D Ink as a new world-space stroke representation with XYZ, surface normal, tangent, depth, confidence, and material metadata. Keep 2D Ink explicitly available rather than silently changing the meaning of the existing renderer.
+Preserve the entire current pipeline. Generated Sphere / Box / Cylinder / Lathe/Profile / Height Field geometry should enter the same normalized scene representation and therefore automatically inherit scan caching, multi-view acquisition, confidence fusion, 3D inspection, and world-space 3D Ink. Do not create a second geometry renderer or sensor path.
 
-Do not touch Phase 17 simple geometry creation.
+Do not start the optional LLM Scene Assistant as part of Phase 17.

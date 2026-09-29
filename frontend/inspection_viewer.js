@@ -14,6 +14,65 @@
     ];
   }
 
+  function buildInkSegments(snapshot, sceneRadius = 1) {
+    const positions = snapshot?.positions || [];
+    const normals = snapshot?.normals || [];
+    const offsets = snapshot?.stroke_offsets || [];
+    const counts = snapshot?.stroke_counts || [];
+    const rgba = snapshot?.stroke_rgba || [];
+    const linePositions = [];
+    const lineColors = [];
+    const lift = clamp((Number(sceneRadius) || 1) * 0.0014, 0.001, 0.012);
+
+    function liftedPoint(index) {
+      const p = index * 3;
+      return [
+        Number(positions[p]) + Number(normals[p] || 0) * lift,
+        Number(positions[p + 1]) + Number(normals[p + 1] || 0) * lift,
+        Number(positions[p + 2]) + Number(normals[p + 2] || 0) * lift
+      ];
+    }
+
+    for (let s = 0; s < offsets.length; s++) {
+      const start = Number(offsets[s]) | 0;
+      const count = Number(counts[s]) | 0;
+      if (count < 2) continue;
+      const ci = s * 4;
+      const alpha = clamp(Number(rgba[ci + 3] ?? 255) / 255, 0.08, 1);
+      const red = clamp(Number(rgba[ci] ?? 12) / 255, 0, 1);
+      const green = clamp(Number(rgba[ci + 1] ?? 12) / 255, 0, 1);
+      const blue = clamp(Number(rgba[ci + 2] ?? 12) / 255, 0, 1);
+      for (let p = 0; p < count - 1; p++) {
+        linePositions.push(...liftedPoint(start + p), ...liftedPoint(start + p + 1));
+        lineColors.push(red, green, blue, alpha, red, green, blue, alpha);
+      }
+    }
+    return { positions: linePositions, colors: lineColors };
+  }
+
+  function orbitFromCameraView(view) {
+    if (!view || !Array.isArray(view.position) || !Array.isArray(view.target)) return null;
+    const px = Number(view.position[0]);
+    const py = Number(view.position[1]);
+    const pz = Number(view.position[2]);
+    const tx = Number(view.target[0]);
+    const ty = Number(view.target[1]);
+    const tz = Number(view.target[2]);
+    if (![px, py, pz, tx, ty, tz].every(Number.isFinite)) return null;
+    const dx = px - tx;
+    const dy = py - ty;
+    const dz = pz - tz;
+    const radius = Math.hypot(dx, dy, dz);
+    if (!(radius > 1e-9)) return null;
+    return {
+      target: [tx, ty, tz],
+      radius,
+      theta: Math.atan2(dx, dz),
+      phi: Math.acos(clamp(dy / radius, -1, 1)),
+      fov: clamp(Number(view.fov) || 55, 10, 120)
+    };
+  }
+
   function createInspectionViewer({ container, onSelectScan = null } = {}) {
     const THREE = window.THREE;
     if (!THREE) throw new Error('Three.js must load before inspection_viewer.js');
@@ -45,7 +104,9 @@
     camerasRoot.name = 'inspection_cameras';
     const selectedCameraRoot = new THREE.Group();
     selectedCameraRoot.name = 'inspection_selected_camera';
-    scene.add(meshRoot, pointsRoot, raysRoot, camerasRoot, selectedCameraRoot);
+    const inkRoot = new THREE.Group();
+    inkRoot.name = 'world_space_ink';
+    scene.add(meshRoot, pointsRoot, raysRoot, camerasRoot, selectedCameraRoot, inkRoot);
 
     let grid = null;
     const axes = new THREE.AxesHelper(1.2);
@@ -76,7 +137,8 @@
       mesh: true,
       points: true,
       rays: true,
-      cameras: true
+      cameras: true,
+      ink: true
     };
 
     function disposeMaterial(material) {
@@ -212,6 +274,39 @@
       syncLayerVisibility();
     }
 
+    function setInkSnapshot(snapshot) {
+      clearGroup(inkRoot);
+      if (!snapshot || !snapshot.stroke_count || !snapshot.point_count) {
+        syncLayerVisibility();
+        return;
+      }
+
+      const { positions: linePositions, colors: lineColors } =
+        buildInkSegments(snapshot, sceneRadius);
+
+      if (linePositions.length) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          'position',
+          new THREE.Float32BufferAttribute(new Float32Array(linePositions), 3)
+        );
+        geometry.setAttribute(
+          'color',
+          new THREE.Float32BufferAttribute(new Float32Array(lineColors), 4)
+        );
+        const material = new THREE.LineBasicMaterial({
+          vertexColors: true,
+          vertexAlphas: true,
+          transparent: true,
+          depthWrite: false
+        });
+        const lines = new THREE.LineSegments(geometry, material);
+        lines.name = 'surface_ink_segments';
+        inkRoot.add(lines);
+      }
+      syncLayerVisibility();
+    }
+
     function cameraViewFrom(raw) {
       if (!raw) return null;
       const position = raw.position || raw.camera_position;
@@ -332,6 +427,18 @@
       selectedScanId = scanId || null;
       syncCameraMaterials();
       rebuildSelectedCamera();
+
+      const view = cameraViews.find(item => item.scanId === selectedScanId);
+      const framed = orbitFromCameraView(view);
+      if (framed) {
+        orbit.target.fromArray(framed.target);
+        orbit.radius = framed.radius;
+        orbit.theta = framed.theta;
+        orbit.phi = clamp(framed.phi, 0.08, Math.PI - 0.08);
+        camera.fov = framed.fov;
+        camera.updateProjectionMatrix();
+        updateCamera();
+      }
     }
 
     function setLayers(next = {}) {
@@ -347,6 +454,7 @@
       raysRoot.visible = !!layers.rays;
       camerasRoot.visible = !!layers.cameras;
       selectedCameraRoot.visible = !!layers.cameras;
+      inkRoot.visible = !!layers.ink;
       axes.visible = !!layers.mesh;
       if (grid) grid.visible = !!layers.mesh;
     }
@@ -464,6 +572,7 @@
       clearGroup(raysRoot);
       clearGroup(camerasRoot);
       clearGroup(selectedCameraRoot);
+      clearGroup(inkRoot);
       grid?.geometry?.dispose?.();
       disposeMaterial(grid?.material);
       renderer.dispose();
@@ -480,6 +589,9 @@
           ? Math.floor(raysRoot.children[0].geometry.getAttribute('position').count / 2)
           : 0,
         cameraCount: cameraViews.length,
+        inkSegments: inkRoot.children[0]?.geometry?.getAttribute('position')?.count
+          ? Math.floor(inkRoot.children[0].geometry.getAttribute('position').count / 2)
+          : 0,
         selectedScanId
       });
     }
@@ -489,6 +601,7 @@
       setScanSnapshot,
       setCameraViews,
       setSelectedScan,
+      setInkSnapshot,
       setLayers,
       resetView,
       stats,
@@ -498,6 +611,8 @@
 
   window.LineArtInspectionViewer = Object.freeze({
     createInspectionViewer,
-    confidenceRgb
+    confidenceRgb,
+    buildInkSegments,
+    orbitFromCameraView
   });
 })();

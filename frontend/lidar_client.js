@@ -68,6 +68,15 @@
     return jsonResponse(response);
   }
 
+  async function projectInk3D(payload) {
+    const response = await fetch('/api/ink3d/project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return jsonResponse(response);
+  }
+
   async function getInspectionScene() {
     const response = await fetch('/api/inspection/scene', { cache: 'no-store' });
     return jsonResponse(response);
@@ -160,6 +169,7 @@
     scanFixedViews,
     scanAutoViews,
     fuseConfidence,
+    projectInk3D,
     getInspectionScene,
     getInspectionScan,
     getState,

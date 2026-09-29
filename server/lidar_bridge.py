@@ -13,6 +13,7 @@ import uuid
 from typing import Any
 
 from .inspection import scene_inspection_snapshot, scan_inspection_snapshot
+from .ink3d import project_strokes_to_mesh
 
 from .confidence_fusion import (
     EVIDENCE_VERSION,
@@ -858,6 +859,29 @@ class LidarBridge:
         if stored is None:
             raise ScanIdMismatchError("requested inspection scan is not available")
         return scan_inspection_snapshot(stored)
+
+    def project_ink3d(self, payload: dict[str, Any]) -> dict[str, Any]:
+        scene = self.state.get_scene_object()
+        if scene is None:
+            raise ValueError("no 3D model is loaded")
+
+        scan_id = str(payload.get("scan_id") or "").strip()
+        if not scan_id:
+            raise ValueError("scan_id is required for 3D Ink")
+        stored = self.state.get_scan_by_id(scan_id)
+        if stored is None:
+            raise ScanIdMismatchError("requested 3D Ink scan is not available")
+        if not stored.get("evidence"):
+            raise ValueError("selected scan does not contain cached confidence evidence")
+
+        current_scene = self.state.snapshot()["workspace"]["scene"]
+        scan_scene_hash = stored["metadata"].get("scene", {}).get("sha256")
+        current_scene_hash = current_scene.get("sha256")
+        if scan_scene_hash and current_scene_hash and scan_scene_hash != current_scene_hash:
+            raise ScanIdMismatchError("selected 3D Ink scan belongs to a different model")
+
+        engine = _load_engine()
+        return project_strokes_to_mesh(scene, stored, payload, engine=engine)
 
     def clear_fusion_cache(self) -> None:
         self._fusion_cache.clear()

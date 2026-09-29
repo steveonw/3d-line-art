@@ -359,6 +359,50 @@ f 1 2 3
         self.assertGreater(scan_snapshot["points"]["preview_count"], 0)
         self.assertGreater(scan_snapshot["rays"]["count"], 0)
 
+    def test_3d_ink_projects_existing_strokes_without_firing_new_lidar(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        scan = bridge.scan({
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "seed": 37,
+            "smart_sampling": False,
+            "yaw_deg": 0,
+            "elevation_deg": 20,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+        })
+        payload = {
+            "scan_id": scan["scan_id"],
+            "width": 64,
+            "height": 64,
+            "max_segment_pixels": 2.0,
+            "point_counts": [3],
+            "points": [27.0, 32.0, 32.0, 32.0, 37.0, 32.0],
+            "widths": [1.0],
+            "rgba": [12, 12, 12, 220],
+        }
+
+        with mock.patch(
+            "vendor.lidar_engine.fire_burst",
+            side_effect=AssertionError("3D Ink must not fire LiDAR"),
+        ), mock.patch(
+            "vendor.lidar_engine.scout_then_fill",
+            side_effect=AssertionError("3D Ink must not run smart LiDAR sampling"),
+        ):
+            ink = bridge.project_ink3d(payload)
+
+        self.assertEqual(ink["scan_id"], scan["scan_id"])
+        self.assertGreater(ink["stroke_count"], 0)
+        self.assertGreater(ink["point_count"], 2)
+        self.assertEqual(ink["metadata"]["coordinate_space"], "normalized-world")
+        self.assertEqual(
+            ink["metadata"]["confidence_source"],
+            "selected-scan-cached-confidence",
+        )
+
     def test_confidence_fusion_rebuilds_from_cached_scan_evidence_without_engine(self) -> None:
         state = StudioState()
         bridge = LidarBridge(state)

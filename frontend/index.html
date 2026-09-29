@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase15" />
+  <meta name="application-version" content="5.3-phase16" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -57,6 +57,21 @@
         <div class="source-help" id="modelStatus">No 3D model loaded.</div>
       </div>
 
+      <div class="section ink-space-section">
+        <div class="label-row">
+          <span class="group-label">Ink Space</span>
+          <span class="value">Phase 16</span>
+        </div>
+        <div class="segmented" id="inkSpaceControl" role="group" aria-label="Ink space">
+          <button type="button" class="active" data-space="2d" aria-pressed="true">2D Ink</button>
+          <button type="button" data-space="3d" aria-pressed="false" disabled>3D Ink</button>
+        </div>
+        <div class="source-actions ink3d-actions">
+          <button class="secondary" id="buildInk3DBtn" type="button" disabled>Build 3D Ink</button>
+        </div>
+        <div class="source-help" id="ink3dStatus">3D Ink uses the current LiDAR view and the completed 2D stroke prefix.</div>
+      </div>
+
       <div class="section inspector-section" id="inspectionControls">
         <div class="label-row">
           <span class="group-label">3D Inspection</span>
@@ -87,6 +102,10 @@
           <label class="checkbox-row" for="inspectionShowCameras">
             <input id="inspectionShowCameras" type="checkbox" checked disabled />
             <span>Cameras</span>
+          </label>
+          <label class="checkbox-row" for="inspectionShowInk">
+            <input id="inspectionShowInk" type="checkbox" checked disabled />
+            <span>3D Ink</span>
           </label>
         </div>
 
@@ -453,6 +472,7 @@
   </div>
 
   <script src="vendor/three.r128.min.js"></script>
+  <script src="ink3d.js"></script>
   <script src="inspection_viewer.js"></script>
   <script src="analysis_maps.js"></script>
   <script src="multiview.js"></script>

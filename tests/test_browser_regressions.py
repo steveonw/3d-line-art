@@ -265,6 +265,85 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertEqual(len(scan_requests), 2)
 
+    def test_3d_ink_projects_current_art_without_rescanning(self) -> None:
+        project = self.write_project("cube-3d-ink.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.upload_cube_and_scan()
+        self.page.wait_for_function(
+            "document.body.dataset.phase16Ready === 'true'"
+            " && !document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+        ink_requests = []
+        scan_requests = []
+        fusion_requests = []
+
+        def record(request):
+            url = request.url
+            if url.endswith("/api/ink3d/project"):
+                ink_requests.append(url)
+            elif url.endswith("/api/lidar/scan"):
+                scan_requests.append(url)
+            elif url.endswith("/api/lidar/fusion"):
+                fusion_requests.append(url)
+
+        self.page.on("request", record)
+
+        self.page.click('#inkSpaceControl button[data-space="3d"]')
+        self.page.wait_for_function(
+            "document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').classList.contains('active')"
+            " && !document.getElementById('inspectionShell').hidden"
+            " && document.getElementById('ink3dStatus').textContent.startsWith('3D Ink ready')"
+            " && document.getElementById('inspectionHudDetail').textContent.includes('surface strokes')",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+        self.assertEqual(len(ink_requests), 1)
+        self.assertEqual(len(scan_requests), 0)
+        self.assertEqual(len(fusion_requests), 0)
+        self.assertTrue(self.page.is_checked("#inspectionShowInk"))
+        self.assertTrue(self.page.is_hidden("#canvasShell"))
+        self.assertFalse(self.page.is_hidden("#inspectionShell"))
+
+        before_ink = len(ink_requests)
+        before_scan = len(scan_requests)
+        self.page.evaluate(
+            """() => {
+              const slider = document.getElementById('strokeLength');
+              slider.value = String(Number(slider.value) + 0.5);
+              slider.dispatchEvent(new Event('input', { bubbles: true }));
+            }"""
+        )
+        self.page.wait_for_function(
+            "document.getElementById('ink3dStatus').textContent.startsWith('3D Ink ready')",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.page.wait_for_function(
+            "count => performance.getEntriesByType('resource').filter("
+            "e => e.name.endsWith('/api/ink3d/project')).length >= count",
+            arg=before_ink + 1,
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertGreaterEqual(len(ink_requests), before_ink + 1)
+        self.assertEqual(len(scan_requests), before_scan)
+        self.assertEqual(len(fusion_requests), 0)
+
+        after_refresh = len(ink_requests)
+        self.page.uncheck("#inspectionShowInk")
+        self.page.check("#inspectionShowInk")
+        self.assertEqual(len(ink_requests), after_refresh)
+        self.assertEqual(len(scan_requests), before_scan)
+
+        self.page.click('#inkSpaceControl button[data-space="2d"]')
+        self.page.wait_for_function(
+            "document.querySelector('#inkSpaceControl button[data-space=\\\"2d\\\"]').classList.contains('active')"
+            " && document.getElementById('inspectionShell').hidden"
+            " && !document.getElementById('canvasShell').hidden"
+        )
+        self.assertEqual(len(scan_requests), before_scan)
+
     def test_3d_inspector_uses_local_mesh_and_cached_scan_views(self) -> None:
         project = self.write_project("cube-inspection.lidar-ink.json")
         self.open_app()
