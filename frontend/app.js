@@ -604,7 +604,8 @@
       canonicalSensorFloat(s.cameraElevation),
       canonicalSensorFloat(s.cameraDistance),
       canonicalSensorFloat(s.cameraFov),
-      42
+      42,
+      modelTransformSignature(value.modelTransform)
     ]);
   }
 
@@ -618,7 +619,8 @@
       canonicalSensorFloat(scan.camera?.distance_scale),
       canonicalSensorFloat(scan.camera?.fov_deg),
       Number(scan.seed ?? 42),
-      scan.scene?.sha256 || scan.scene?.name || null
+      modelTransformSignature(scan.scene?.transform || DEFAULT_SETTINGS.modelTransform),
+      scan.scene?.geometry_sha256 || scan.scene?.sha256 || scan.scene?.name || null
     ]);
   }
 
@@ -630,7 +632,8 @@
       s.smartSampling,
       canonicalSensorFloat(s.cameraDistance),
       canonicalSensorFloat(s.cameraFov),
-      42
+      42,
+      modelTransformSignature(value.modelTransform)
     ]);
   }
 
@@ -645,7 +648,8 @@
       canonicalSensorFloat(scan.camera?.distance_scale),
       canonicalSensorFloat(scan.camera?.fov_deg),
       Number(scan.seed ?? 42),
-      scan.scene?.sha256 || scan.scene?.name || null
+      modelTransformSignature(scan.scene?.transform || DEFAULT_SETTINGS.modelTransform),
+      scan.scene?.geometry_sha256 || scan.scene?.sha256 || scan.scene?.name || null
     ]);
   }
 
@@ -708,7 +712,7 @@
 
     if (installedScanMode === 'multi' && installedMultiViewSignature) {
       const parsedInstalled = JSON.parse(installedMultiViewSignature);
-      const installedSensor = JSON.stringify(parsedInstalled.slice(0, 6));
+      const installedSensor = JSON.stringify(parsedInstalled.slice(0, 7));
       const currentSensor = multiViewSettingsSignature(settings);
       scanDirty = installedSensor !== currentSensor || !modelMatch;
 
@@ -738,7 +742,7 @@
     }
 
     const parsedInstalled = JSON.parse(installedScanSignature);
-    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 8));
+    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 9));
     const currentSensor = scanSettingsSignature(settings);
     const sensorMatch = installedSensor === currentSensor;
 
@@ -760,6 +764,7 @@
     next.seed = normalizeSeed(next.seed);
     next.mode = next.mode === 'black' ? 'black' : 'color';
     next.inkSpace = next.inkSpace === '3d' ? '3d' : '2d';
+    next.modelTransform = normalizeModelTransform(next.modelTransform);
 
     const palettes = new Set(['original', 'muted', 'warm', 'cool', 'monochrome', 'limited']);
     if (!palettes.has(next.palette)) next.palette = DEFAULT_SETTINGS.palette;
@@ -1928,6 +1933,7 @@
     syncFlowMixerControls();
     syncModeButtons();
     syncInkSpaceButtons();
+    syncModelTransformControls();
     syncPaletteAvailability();
   }
 
