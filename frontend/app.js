@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase17';
+  const BUILD_VERSION = '5.3-post-v05-transform';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -30,6 +30,11 @@
     flowStrength: 0.65,
     seed: 2841,
     inkSpace: '2d',
+    modelTransform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: 1
+    },
     procedural: {
       scale: 120,
       turbulence: 0,
@@ -170,6 +175,16 @@
   const ctx = canvas.getContext('2d', { alpha: false });
   const imageInput = document.getElementById('imageInput');
   const modelInput = document.getElementById('modelInput');
+  const modelPositionX = document.getElementById('modelPositionX');
+  const modelPositionY = document.getElementById('modelPositionY');
+  const modelPositionZ = document.getElementById('modelPositionZ');
+  const modelRotationX = document.getElementById('modelRotationX');
+  const modelRotationY = document.getElementById('modelRotationY');
+  const modelRotationZ = document.getElementById('modelRotationZ');
+  const modelScale = document.getElementById('modelScale');
+  const applyModelTransformBtn = document.getElementById('applyModelTransformBtn');
+  const resetModelTransformBtn = document.getElementById('resetModelTransformBtn');
+  const modelTransformStatus = document.getElementById('modelTransformStatus');
   const geometryType = document.getElementById('geometryType');
   const geometryRadius = document.getElementById('geometryRadius');
   const geometryWidth = document.getElementById('geometryWidth');
