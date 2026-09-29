@@ -357,9 +357,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             "/api/lidar/scan",
             "/api/lidar/multiview",
             "/api/lidar/auto",
+            "/api/lidar/fusion",
             "/api/lidar/maps",
         }
-        if path in known_paths or path.startswith("/api/lidar/maps/"):
+        if (
+            path in known_paths
+            or path.startswith("/api/lidar/maps/")
+            or path.startswith("/api/lidar/fusion/")
+        ):
             self._send_json(
                 HTTPStatus.METHOD_NOT_ALLOWED,
                 {"ok": False, "error": "method not allowed", "code": "method_not_allowed"},
