@@ -895,6 +895,15 @@
     }
 
     if (
+      sceneLoaded &&
+      projectModelReady() &&
+      modelTransformSignature(settings.modelTransform) !== appliedModelTransformSignature
+    ) {
+      applyAuthoritativeModelTransform(settings.modelTransform, { autosave: false })
+        .catch(error => console.error('Could not restore model transform from history:', error));
+    }
+
+    if (
       preview &&
       sourceImage &&
       projectSourceReady() &&
@@ -3385,6 +3394,7 @@
   document.body.dataset.phase15Ready = 'true';
   document.body.dataset.phase16Ready = 'true';
   document.body.dataset.phase17Ready = 'true';
+  document.body.dataset.modelTransformReady = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -3412,6 +3422,42 @@
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
+
+  [
+    modelPositionX,
+    modelPositionY,
+    modelPositionZ,
+    modelRotationX,
+    modelRotationY,
+    modelRotationZ,
+    modelScale
+  ].forEach(control => {
+    control.addEventListener('input', () => {
+      if (!sceneLoaded) return;
+      const pending = readModelTransformControls();
+      modelTransformStatus.textContent =
+        modelTransformSignature(pending) === appliedModelTransformSignature
+          ? 'Transform matches the applied model geometry.'
+          : 'Transform changes are pending. Click Apply Transform.';
+    });
+  });
+  applyModelTransformBtn.addEventListener('click', () => {
+    applyAuthoritativeModelTransform(readModelTransformControls())
+      .catch(error => console.error(error));
+  });
+  resetModelTransformBtn.addEventListener('click', () => {
+    const identity = identityModelTransform();
+    modelPositionX.value = String(identity.position.x);
+    modelPositionY.value = String(identity.position.y);
+    modelPositionZ.value = String(identity.position.z);
+    modelRotationX.value = String(identity.rotation.x);
+    modelRotationY.value = String(identity.rotation.y);
+    modelRotationZ.value = String(identity.rotation.z);
+    modelScale.value = String(identity.scale);
+    applyAuthoritativeModelTransform(identity)
+      .catch(error => console.error(error));
+  });
+
   geometryType.addEventListener('change', syncGeometryBuilderFields);
   generateGeometryBtn.addEventListener('click', () => {
     generateGeometryScene().catch(error => {
