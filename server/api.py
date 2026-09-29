@@ -17,8 +17,8 @@ from .state import StudioState
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.4-phase13"
-API_VERSION = 5
+SERVER_VERSION = "0.4-phase14"
+API_VERSION = 6
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
@@ -28,6 +28,7 @@ _JSON_POST_PATHS = {
     "/api/lidar/scan",
     "/api/lidar/multiview",
     "/api/lidar/auto",
+    "/api/lidar/fusion",
 }
 _UPLOAD_POST_PATHS = {"/api/scene/upload"}
 _MUTATING_API_PATHS = _JSON_POST_PATHS | _UPLOAD_POST_PATHS
@@ -218,6 +219,9 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 return
             try:
                 self.server.state.reset()
+                clear_fusion = getattr(self.server.lidar, "clear_fusion_cache", None)
+                if callable(clear_fusion):
+                    clear_fusion()
             finally:
                 self.server.state.end_operation()
             self._send_json(
@@ -279,6 +283,43 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             self._send_json(
                 HTTPStatus.OK,
                 {"ok": True, "multiview": multiview},
+            )
+            return
+
+        if method == "POST" and path == "/api/lidar/fusion":
+            options = self._read_json(MAX_JSON_BYTES)
+            scan_ids = options.get("scan_ids")
+            if not isinstance(scan_ids, list):
+                raise ValueError("scan_ids must be an array")
+            if not self.server.state.try_begin_operation("lidar-fusion"):
+                self._busy()
+                return
+            try:
+                fusion = self.server.lidar.fuse_scan_confidence(scan_ids)
+            finally:
+                self.server.state.end_operation()
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "fusion": fusion},
+            )
+            return
+
+        if method == "GET" and path.startswith("/api/lidar/fusion/") and path.endswith(".png"):
+            channel = path.rsplit("/", 1)[-1][:-4]
+            params = parse_qs(query, keep_blank_values=True)
+            fusion_id = (params.get("fusion_id") or [""])[0]
+            scan_id = (params.get("scan_id") or [""])[0]
+            payload = self.server.lidar.fusion_png(
+                fusion_id,
+                scan_id,
+                channel,
+            )
+            self._send_bytes(
+                HTTPStatus.OK,
+                payload,
+                "image/png",
+                cache_control="no-store",
+                head_only=False,
             )
             return
 
