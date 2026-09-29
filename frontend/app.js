@@ -469,7 +469,11 @@
         y: canonicalRotation(rotation.y),
         z: canonicalRotation(rotation.z)
       },
-      scale: canonicalSensorFloat(clamp(Number(value?.scale) || 1, 0.05, 10))
+      scale: canonicalSensorFloat(clamp(
+        Number.isFinite(Number(value?.scale)) ? Number(value.scale) : 1,
+        0.05,
+        10
+      ))
     };
   }
 
