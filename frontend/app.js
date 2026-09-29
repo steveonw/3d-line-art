@@ -1459,6 +1459,8 @@
       : 'Open 3D Inspector';
 
     if (!inspectionOpen) {
+      inspectionSerial++;
+      inspectionLoading = false;
       inspectionShell.hidden = true;
       canvasShell.hidden = !sourceImage;
       emptyState.hidden = !!sourceImage;
@@ -1477,6 +1479,7 @@
 
     try {
       await loadInspectionScene();
+      if (!inspectionOpen) return;
       const scanId = inspectionCurrentScanId();
       await loadInspectionScan(scanId);
     } catch (error) {
