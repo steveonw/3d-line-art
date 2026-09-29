@@ -180,7 +180,7 @@ class FakeLidarBridge:
             "mode": "auto",
             "order": order,
             "views": views,
-            "current_view": order[0],
+            "current_view": order[-1],
             "planner": {
                 "metric": "quality-weighted view-space coverage",
                 "coverage_score": 0.76,
@@ -270,11 +270,17 @@ class ServerTestCase(unittest.TestCase):
         method: str = "GET",
         body: bytes | None = None,
         content_type: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, bytes, str]:
-        headers = {}
+        request_headers = dict(headers or {})
         if content_type:
-            headers["Content-Type"] = content_type
-        request = Request(self.base + path, data=body, headers=headers, method=method)
+            request_headers["Content-Type"] = content_type
+        request = Request(
+            self.base + path,
+            data=body,
+            headers=request_headers,
+            method=method,
+        )
         try:
             with urlopen(request, timeout=2) as response:
                 return (
@@ -292,12 +298,14 @@ class ServerTestCase(unittest.TestCase):
         method: str = "GET",
         body: bytes | None = None,
         content_type: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, dict]:
         status, payload, _ = self.request(
             path,
             method=method,
             body=body,
             content_type=content_type,
+            headers=headers,
         )
         return status, json.loads(payload.decode("utf-8"))
 
@@ -326,7 +334,12 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(before["state"]["workspace"]["scan_cache"]["entries"], 0)
         self.assertIn("limit_bytes", before["state"]["workspace"]["scan_cache"])
 
-        status, after = self.json_request("/api/reset", method="POST")
+        status, after = self.json_request(
+            "/api/reset",
+            method="POST",
+            body=b"{}",
+            content_type="application/json",
+        )
         self.assertEqual(status, 200)
         self.assertEqual(after["state"]["revision"], 1)
         self.assertEqual(after["state"]["reset_count"], 1)
@@ -484,8 +497,63 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(multiview["mode"], "auto")
         self.assertEqual(len(multiview["order"]), 3)
         self.assertEqual(multiview["planner"]["stop_reason"], "target_reached")
+        self.assertEqual(multiview["current_view"], multiview["order"][-1])
         first = multiview["views"][multiview["order"][0]]
         self.assertEqual(first["view"]["kind"], "auto")
+
+    def test_cross_origin_mutation_is_rejected(self) -> None:
+        status, payload = self.json_request(
+            "/api/reset",
+            method="POST",
+            body=b"{}",
+            content_type="application/json",
+            headers={"Origin": "https://evil.example"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["code"], "origin_not_allowed")
+        self.assertEqual(self.state.snapshot()["reset_count"], 0)
+
+    def test_same_origin_mutation_is_allowed(self) -> None:
+        status, payload = self.json_request(
+            "/api/reset",
+            method="POST",
+            body=b"{}",
+            content_type="application/json; charset=utf-8",
+            headers={"Origin": self.base},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+
+    def test_wrong_post_content_type_is_rejected(self) -> None:
+        status, payload = self.json_request(
+            "/api/reset",
+            method="POST",
+            body=b"{}",
+            content_type="text/plain",
+        )
+        self.assertEqual(status, 415)
+        self.assertEqual(payload["code"], "unsupported_media_type")
+        self.assertEqual(self.state.snapshot()["reset_count"], 0)
+
+        status, payload = self.json_request(
+            "/api/scene/upload?filename=cube.obj",
+            method="POST",
+            body=b"fake obj bytes",
+            content_type="text/plain",
+        )
+        self.assertEqual(status, 415)
+        self.assertEqual(payload["code"], "unsupported_media_type")
+
+    def test_deep_json_returns_bad_request_not_internal_error(self) -> None:
+        deeply_nested = ("{" + '"x":' * 1200 + "0" + "}" * 1200).encode("utf-8")
+        status, payload = self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=deeply_nested,
+            content_type="application/json",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "bad_request")
 
     def test_reset_discards_scene_and_scan(self) -> None:
         self.upload_fake_scene()
