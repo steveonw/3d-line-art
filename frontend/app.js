@@ -1708,6 +1708,25 @@
     scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
     scanMultiBtn.disabled = scanBtn.disabled;
     scanAutoBtn.disabled = scanBtn.disabled;
+
+    const inspectionLocked = modelLoading || scanRunning || highActive || exportBusy;
+    inspectionToggle.disabled = !sceneLoaded || inspectionLocked;
+    const inspectionHasScans = inspectionEntries().length > 0;
+    inspectionScanSelect.disabled =
+      !inspectionOpen || inspectionLoading || !inspectionHasScans || inspectionLocked;
+    [
+      inspectionShowMesh,
+      inspectionShowPoints,
+      inspectionShowRays,
+      inspectionShowCameras,
+      inspectionResetView
+    ].forEach(el => {
+      el.disabled = !inspectionOpen || inspectionLoading || inspectionLocked;
+    });
+    inspectionViewpoints.querySelectorAll('button').forEach(button => {
+      button.disabled = !inspectionOpen || inspectionLoading || inspectionLocked;
+    });
+
     const multiViewAvailable = !!multiViewBundle && modelReady && !modelLoading;
     multiViewMode.disabled = !multiViewAvailable || uiLocked;
     multiViewDebugColors.disabled = !multiViewAvailable || uiLocked;
@@ -1931,6 +1950,7 @@
       installedMultiViewSignature = null;
       installedScanSignature = null;
       installedScanId = null;
+      installedScanMetadata = null;
       installedScanCacheHit = false;
       installedScanMode = 'single';
       updateMultiViewSummary();
@@ -1945,6 +1965,10 @@
         : 'Scan stale · ready to scan';
       modelStatus.textContent =
         `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
+      resetInspectionForScene();
+      if (inspectionOpen) {
+        await loadInspectionScene({ force: true });
+      }
 
       if (!projectModelReady()) {
         const needed = requiredSourceLabel();
@@ -2057,6 +2081,7 @@
           sha256: scan.scene?.sha256 || null
         }
       );
+      await refreshInspectionAfterAcquisition();
     } catch (error) {
       console.error(error);
       if (shadedCanvas && shadedCanvas !== sourceCanvas) {
@@ -2241,6 +2266,7 @@
         `${loadedViews[0].scan.scene?.name || '3D model'} - 5 fixed views · ${Math.round(averageCoverage * 100)}% average coverage · ${Math.round(meanFusion * 100)}% fused confidence`;
 
       activateMultiViewSource({ install: true });
+      await refreshInspectionAfterAcquisition();
     } catch (error) {
       console.error(error);
       if (serial !== loadSerial) return;
@@ -2360,6 +2386,7 @@
         `${loadedViews[0].scan.scene?.name || '3D model'} - ${order.length} auto views · ${coverageScore}% view-space coverage · ${Math.round(meanFusion * 100)}% fused confidence · ${planner.stop_reason || 'complete'}`;
 
       activateMultiViewSource({ install: true });
+      await refreshInspectionAfterAcquisition();
     } catch (error) {
       console.error(error);
       if (serial !== loadSerial) return;
@@ -2726,6 +2753,7 @@
     if (!multiViewBundle?.order.includes(multiViewCurrent.value)) return;
     settings.lidar.multiViewCurrent = multiViewCurrent.value;
     activateMultiViewSource({ historyKey: 'lidar:multiViewCurrent' });
+    refreshInspectionAfterAcquisition().catch(error => console.error(error));
   });
   multiViewDebugColors.addEventListener('change', () => {
     settings.lidar.multiViewDebugColors = multiViewDebugColors.checked;
