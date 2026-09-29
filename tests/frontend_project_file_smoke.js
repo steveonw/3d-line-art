@@ -119,13 +119,7 @@ const source = {
   name: 'test-cube.obj',
   size: 12345,
   lastModified: 1700000000000,
-  type: 'text/plain',
-  generator: {
-    type: 'sphere',
-    radius: 1.25,
-    segments: 24,
-    rings: 12
-  }
+  type: 'text/plain'
 };
 
 const project = Project.create(settings, source, { pngScale: '4' });
@@ -165,19 +159,47 @@ assert(reopened.settings.lidar.multiViewCurrent === 'right', 'current fixed view
 assert(reopened.settings.lidar.multiViewDebugColors === true, 'debug view colors did not round-trip');
 assert(reopened.export.pngScale === '4', 'export settings did not round-trip');
 assert(reopened.source.name === source.name, 'source reference did not round-trip');
-assert(reopened.source.generator?.type === 'sphere', 'generated source type did not round-trip');
-assert(reopened.source.generator?.segments === 24, 'generated source settings did not round-trip');
+
+const generatedSource = {
+  kind: 'lidar',
+  name: 'generated-sphere.obj',
+  size: null,
+  lastModified: null,
+  type: 'text/plain',
+  sha256: null,
+  generator: {
+    type: 'sphere',
+    radius: 1.25,
+    segments: 24,
+    rings: 12
+  }
+};
+const generatedProject = Project.create(settings, generatedSource, { pngScale: '2' });
+const generatedReopened = Project.deserialize(
+  Project.serialize(generatedProject),
+  defaults,
+  { pngScale: '2' }
+);
+assert(generatedReopened?.source.generator?.type === 'sphere', 'generated source type did not round-trip');
+assert(generatedReopened.source.generator?.segments === 24, 'generated source settings did not round-trip');
 assert(
   Project.sourceMatches(
-    reopened.source,
-    { ...source, name: 'renamed-generated.obj', size: null, generator: { ...source.generator } }
+    generatedReopened.source,
+    {
+      ...generatedSource,
+      name: 'renamed-generated.obj',
+      generator: { ...generatedSource.generator }
+    }
   ),
   'matching generated source specs should restore without a file'
 );
 assert(
   !Project.sourceMatches(
-    reopened.source,
-    { ...source, generator: { ...source.generator, radius: 2 } }
+    generatedReopened.source,
+    {
+      ...generatedSource,
+      generator: { ...generatedSource.generator, radius: 2 }
+    }
   ),
   'different generated source specs must not match'
 );
