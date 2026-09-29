@@ -2505,9 +2505,16 @@
 
     try {
       const result = await LidarClient.uploadScene(file);
-      const scene = result.scene;
+      let scene = result.scene;
       const reference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
-      await installLoadedScene(scene, reference);
+      const preserveTransform =
+        requiredSourceReference?.kind === 'lidar' &&
+        LineArtProjectState.sourceMatches(requiredSourceReference, reference);
+      if (preserveTransform && !modelTransformIsIdentity(settings.modelTransform)) {
+        const transformed = await LidarClient.transformScene(settings.modelTransform);
+        scene = transformed.scene;
+      }
+      await installLoadedScene(scene, reference, { preserveTransform });
     } catch (error) {
       console.error(error);
       restoreModelLoadState(previous);
