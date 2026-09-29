@@ -491,21 +491,25 @@ Add Three.js without adding an LLM dependency.
 
 Show:
 
-- [ ] Source mesh
-- [ ] LiDAR camera
-- [ ] Ray/hit preview
-- [ ] Point cloud
-- [ ] Selected scan
+- [x] Source mesh
+- [x] LiDAR camera
+- [x] Ray/hit preview
+- [x] Point cloud
+- [x] Selected scan
 
 Interaction:
 
-- [ ] Orbit controls
-- [ ] Camera direction gizmo
-- [ ] Click/select scan viewpoints
-- [ ] Reuse useful camera/viewer ideas from Math-tools
-- [ ] Reuse non-LLM viewer/scaffold ideas from text-to-3d if useful
+- [x] Orbit controls
+- [x] Camera direction gizmo
+- [x] Click/select scan viewpoints
+- [x] Reuse useful camera/viewer ideas from Math-tools
+- [x] Reuse non-LLM viewer/scaffold ideas from text-to-3d if useful
 
 **Done when:** users can visually position and inspect the sensor before rendering.
+
+**Phase 15 validation:** the studio now includes an offline Three.js inspection workspace over the existing normalized scene and cached scan products. It displays a deterministic mesh preview, selected LiDAR camera/frustum and direction gizmo, confidence-colored cached hit cloud, bounded hit-ray preview, and all acquired fixed/automatic viewpoints. Orbit, pan, zoom, layer toggles, dropdown selection, viewpoint buttons, and clickable 3D camera markers are inspection-only interactions; selecting a multi-view camera synchronizes the existing Current View without rerunning LiDAR or confidence fusion.
+
+Inspection data remains deliberately bounded and deterministic: at most 20,000 mesh triangles, 12,000 cached hit points, and 320 cached hit rays are sent to the browser. The point/ray display reuses Phase 14's per-pixel mean metric-depth evidence and therefore remains an approximate inspection representation, not a retained raw-ray point cloud or a second geometry/reconstruction pipeline. GitHub Actions passes offline-viewer smoke coverage, deterministic snapshot tests, engine-disabled cache-only inspection, API contracts, and real Chromium verification of mesh-only inspection before scanning, multi-view point/ray inspection, browser-side scan-inspection caching, local viewpoint switching, and return to the 2D art canvas.
 
 ---
 
