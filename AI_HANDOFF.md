@@ -881,6 +881,8 @@ Key invariants:
 - cached selected-scan confidence is metadata/weighting only,
 - paths are densely sampled and broken rather than drawing through geometric discontinuities,
 - stored world points stay exactly on the surface; only Three.js display receives a tiny normal lift to avoid z-fighting,
+- 3D stroke RGB is kept straight/un-premultiplied and the original stroke alpha is sent as a per-vertex alpha attribute,
+- selecting a scan/viewpoint also frames the orbit camera from that scan's position, target, and vertical FOV before free orbit resumes,
 - Combined Views remains 2D-only because it has no single camera frame,
 - changing art settings may rebuild 3D Ink but must not rescan,
 - a later single scan clears stale multi-view browser state before becoming authoritative.
@@ -896,6 +898,17 @@ ordinary API JSON         <= 64 KB
 ```
 
 The 3D Ink endpoint uses the existing local-origin checks and non-blocking operation gate. The larger 4 MB cap is scoped only to the bounded stroke-projection payload and does not widen sensor/control routes.
+
+### Phase 16 review follow-ups that are intentionally still open
+
+These are not blockers for the world-space geometry contract, but a later polish pass should revisit them:
+
+- the 3D projection currently uses the deterministic first 5,000 completed 2D strokes, so very dense 2D drawings appear much sparser in 3D,
+- ink-only mode can have poor contrast because dark ink sits on the inspector's near-black background when the mesh is hidden,
+- portable WebGL line rendering is effectively 1 px wide, so stored 2D stroke widths are not yet represented geometrically in 3D,
+- the bounded Phase 15 mesh preview samples triangles by source order rather than performing topology-aware simplification, so extremely dense meshes may look perforated.
+
+Do not "fix" the 5,000-stroke item by removing bounds. Preserve bounded payload/latency behavior and solve density with an explicit scalable representation or deterministic level-of-detail strategy.
 
 ## 12.97. Next task: Phase 17 — Simple geometry creation
 
