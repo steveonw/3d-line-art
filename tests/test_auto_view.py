@@ -41,6 +41,8 @@ class AutoViewPlannerTest(unittest.TestCase):
         candidates = generate_candidate_views()
         first = choose_next_candidate(candidates, [])
         self.assertEqual(first["name"], "auto_low_000")
+        self.assertGreater(first["expected_gain"], 0)
+        self.assertEqual(first["expected_gain"], first["expected_coverage_score"])
         acquired = [{**first, "quality_score": 0.9}]
         before = view_space_coverage_score(candidates, acquired)
         second = choose_next_candidate(candidates, acquired)
