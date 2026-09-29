@@ -511,6 +511,9 @@
     installedScanSignature = scanMetadataSignature(scan);
     installedScanId = scan.scan_id || null;
     installedScanMetadata = scan ? { ...scan } : null;
+    installedMultiViewSignature = null;
+    multiViewBundle = null;
+    updateMultiViewSummary();
     installedScanLabel = `${scan.width}×${scan.height}${scan.smart_sampling ? ' · smart' : ''}`;
     installedScanCacheHit = !!scan.cache_hit;
     return updateScanFreshness();
