@@ -104,9 +104,17 @@ class BrowserRegressionTests(unittest.TestCase):
             arg=path.name,
         )
 
+    def select_control_tab(self, tab: str) -> None:
+        self.page.click(f'#controlDockTabs button[data-control-tab="{tab}"]')
+        self.page.wait_for_function(
+            "tab => document.body.dataset.controlDockTab === tab",
+            arg=tab,
+        )
+
     def upload_cube_and_scan(self) -> None:
         self.page.set_input_files("#modelInput", str(CUBE_OBJ))
         self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
+        self.select_control_tab("lidar")
         self.page.click("#scanBtn")
         self.page.wait_for_function(
             "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
@@ -133,6 +141,7 @@ class BrowserRegressionTests(unittest.TestCase):
         return self.page.text_content(selector) or ""
 
     def render_png_sha256(self) -> str:
+        self.select_control_tab("export")
         self.page.click("#renderBtn")
         self.page.wait_for_function(
             "document.getElementById('status').textContent.startsWith('High quality done')",
