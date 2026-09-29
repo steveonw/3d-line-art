@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase17';
+  const BUILD_VERSION = '5.3-post-v05-transform';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -30,6 +30,11 @@
     flowStrength: 0.65,
     seed: 2841,
     inkSpace: '2d',
+    modelTransform: {
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: 1
+    },
     procedural: {
       scale: 120,
       turbulence: 0,
@@ -170,6 +175,16 @@
   const ctx = canvas.getContext('2d', { alpha: false });
   const imageInput = document.getElementById('imageInput');
   const modelInput = document.getElementById('modelInput');
+  const modelPositionX = document.getElementById('modelPositionX');
+  const modelPositionY = document.getElementById('modelPositionY');
+  const modelPositionZ = document.getElementById('modelPositionZ');
+  const modelRotationX = document.getElementById('modelRotationX');
+  const modelRotationY = document.getElementById('modelRotationY');
+  const modelRotationZ = document.getElementById('modelRotationZ');
+  const modelScale = document.getElementById('modelScale');
+  const applyModelTransformBtn = document.getElementById('applyModelTransformBtn');
+  const resetModelTransformBtn = document.getElementById('resetModelTransformBtn');
+  const modelTransformStatus = document.getElementById('modelTransformStatus');
   const geometryType = document.getElementById('geometryType');
   const geometryRadius = document.getElementById('geometryRadius');
   const geometryWidth = document.getElementById('geometryWidth');
@@ -314,6 +329,7 @@
   let installedMultiViewSignature = null;
   let multiViewBundle = null;
   let scanDirty = false;
+  let appliedModelTransformSignature = null;
   let activeRender = null;
 
   let inspectionViewer = null;
@@ -432,6 +448,75 @@
     };
   }
 
+  function canonicalRotation(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    const wrapped = ((n + 180) % 360 + 360) % 360 - 180;
+    return canonicalSensorFloat(wrapped);
+  }
+
+  function normalizeModelTransform(value = settings.modelTransform) {
+    const position = value?.position || {};
+    const rotation = value?.rotation || {};
+    return {
+      position: {
+        x: canonicalSensorFloat(clamp(Number(position.x) || 0, -24, 24)),
+        y: canonicalSensorFloat(clamp(Number(position.y) || 0, -24, 24)),
+        z: canonicalSensorFloat(clamp(Number(position.z) || 0, -24, 24))
+      },
+      rotation: {
+        x: canonicalRotation(rotation.x),
+        y: canonicalRotation(rotation.y),
+        z: canonicalRotation(rotation.z)
+      },
+      scale: canonicalSensorFloat(clamp(
+        Number.isFinite(Number(value?.scale)) ? Number(value.scale) : 1,
+        0.05,
+        10
+      ))
+    };
+  }
+
+  function modelTransformSignature(value = settings.modelTransform) {
+    const t = normalizeModelTransform(value);
+    return JSON.stringify([
+      t.position.x, t.position.y, t.position.z,
+      t.rotation.x, t.rotation.y, t.rotation.z,
+      t.scale
+    ]);
+  }
+
+  function readModelTransformControls() {
+    return normalizeModelTransform({
+      position: {
+        x: modelPositionX.value,
+        y: modelPositionY.value,
+        z: modelPositionZ.value
+      },
+      rotation: {
+        x: modelRotationX.value,
+        y: modelRotationY.value,
+        z: modelRotationZ.value
+      },
+      scale: modelScale.value
+    });
+  }
+
+  function syncModelTransformControls() {
+    const t = normalizeModelTransform(settings.modelTransform);
+    modelPositionX.value = String(t.position.x);
+    modelPositionY.value = String(t.position.y);
+    modelPositionZ.value = String(t.position.z);
+    modelRotationX.value = String(t.rotation.x);
+    modelRotationY.value = String(t.rotation.y);
+    modelRotationZ.value = String(t.rotation.z);
+    modelScale.value = String(t.scale);
+  }
+
+  function modelTransformIsIdentity(value = settings.modelTransform) {
+    return modelTransformSignature(value) === modelTransformSignature(DEFAULT_SETTINGS.modelTransform);
+  }
+
   function generatedSourceReference(scene) {
     return {
       kind: 'lidar',
@@ -523,7 +608,8 @@
       canonicalSensorFloat(s.cameraElevation),
       canonicalSensorFloat(s.cameraDistance),
       canonicalSensorFloat(s.cameraFov),
-      42
+      42,
+      modelTransformSignature(value.modelTransform)
     ]);
   }
 
@@ -537,7 +623,8 @@
       canonicalSensorFloat(scan.camera?.distance_scale),
       canonicalSensorFloat(scan.camera?.fov_deg),
       Number(scan.seed ?? 42),
-      scan.scene?.sha256 || scan.scene?.name || null
+      modelTransformSignature(scan.scene?.transform || DEFAULT_SETTINGS.modelTransform),
+      scan.scene?.geometry_sha256 || scan.scene?.sha256 || scan.scene?.name || null
     ]);
   }
 
@@ -549,7 +636,8 @@
       s.smartSampling,
       canonicalSensorFloat(s.cameraDistance),
       canonicalSensorFloat(s.cameraFov),
-      42
+      42,
+      modelTransformSignature(value.modelTransform)
     ]);
   }
 
@@ -564,7 +652,8 @@
       canonicalSensorFloat(scan.camera?.distance_scale),
       canonicalSensorFloat(scan.camera?.fov_deg),
       Number(scan.seed ?? 42),
-      scan.scene?.sha256 || scan.scene?.name || null
+      modelTransformSignature(scan.scene?.transform || DEFAULT_SETTINGS.modelTransform),
+      scan.scene?.geometry_sha256 || scan.scene?.sha256 || scan.scene?.name || null
     ]);
   }
 
@@ -627,7 +716,7 @@
 
     if (installedScanMode === 'multi' && installedMultiViewSignature) {
       const parsedInstalled = JSON.parse(installedMultiViewSignature);
-      const installedSensor = JSON.stringify(parsedInstalled.slice(0, 6));
+      const installedSensor = JSON.stringify(parsedInstalled.slice(0, 7));
       const currentSensor = multiViewSettingsSignature(settings);
       scanDirty = installedSensor !== currentSensor || !modelMatch;
 
@@ -657,7 +746,7 @@
     }
 
     const parsedInstalled = JSON.parse(installedScanSignature);
-    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 8));
+    const installedSensor = JSON.stringify(parsedInstalled.slice(0, 9));
     const currentSensor = scanSettingsSignature(settings);
     const sensorMatch = installedSensor === currentSensor;
 
@@ -679,6 +768,7 @@
     next.seed = normalizeSeed(next.seed);
     next.mode = next.mode === 'black' ? 'black' : 'color';
     next.inkSpace = next.inkSpace === '3d' ? '3d' : '2d';
+    next.modelTransform = normalizeModelTransform(next.modelTransform);
 
     const palettes = new Set(['original', 'muted', 'warm', 'cool', 'monochrome', 'limited']);
     if (!palettes.has(next.palette)) next.palette = DEFAULT_SETTINGS.palette;
@@ -806,6 +896,15 @@
       updateExportNote();
     } finally {
       historyApplying = false;
+    }
+
+    if (
+      sceneLoaded &&
+      projectModelReady() &&
+      modelTransformSignature(settings.modelTransform) !== appliedModelTransformSignature
+    ) {
+      applyAuthoritativeModelTransform(settings.modelTransform, { autosave: false })
+        .catch(error => console.error('Could not restore model transform from history:', error));
     }
 
     if (
@@ -1847,6 +1946,7 @@
     syncFlowMixerControls();
     syncModeButtons();
     syncInkSpaceButtons();
+    syncModelTransformControls();
     syncPaletteAvailability();
   }
 
@@ -1972,6 +2072,20 @@
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
+    const transformLocked = !sceneLoaded || !modelReady || uiLocked || modelLoading;
+    [
+      modelPositionX,
+      modelPositionY,
+      modelPositionZ,
+      modelRotationX,
+      modelRotationY,
+      modelRotationZ,
+      modelScale,
+      applyModelTransformBtn,
+      resetModelTransformBtn
+    ].forEach(element => {
+      element.disabled = transformLocked;
+    });
     const geometryLocked = uiLocked || modelLoading;
     [
       geometryType,
@@ -2249,9 +2363,100 @@
     }
   }
 
-  async function installLoadedScene(scene, reference, { generated = false } = {}) {
+  function identityModelTransform() {
+    return normalizeModelTransform(DEFAULT_SETTINGS.modelTransform);
+  }
+
+  function invalidateGeometryDerivedState() {
+    multiViewBundle = null;
+    installedMultiViewSignature = null;
+    installedScanSignature = null;
+    installedScanId = null;
+    installedScanMetadata = null;
+    installedScanLabel = null;
+    installedScanCacheHit = false;
+    installedScanMode = 'single';
+    scanDirty = sourceKind === 'lidar' ? !!sourceImage : true;
+    updateMultiViewSummary();
+    resetInk3D('3D Ink is stale because the model transform changed.');
+    if (settings.inkSpace === '3d') {
+      settings.inkSpace = '2d';
+      syncInkSpaceButtons();
+    }
+    scanBtn.textContent = 'Scan LiDAR';
+    scanMultiBtn.textContent = 'Scan 5 Views';
+    scanSummary.textContent = 'Scan stale · ready to scan';
+    resetInspectionForScene();
+  }
+
+  async function applyAuthoritativeModelTransform(
+    transform,
+    { autosave = true, force = false } = {}
+  ) {
+    if (!sceneLoaded) {
+      modelTransformStatus.textContent = 'Load or create a 3D model first.';
+      return null;
+    }
+    const canonical = normalizeModelTransform(transform);
+    const signature = modelTransformSignature(canonical);
+    if (!force && signature === appliedModelTransformSignature) {
+      settings.modelTransform = canonical;
+      syncModelTransformControls();
+      modelTransformStatus.textContent = modelTransformIsIdentity(canonical)
+        ? 'Normalized pose is already applied.'
+        : 'Transform is already applied to the scan geometry.';
+      return canonical;
+    }
+
+    modelLoading = true;
+    modelTransformStatus.textContent = 'Applying transform to the real model geometry…';
+    refreshButtons();
+    try {
+      const response = await LidarClient.transformScene(canonical);
+      const scene = response.scene;
+      settings.modelTransform = normalizeModelTransform(scene.transform || canonical);
+      appliedModelTransformSignature = modelTransformSignature(settings.modelTransform);
+      syncModelTransformControls();
+      invalidateGeometryDerivedState();
+      modelStatus.textContent =
+        `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles · transformed`;
+      const t = settings.modelTransform;
+      modelTransformStatus.textContent = modelTransformIsIdentity(t)
+        ? 'Reset to normalized model pose.'
+        : `Applied · pos ${t.position.x}, ${t.position.y}, ${t.position.z} · rot ${t.rotation.x}°, ${t.rotation.y}°, ${t.rotation.z}° · scale ${t.scale}`;
+      if (inspectionOpen) {
+        await loadInspectionScene({ force: true });
+      }
+      updateScanFreshness();
+      if (autosave) recordSettingsChange('modelTransform');
+      return settings.modelTransform;
+    } catch (error) {
+      console.error(error);
+      modelTransformStatus.textContent = `Transform failed: ${error.message}`;
+      throw error;
+    } finally {
+      modelLoading = false;
+      refreshButtons();
+    }
+  }
+
+  async function installLoadedScene(
+    scene,
+    reference,
+    { generated = false, preserveTransform = false } = {}
+  ) {
     sceneLoaded = true;
     modelReference = reference;
+    if (!preserveTransform) {
+      settings.modelTransform = identityModelTransform();
+    }
+    appliedModelTransformSignature = modelTransformSignature(
+      scene?.transform || identityModelTransform()
+    );
+    syncModelTransformControls();
+    modelTransformStatus.textContent = modelTransformIsIdentity(settings.modelTransform)
+      ? 'Normalized model pose ready.'
+      : 'Saved project transform applied.';
     const previousScanLabel = installedScanLabel;
     multiViewBundle = null;
     installedMultiViewSignature = null;
@@ -2327,9 +2532,16 @@
 
     try {
       const result = await LidarClient.uploadScene(file);
-      const scene = result.scene;
+      let scene = result.scene;
       const reference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
-      await installLoadedScene(scene, reference);
+      const preserveTransform =
+        requiredSourceReference?.kind === 'lidar' &&
+        LineArtProjectState.sourceMatches(requiredSourceReference, reference);
+      if (preserveTransform && !modelTransformIsIdentity(settings.modelTransform)) {
+        const transformed = await LidarClient.transformScene(settings.modelTransform);
+        scene = transformed.scene;
+      }
+      await installLoadedScene(scene, reference, { preserveTransform });
     } catch (error) {
       console.error(error);
       restoreModelLoadState(previous);
@@ -2841,7 +3053,52 @@
 
       if (!scene?.loaded) return null;
 
+      const desiredModelReference =
+        requiredSourceReference?.kind === 'lidar'
+          ? requiredSourceReference
+          : (
+              !requiredSourceReference && restoredSourceHint?.kind === 'lidar'
+                ? restoredSourceHint
+                : null
+            );
+      const sceneReferenceBeforeTransform = serverSceneReference(scene);
+      if (
+        desiredModelReference &&
+        LineArtProjectState.sourceMatches(
+          desiredModelReference,
+          sceneReferenceBeforeTransform
+        )
+      ) {
+        const desiredTransform = normalizeModelTransform(settings.modelTransform);
+        const serverTransform = normalizeModelTransform(
+          scene.transform || identityModelTransform()
+        );
+        if (
+          modelTransformSignature(desiredTransform) !==
+          modelTransformSignature(serverTransform)
+        ) {
+          modelTransformStatus.textContent = 'Restoring the saved model transform…';
+          const transformed = await LidarClient.transformScene(desiredTransform);
+          if (serial !== loadSerial) return null;
+          scene = transformed.scene;
+          result = await LidarClient.getState();
+          if (serial !== loadSerial) return null;
+          workspace = result.state?.workspace;
+        }
+      } else {
+        settings.modelTransform = normalizeModelTransform(
+          scene.transform || identityModelTransform()
+        );
+      }
+
       sceneLoaded = true;
+      appliedModelTransformSignature = modelTransformSignature(
+        scene.transform || settings.modelTransform
+      );
+      syncModelTransformControls();
+      modelTransformStatus.textContent = modelTransformIsIdentity(settings.modelTransform)
+        ? 'Normalized model pose ready.'
+        : 'Restored model transform from the saved/server scene.';
       const serverReference = serverSceneReference(scene);
       const hintedReference =
         (requiredSourceReference?.kind === 'lidar' &&
@@ -3141,6 +3398,7 @@
   document.body.dataset.phase15Ready = 'true';
   document.body.dataset.phase16Ready = 'true';
   document.body.dataset.phase17Ready = 'true';
+  document.body.dataset.modelTransformReady = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -3168,6 +3426,42 @@
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
+
+  [
+    modelPositionX,
+    modelPositionY,
+    modelPositionZ,
+    modelRotationX,
+    modelRotationY,
+    modelRotationZ,
+    modelScale
+  ].forEach(control => {
+    control.addEventListener('input', () => {
+      if (!sceneLoaded) return;
+      const pending = readModelTransformControls();
+      modelTransformStatus.textContent =
+        modelTransformSignature(pending) === appliedModelTransformSignature
+          ? 'Transform matches the applied model geometry.'
+          : 'Transform changes are pending. Click Apply Transform.';
+    });
+  });
+  applyModelTransformBtn.addEventListener('click', () => {
+    applyAuthoritativeModelTransform(readModelTransformControls())
+      .catch(error => console.error(error));
+  });
+  resetModelTransformBtn.addEventListener('click', () => {
+    const identity = identityModelTransform();
+    modelPositionX.value = String(identity.position.x);
+    modelPositionY.value = String(identity.position.y);
+    modelPositionZ.value = String(identity.position.z);
+    modelRotationX.value = String(identity.rotation.x);
+    modelRotationY.value = String(identity.rotation.y);
+    modelRotationZ.value = String(identity.rotation.z);
+    modelScale.value = String(identity.scale);
+    applyAuthoritativeModelTransform(identity)
+      .catch(error => console.error(error));
+  });
+
   geometryType.addEventListener('change', syncGeometryBuilderFields);
   generateGeometryBtn.addEventListener('click', () => {
     generateGeometryScene().catch(error => {

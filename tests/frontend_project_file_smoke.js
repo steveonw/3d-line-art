@@ -33,6 +33,11 @@ const defaults = {
   sampleBias: 0.78,
   flowStrength: 0.78,
   seed: 2841,
+  modelTransform: {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: 1
+  },
   procedural: { scale: 120, turbulence: 0, octaves: 4 },
   flowMixer: {
     surface: 1,
@@ -78,6 +83,11 @@ const settings = {
   palette: 'cool',
   seed: 777,
   lineCount: 123000,
+  modelTransform: {
+    position: { x: 2, y: 1, z: -1 },
+    rotation: { x: 90, y: 35, z: 15 },
+    scale: 1.2
+  },
   procedural: { scale: 85, turbulence: 0.65, octaves: 6 },
   flowMixer: {
     ...defaults.flowMixer,
@@ -128,6 +138,9 @@ assert(project.version === 2, 'portable project version should be 2');
 assert(project.source.name === 'test-cube.obj', 'model reference missing');
 assert(project.source.size === 12345, 'model size reference missing');
 assert(project.export.pngScale === '4', 'export setting missing');
+assert(project.settings.modelTransform.position.x === 2, 'model transform position missing');
+assert(project.settings.modelTransform.rotation.x === 90, 'model transform rotation missing');
+assert(project.settings.modelTransform.scale === 1.2, 'model transform scale missing');
 
 const text = Project.serialize({
   ...project,
@@ -159,6 +172,9 @@ assert(reopened.settings.lidar.multiViewCurrent === 'right', 'current fixed view
 assert(reopened.settings.lidar.multiViewDebugColors === true, 'debug view colors did not round-trip');
 assert(reopened.export.pngScale === '4', 'export settings did not round-trip');
 assert(reopened.source.name === source.name, 'source reference did not round-trip');
+assert(reopened.settings.modelTransform.position.z === -1, 'model transform position did not round-trip');
+assert(reopened.settings.modelTransform.rotation.y === 35, 'model transform rotation did not round-trip');
+assert(reopened.settings.modelTransform.scale === 1.2, 'model transform scale did not round-trip');
 
 const generatedSource = {
   kind: 'lidar',

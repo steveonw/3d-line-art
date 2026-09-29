@@ -15,6 +15,12 @@ from typing import Any
 from .inspection import scene_inspection_snapshot, scan_inspection_snapshot
 from .ink3d import project_strokes_to_mesh
 from .geometry_generators import generate_obj
+from .scene_transform import (
+    DEFAULT_MODEL_TRANSFORM,
+    geometry_fingerprint,
+    normalize_model_transform,
+    transform_scene,
+)
 
 from .confidence_fusion import (
     EVIDENCE_VERSION,
@@ -455,12 +461,12 @@ def _scan_cache_key(scene_info: dict[str, Any], scan_options: dict[str, Any]) ->
     Art settings are intentionally absent. The key contains only the model
     content identity and normalized sensor inputs.
     """
-    fingerprint = scene_info.get("sha256")
+    fingerprint = scene_info.get("geometry_sha256") or scene_info.get("sha256")
     if not fingerprint:
-        raise ValueError("loaded scene is missing its content fingerprint")
+        raise ValueError("loaded scene is missing its geometry fingerprint")
 
     payload = {
-        "model_sha256": str(fingerprint),
+        "geometry_sha256": str(fingerprint),
         "width": int(scan_options["width"]),
         "height": int(scan_options["height"]),
         "rays_per_pixel": int(scan_options["rays_per_pixel"]),
@@ -522,6 +528,7 @@ class LidarBridge:
 
     def __init__(self, state) -> None:
         self.state = state
+        self._base_scene = None
         self._fusion_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._fusion_cache_max_entries = 8
 
@@ -550,7 +557,9 @@ class LidarBridge:
         mesh = _normalize_mesh(engine, mesh)
         _validate_mesh_geometry(engine, mesh)
         scene = engine.Scene(meshes=[mesh])
+        self._base_scene = scene
         fingerprint = hashlib.sha256(raw).hexdigest()
+        model_transform = dict(DEFAULT_MODEL_TRANSFORM)
         info = {
             "name": filename,
             "format": os.path.splitext(filename)[1].lower().lstrip("."),
@@ -560,6 +569,8 @@ class LidarBridge:
             "bounds_max": [round(float(x), 4) for x in mesh.aabb_max],
             "normalized": True,
             "sha256": fingerprint,
+            "geometry_sha256": geometry_fingerprint(fingerprint, model_transform),
+            "transform": model_transform,
         }
         if generator is not None:
             info["generator"] = generator
@@ -573,6 +584,32 @@ class LidarBridge:
             raw,
             generator=canonical,
         )
+
+    def transform_scene(self, spec: dict[str, Any] | None) -> dict[str, Any]:
+        current = self.state.snapshot()["workspace"]["scene"]
+        if not current.get("loaded"):
+            raise ValueError("no 3D model is loaded")
+        if self._base_scene is None:
+            raise ValueError("base normalized model is unavailable; reload the 3D model")
+
+        engine = _load_engine()
+        scene, transform = transform_scene(engine, self._base_scene, spec)
+        meshes = list(scene.meshes)
+        if not meshes:
+            raise ValueError("transformed scene contains no mesh geometry")
+
+        all_min = engine.np.vstack([mesh.aabb_min for mesh in meshes]).min(axis=0)
+        all_max = engine.np.vstack([mesh.aabb_max for mesh in meshes]).max(axis=0)
+        source_sha = current.get("sha256")
+        info = {
+            **current,
+            "bounds_min": [round(float(x), 4) for x in all_min],
+            "bounds_max": [round(float(x), 4) for x in all_max],
+            "transform": transform,
+            "geometry_sha256": geometry_fingerprint(source_sha, transform),
+        }
+        self.state.set_scene(scene, info)
+        return info
 
     def scan(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         scene = self.state.get_scene_object()
@@ -693,6 +730,8 @@ class LidarBridge:
                 "triangles": scene_info.get("triangles"),
                 "vertices": scene_info.get("vertices"),
                 "sha256": scene_info.get("sha256"),
+                "geometry_sha256": scene_info.get("geometry_sha256") or scene_info.get("sha256"),
+                "transform": scene_info.get("transform") or dict(DEFAULT_MODEL_TRANSFORM),
             },
         }
         image_bytes = {
@@ -892,10 +931,13 @@ class LidarBridge:
             raise ValueError("selected scan does not contain cached confidence evidence")
 
         current_scene = self.state.snapshot()["workspace"]["scene"]
-        scan_scene_hash = stored["metadata"].get("scene", {}).get("sha256")
-        current_scene_hash = current_scene.get("sha256")
+        scan_scene_hash = (
+            stored["metadata"].get("scene", {}).get("geometry_sha256")
+            or stored["metadata"].get("scene", {}).get("sha256")
+        )
+        current_scene_hash = current_scene.get("geometry_sha256") or current_scene.get("sha256")
         if scan_scene_hash and current_scene_hash and scan_scene_hash != current_scene_hash:
-            raise ScanIdMismatchError("selected 3D Ink scan belongs to a different model")
+            raise ScanIdMismatchError("selected 3D Ink scan belongs to different model geometry")
 
         engine = _load_engine()
         return project_strokes_to_mesh(scene, stored, payload, engine=engine)
@@ -935,7 +977,8 @@ class LidarBridge:
             scans.append(stored)
 
         fingerprints = {
-            scan["metadata"].get("scene", {}).get("sha256")
+            scan["metadata"].get("scene", {}).get("geometry_sha256")
+            or scan["metadata"].get("scene", {}).get("sha256")
             for scan in scans
         }
         if len(fingerprints) != 1:

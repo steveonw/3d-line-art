@@ -148,7 +148,10 @@ def fuse_confidence(
     if canonical is None:
         raise ValueError("canonical scan is not part of the fusion set")
 
-    scene_hash = canonical["metadata"].get("scene", {}).get("sha256")
+    scene_hash = (
+        canonical["metadata"].get("scene", {}).get("geometry_sha256")
+        or canonical["metadata"].get("scene", {}).get("sha256")
+    )
     width = int(canonical["metadata"]["width"])
     height = int(canonical["metadata"]["height"])
     projected: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
@@ -156,8 +159,12 @@ def fuse_confidence(
 
     for scan in scan_list:
         metadata = scan["metadata"]
-        if metadata.get("scene", {}).get("sha256") != scene_hash:
-            raise ValueError("all fused scans must belong to the same model")
+        scan_geometry = (
+            metadata.get("scene", {}).get("geometry_sha256")
+            or metadata.get("scene", {}).get("sha256")
+        )
+        if scan_geometry != scene_hash:
+            raise ValueError("all fused scans must belong to the same model geometry")
         depth, confidence = decode_scan_evidence(scan["evidence"])
         points, source_flat = _world_points(depth, metadata)
         if not len(points):

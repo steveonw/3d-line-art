@@ -15,15 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-29:
 
 ```text
-branch: phase-17-simple-geometry
-PR:     #20 — Phase 17: add deterministic simple geometry creation
-base:   phase-16-3d-ink
+branch: post-v05-model-transform
+PR:     #21 — Post-v0.5: add authoritative model transforms
+base:   phase-17-simple-geometry
 CI:     passed
 ```
 
-The numbered core roadmap through **Phase 17 — Simple geometry creation** is complete.
+The numbered core roadmap through **Phase 17 — Simple geometry creation** is complete, and the first post-v0.5 stabilization follow-up (**authoritative Model Transform**) is complete.
 
-Default next work is **post-v0.5 stabilization / later polish**, not a new numbered phase. The optional LLM Scene Assistant remains opt-in and should not be started unless explicitly requested.
+Default next work remains **post-v0.5 stabilization / later polish**, not a new numbered phase. The optional LLM Scene Assistant remains opt-in and should not be started unless explicitly requested.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -74,12 +74,14 @@ main
   ↓
 #19 phase-16-3d-ink
   ↓
-#20 phase-17-simple-geometry ← CURRENT HEAD
+#20 phase-17-simple-geometry
+  ↓
+#21 post-v05-model-transform ← CURRENT HEAD
 ```
 
 There is no numbered Phase 18 in the core roadmap.
 
-For a normal follow-up branch, branch from `phase-17-simple-geometry` and base its PR on `phase-17-simple-geometry`. Keep individual polish/stabilization topics scoped rather than reopening a parallel architecture.
+For the next normal follow-up branch, branch from `post-v05-model-transform` and base its PR on `post-v05-model-transform`. Keep individual polish/stabilization topics scoped rather than reopening a parallel architecture.
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
 
@@ -965,6 +967,55 @@ generated box
   -> same project model restored
 ```
 
+## 12.985. Completed post-v0.5 follow-up — Authoritative Model Transform
+
+The studio now exposes Position X/Y/Z, Rotation X/Y/Z, uniform Scale, Apply Transform, and Reset Transform controls for loaded/generated models.
+
+Architecture:
+
+```text
+normalized source mesh (immutable base)
+  -> canonical model transform
+       position XYZ
+       rotation XYZ, applied X -> Y -> Z
+       uniform scale
+  -> authoritative transformed triangle scene
+       -> LiDAR
+       -> cache / multi-view
+       -> confidence fusion
+       -> inspection
+       -> 3D Ink
+```
+
+Important identity split:
+
+```text
+scene.sha256
+  = original uploaded/generated source identity
+
+scene.geometry_sha256
+  = hash(source sha256 + canonical model transform)
+```
+
+Preserve this split. Project/source matching uses the original source identity; sensor/geometry products use the transform-sensitive geometry identity.
+
+Key invariants:
+
+- transforms are **not** Three.js-only display state,
+- the immutable normalized base mesh is transformed afresh each time, so edits are not cumulative,
+- transforms rotate/scale around the normalized model center, then translate in world space,
+- Apply/Reset never fires LiDAR automatically,
+- Apply/Reset clears current scan/multi-view/inspection/3D-Ink state and requires an explicit rescan,
+- an exact identity transform recreates the identity geometry fingerprint and may reuse its valid cached scan,
+- stale scan IDs from a different transform cannot be used for current 3D Ink,
+- transforms are stored in project/autosave settings,
+- generated-scene recovery regenerates its deterministic source and reapplies the saved transform after server reset,
+- referenced uploaded models reapply the saved project transform when reselected,
+- transform edits participate in Undo/Redo,
+- transform controls are disabled when the loaded model does not match an explicit project reference.
+
+Real Chromium coverage exercises Apply -> Undo -> Redo -> Rescan -> Reset without implicit scans, plus transformed generated-scene autosave recovery after a server reset.
+
 ## 12.99. Default next work — post-v0.5 stabilization
 
 The numbered core roadmap is complete. Do not invent a Phase 18 unless the roadmap is deliberately extended.
@@ -1139,13 +1190,14 @@ Start here:
 Post-v0.5 stabilization / later polish
 ```
 
-Branch from `phase-17-simple-geometry` and base follow-up PRs on `phase-17-simple-geometry`.
+Branch from `post-v05-model-transform` and base follow-up PRs on `post-v05-model-transform`.
 
 First inspect:
 
 ```text
 ROADMAP.md
 README.md
+server/scene_transform.py
 server/geometry_generators.py
 server/lidar_bridge.py
 server/ink3d.py
@@ -1153,6 +1205,7 @@ server/inspection.py
 frontend/geometry_builder.js
 frontend/inspection_viewer.js
 frontend/app.js
+tests/test_scene_transform.py
 tests/test_geometry_generators.py
 tests/test_browser_regressions.py
 ```

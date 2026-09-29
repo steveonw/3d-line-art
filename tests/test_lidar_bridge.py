@@ -226,6 +226,86 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
         self.assertGreater(inspection["preview"]["triangle_count"], 0)
         self.assertGreater(scan_inspection["points"]["preview_count"], 0)
 
+    def test_model_transform_changes_geometry_identity_and_cache_namespace(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        base_scene = bridge.upload_scene("cube.obj", CUBE_OBJ)
+        options = {
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "smart_sampling": False,
+            "seed": 17,
+            "yaw_deg": 20,
+            "elevation_deg": 25,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+        }
+        first = bridge.scan(options)
+        self.assertFalse(first["cache_hit"])
+        self.assertEqual(
+            first["scene"]["geometry_sha256"],
+            base_scene["geometry_sha256"],
+        )
+
+        transformed = bridge.transform_scene({
+            "position": {"x": 2, "y": 0.5, "z": -1},
+            "rotation": {"x": 0, "y": 35, "z": 90},
+            "scale": 1.2,
+        })
+        self.assertEqual(transformed["sha256"], base_scene["sha256"])
+        self.assertNotEqual(
+            transformed["geometry_sha256"],
+            base_scene["geometry_sha256"],
+        )
+        self.assertEqual(
+            state.snapshot()["workspace"]["scan"]["status"],
+            "idle",
+        )
+
+        inspection = bridge.inspection_scene()
+        bounds_min = np.asarray(inspection["scene"]["bounds_min"])
+        bounds_max = np.asarray(inspection["scene"]["bounds_max"])
+        center = (bounds_min + bounds_max) * 0.5
+        self.assertGreater(center[0], 1.0)
+        self.assertLess(center[2], 0.0)
+
+        second = bridge.scan(options)
+        self.assertFalse(second["cache_hit"])
+        self.assertNotEqual(second["scan_id"], first["scan_id"])
+        self.assertEqual(
+            second["scene"]["geometry_sha256"],
+            transformed["geometry_sha256"],
+        )
+
+        stale_payload = {
+            "scan_id": first["scan_id"],
+            "width": 64,
+            "height": 64,
+            "point_counts": [2],
+            "points": [28.0, 32.0, 36.0, 32.0],
+            "widths": [1.0],
+            "rgba": [12, 12, 12, 220],
+        }
+        with self.assertRaisesRegex(
+            ScanIdMismatchError,
+            "different model geometry",
+        ):
+            bridge.project_ink3d(stale_payload)
+
+        restored = bridge.transform_scene({
+            "position": {"x": 0, "y": 0, "z": 0},
+            "rotation": {"x": 0, "y": 0, "z": 0},
+            "scale": 1,
+        })
+        self.assertEqual(
+            restored["geometry_sha256"],
+            base_scene["geometry_sha256"],
+        )
+        third = bridge.scan(options)
+        self.assertTrue(third["cache_hit"])
+        self.assertEqual(third["scan_id"], first["scan_id"])
+
     def test_confidence_is_meaningful_at_default_ray_count(self) -> None:
         results = {}
         for rays in (1, 2, 4):

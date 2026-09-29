@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase17" />
+  <meta name="application-version" content="5.3-post-v05-transform" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -55,6 +55,57 @@
         </div>
         <input id="modelInput" type="file" accept=".stl,.obj,model/stl,text/plain" />
         <div class="source-help" id="modelStatus">No 3D model loaded.</div>
+      </div>
+
+      <div class="section model-transform-section" id="modelTransformSection">
+        <div class="label-row">
+          <span class="group-label">Model Transform</span>
+          <span class="value">world space</span>
+        </div>
+
+        <div class="transform-group-label">Position</div>
+        <div class="transform-three-col">
+          <label class="control-field" for="modelPositionX">
+            <span>X</span>
+            <input id="modelPositionX" type="number" min="-24" max="24" step="0.1" value="0" disabled />
+          </label>
+          <label class="control-field" for="modelPositionY">
+            <span>Y</span>
+            <input id="modelPositionY" type="number" min="-24" max="24" step="0.1" value="0" disabled />
+          </label>
+          <label class="control-field" for="modelPositionZ">
+            <span>Z</span>
+            <input id="modelPositionZ" type="number" min="-24" max="24" step="0.1" value="0" disabled />
+          </label>
+        </div>
+
+        <div class="transform-group-label">Rotation</div>
+        <div class="transform-three-col">
+          <label class="control-field" for="modelRotationX">
+            <span>X°</span>
+            <input id="modelRotationX" type="number" min="-180" max="180" step="1" value="0" disabled />
+          </label>
+          <label class="control-field" for="modelRotationY">
+            <span>Y°</span>
+            <input id="modelRotationY" type="number" min="-180" max="180" step="1" value="0" disabled />
+          </label>
+          <label class="control-field" for="modelRotationZ">
+            <span>Z°</span>
+            <input id="modelRotationZ" type="number" min="-180" max="180" step="1" value="0" disabled />
+          </label>
+        </div>
+
+        <label class="control-field" for="modelScale">
+          <span>Uniform scale</span>
+          <input id="modelScale" type="number" min="0.05" max="10" step="0.05" value="1" disabled />
+        </label>
+
+        <div class="source-actions transform-actions">
+          <button class="secondary" id="applyModelTransformBtn" type="button" disabled>Apply Transform</button>
+          <button class="secondary" id="resetModelTransformBtn" type="button" disabled>Reset Transform</button>
+        </div>
+        <div class="source-help" id="modelTransformStatus">Load or create a 3D model, then rotate/reposition the real scan geometry.</div>
+        <div class="source-help">Rotation is applied X → Y → Z around the normalized model center. Reset restores the normalized pose.</div>
       </div>
 
       <div class="section geometry-builder-section" id="geometryBuilderSection">

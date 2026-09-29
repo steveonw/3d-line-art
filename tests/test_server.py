@@ -55,6 +55,32 @@ class FakeLidarBridge:
         self.state.set_scene(object(), info)
         return info
 
+    def transform_scene(self, spec: dict | None = None) -> dict:
+        current = self.state.snapshot()["workspace"]["scene"]
+        if not current.get("loaded"):
+            raise ValueError("no 3D model is loaded")
+        spec = dict(spec or {})
+        transform = {
+            "position": {
+                "x": float((spec.get("position") or {}).get("x", 0)),
+                "y": float((spec.get("position") or {}).get("y", 0)),
+                "z": float((spec.get("position") or {}).get("z", 0)),
+            },
+            "rotation": {
+                "x": float((spec.get("rotation") or {}).get("x", 0)),
+                "y": float((spec.get("rotation") or {}).get("y", 0)),
+                "z": float((spec.get("rotation") or {}).get("z", 0)),
+            },
+            "scale": float(spec.get("scale", 1)),
+        }
+        info = {
+            **current,
+            "transform": transform,
+            "geometry_sha256": "f" * 64,
+        }
+        self.state.set_scene(object(), info)
+        return info
+
     def scan(self, options: dict | None = None) -> dict:
         if self.state.get_scene_object() is None:
             raise ValueError("no 3D model is loaded")
@@ -476,8 +502,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.6-phase17")
-        self.assertEqual(payload["api_version"], 9)
+        self.assertEqual(payload["server_version"], "0.6-post-v05-transform")
+        self.assertEqual(payload["api_version"], 10)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -534,6 +560,46 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(state["state"]["workspace"]["scene"]["loaded"])
         self.assertEqual(state["state"]["workspace"]["scene"]["name"], "cube.obj")
+
+    def test_scene_transform_endpoint_updates_authoritative_scene(self) -> None:
+        self.upload_fake_scene()
+        status, payload = self.json_request(
+            "/api/scene/transform",
+            method="POST",
+            body=json.dumps({
+                "position": {"x": 2, "y": 1, "z": -3},
+                "rotation": {"x": 90, "y": 0, "z": 15},
+                "scale": 1.25,
+            }).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        scene = payload["scene"]
+        self.assertEqual(scene["transform"]["position"]["x"], 2.0)
+        self.assertEqual(scene["transform"]["rotation"]["x"], 90.0)
+        self.assertEqual(scene["transform"]["scale"], 1.25)
+        self.assertEqual(scene["geometry_sha256"], "f" * 64)
+
+        status, state = self.json_request("/api/state")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            state["state"]["workspace"]["scene"]["transform"]["position"]["z"],
+            -3.0,
+        )
+        self.assertEqual(
+            state["state"]["workspace"]["scan"]["status"],
+            "idle",
+        )
+
+    def test_scene_transform_requires_loaded_scene(self) -> None:
+        status, payload = self.json_request(
+            "/api/scene/transform",
+            method="POST",
+            body=b"{}",
+            content_type="application/json",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "bad_request")
 
     def test_generated_scene_endpoint_updates_standard_scene_state(self) -> None:
         status, payload = self.json_request(

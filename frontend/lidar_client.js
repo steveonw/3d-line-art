@@ -32,6 +32,15 @@
     return jsonResponse(response);
   }
 
+  async function transformScene(spec = {}) {
+    const response = await fetch('/api/scene/transform', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(spec)
+    });
+    return jsonResponse(response);
+  }
+
   async function generateScene(spec = {}) {
     const response = await fetch('/api/scene/generate', {
       method: 'POST',
@@ -174,6 +183,7 @@
 
   window.LidarClient = Object.freeze({
     uploadScene,
+    transformScene,
     generateScene,
     scan,
     scanFixedViews,

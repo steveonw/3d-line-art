@@ -76,6 +76,8 @@ def scene_inspection_snapshot(
         "scene": {
             "name": scene_info.get("name"),
             "sha256": scene_info.get("sha256"),
+            "geometry_sha256": scene_info.get("geometry_sha256") or scene_info.get("sha256"),
+            "transform": scene_info.get("transform"),
             "triangles": int(scene_info.get("triangles") or source_triangles),
             "vertices": int(scene_info.get("vertices") or 0),
             "bounds_min": [float(x) for x in bounds_min],
@@ -125,6 +127,10 @@ def scan_inspection_snapshot(
     return {
         "scan_id": metadata.get("scan_id"),
         "scene_sha256": metadata.get("scene", {}).get("sha256"),
+        "scene_geometry_sha256": (
+            metadata.get("scene", {}).get("geometry_sha256")
+            or metadata.get("scene", {}).get("sha256")
+        ),
         "camera": {
             "position": [float(x) for x in metadata.get("camera_position", [0, 0, 0])],
             "target": [float(x) for x in metadata.get("camera_target", [0, 0, 0])],

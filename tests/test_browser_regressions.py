@@ -265,6 +265,128 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertEqual(len(scan_requests), 2)
 
+    def test_model_transform_moves_authoritative_geometry_and_invalidates_scan(self) -> None:
+        project = self.write_project("cube-transform.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.upload_cube_and_scan()
+        self.page.wait_for_function(
+            "document.body.dataset.modelTransformReady === 'true'"
+            " && !document.getElementById('applyModelTransformBtn').disabled"
+        )
+
+        transform_requests = []
+        scan_requests = []
+        inspection_scene_requests = []
+
+        def record(request):
+            url = request.url
+            if url.endswith("/api/scene/transform"):
+                transform_requests.append(url)
+            elif url.endswith("/api/lidar/scan"):
+                scan_requests.append(url)
+            elif url.endswith("/api/inspection/scene"):
+                inspection_scene_requests.append(url)
+
+        self.page.on("request", record)
+        self.page.click("#inspectionToggle")
+        self.page.wait_for_function(
+            "!document.getElementById('inspectionShell').hidden"
+            " && document.querySelectorAll('#inspectionViewport canvas').length === 1"
+            " && document.getElementById('inspectionStatus').textContent.includes('hit rays')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        before_inspection = len(inspection_scene_requests)
+
+        self.page.fill("#modelPositionX", "2")
+        self.page.fill("#modelPositionY", "1")
+        self.page.fill("#modelPositionZ", "-1")
+        self.page.fill("#modelRotationX", "90")
+        self.page.fill("#modelRotationY", "35")
+        self.page.fill("#modelRotationZ", "15")
+        self.page.fill("#modelScale", "1.2")
+        self.assertIn("pending", self.text("#modelTransformStatus"))
+
+        self.page.click("#applyModelTransformBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelTransformStatus').textContent.startsWith('Applied')"
+            " && document.getElementById('scanSummary').textContent.includes('Scan stale')"
+            " && !document.getElementById('scanBtn').disabled",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(transform_requests), 1)
+        self.assertEqual(len(scan_requests), 0)
+        self.assertGreater(len(inspection_scene_requests), before_inspection)
+        self.assertTrue(self.is_disabled("#renderBtn"))
+        self.assertTrue(
+            self.is_disabled('#inkSpaceControl button[data-space="3d"]')
+        )
+
+        self.assertFalse(self.is_disabled("#undoBtn"))
+        self.page.click("#undoBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelPositionX').value === '0'"
+            " && document.getElementById('modelRotationX').value === '0'"
+            " && document.getElementById('modelScale').value === '1'"
+            " && document.getElementById('modelTransformStatus').textContent.includes('Reset')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(transform_requests), 2)
+        self.assertFalse(self.is_disabled("#redoBtn"))
+
+        self.page.click("#redoBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelPositionX').value === '2'"
+            " && document.getElementById('modelRotationX').value === '90'"
+            " && document.getElementById('modelScale').value === '1.2'"
+            " && document.getElementById('modelTransformStatus').textContent.startsWith('Applied')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(transform_requests), 3)
+        self.assertEqual(len(scan_requests), 0)
+
+        state = self.page.evaluate(
+            """async () => {
+              const response = await fetch('/api/state');
+              if (!response.ok) throw new Error('state failed');
+              return (await response.json()).state.workspace;
+            }"""
+        )
+        transform = state["scene"]["transform"]
+        self.assertEqual(transform["position"]["x"], 2.0)
+        self.assertEqual(transform["position"]["y"], 1.0)
+        self.assertEqual(transform["position"]["z"], -1.0)
+        self.assertEqual(transform["rotation"]["x"], 90.0)
+        self.assertEqual(transform["rotation"]["y"], 35.0)
+        self.assertEqual(transform["rotation"]["z"], 15.0)
+        self.assertEqual(transform["scale"], 1.2)
+        self.assertEqual(state["scan"]["status"], "idle")
+        self.assertNotEqual(
+            state["scene"]["geometry_sha256"],
+            state["scene"]["sha256"],
+        )
+
+        self.page.click("#scanBtn")
+        self.page.wait_for_function(
+            "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
+            " && !document.getElementById('scanSummary').textContent.includes('running')"
+            " && !document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertEqual(len(scan_requests), 1)
+
+        self.page.click("#resetModelTransformBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelTransformStatus').textContent.includes('Reset')"
+            " && document.getElementById('modelPositionX').value === '0'"
+            " && document.getElementById('modelRotationX').value === '0'"
+            " && document.getElementById('modelScale').value === '1'"
+            " && document.getElementById('scanSummary').textContent.includes('Scan stale')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(transform_requests), 4)
+        self.assertEqual(len(scan_requests), 1)
+
     def test_generated_lathe_runs_through_scan_inspection_and_3d_ink(self) -> None:
         self.open_app()
         self.page.wait_for_function(
@@ -340,14 +462,15 @@ class BrowserRegressionTests(unittest.TestCase):
     def test_generated_geometry_autosave_regenerates_after_server_reset(self) -> None:
         self.open_app()
         generate_requests = []
-        self.page.on(
-            "request",
-            lambda request: (
+        transform_requests = []
+
+        def record(request):
+            if request.url.endswith("/api/scene/generate"):
                 generate_requests.append(request.url)
-                if request.url.endswith("/api/scene/generate")
-                else None
-            ),
-        )
+            elif request.url.endswith("/api/scene/transform"):
+                transform_requests.append(request.url)
+
+        self.page.on("request", record)
 
         self.page.select_option("#geometryType", "box")
         self.page.fill("#geometryWidth", "2")
@@ -359,6 +482,17 @@ class BrowserRegressionTests(unittest.TestCase):
             " && !document.getElementById('scanBtn').disabled"
         )
         self.assertEqual(len(generate_requests), 1)
+
+        self.page.fill("#modelPositionX", "1.5")
+        self.page.fill("#modelPositionY", "0.5")
+        self.page.fill("#modelRotationY", "45")
+        self.page.fill("#modelRotationZ", "-20")
+        self.page.fill("#modelScale", "1.1")
+        self.page.click("#applyModelTransformBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelTransformStatus').textContent.startsWith('Applied')"
+        )
+        self.assertEqual(len(transform_requests), 1)
 
         self.page.evaluate(
             """async () => {
@@ -375,6 +509,10 @@ class BrowserRegressionTests(unittest.TestCase):
             "document.body.dataset.phase17Ready === 'true'"
             " && document.getElementById('modelStatus').textContent.includes('generated-box.obj')"
             " && document.getElementById('geometryStatus').textContent.includes('Restored generated box')"
+            " && document.getElementById('modelPositionX').value === '1.5'"
+            " && document.getElementById('modelRotationY').value === '45'"
+            " && document.getElementById('modelScale').value === '1.1'"
+            " && document.getElementById('modelTransformStatus').textContent.includes('Restored model transform')"
             " && !document.getElementById('scanBtn').disabled",
             timeout=UI_TIMEOUT_MS,
         )
@@ -383,6 +521,22 @@ class BrowserRegressionTests(unittest.TestCase):
             2,
             "autosave recovery should regenerate the saved procedural scene after a server reset",
         )
+        self.assertEqual(
+            len(transform_requests),
+            2,
+            "autosave recovery should reapply the saved authoritative model transform",
+        )
+        workspace = self.page.evaluate(
+            """async () => {
+              const response = await fetch('/api/state');
+              if (!response.ok) throw new Error('state failed');
+              return (await response.json()).state.workspace;
+            }"""
+        )
+        self.assertEqual(workspace["scene"]["transform"]["position"]["x"], 1.5)
+        self.assertEqual(workspace["scene"]["transform"]["rotation"]["y"], 45.0)
+        self.assertEqual(workspace["scene"]["transform"]["rotation"]["z"], -20.0)
+        self.assertEqual(workspace["scene"]["transform"]["scale"], 1.1)
 
     def test_3d_ink_projects_current_art_without_rescanning(self) -> None:
         project = self.write_project("cube-3d-ink.lidar-ink.json")

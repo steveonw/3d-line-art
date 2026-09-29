@@ -247,6 +247,10 @@ def project_strokes_to_mesh(
     if not metadata.get("scan_id"):
         raise ValueError("3D Ink requires a selected scan")
     scene_hash = metadata.get("scene", {}).get("sha256")
+    scene_geometry_hash = (
+        metadata.get("scene", {}).get("geometry_sha256")
+        or scene_hash
+    )
     validated = _validate_payload(payload, metadata)
     dense_xy, stroke_ids, _ = _densify(
         validated["points"],
@@ -369,6 +373,7 @@ def project_strokes_to_mesh(
         "format": INK3D_FORMAT,
         "version": INK3D_VERSION,
         "scene_sha256": scene_hash,
+        "scene_geometry_sha256": scene_geometry_hash,
         "scan_id": metadata["scan_id"],
         "source_stroke_count": input_stroke_count,
         "stroke_count": len(stroke_counts),
