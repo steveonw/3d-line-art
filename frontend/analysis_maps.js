@@ -331,6 +331,25 @@
     });
   }
 
+  function withConfidence(source, confidence) {
+    if (!source || !confidence || confidence.length !== source.width * source.height) {
+      throw new Error('replacement confidence dimensions do not match LiDAR source maps');
+    }
+    const nextConfidence = new Uint8Array(confidence);
+    const smoothed = smoothMaskedUint8(
+      nextConfidence,
+      source.occupancy,
+      source.width,
+      source.height,
+      2
+    );
+    return Object.freeze({
+      ...source,
+      confidence: nextConfidence,
+      confidenceSmoothed: smoothed
+    });
+  }
+
   function axialBlend(a, b, t) {
     if (t <= 0) return a;
     if (t >= 1) return b;
@@ -470,6 +489,7 @@
     buildAnalysisMaps,
     buildLidarAnalysisMaps,
     buildLidarSourceMaps,
+    withConfidence,
     composeLidarAnalysisMaps
   });
 })();
