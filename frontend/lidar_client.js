@@ -50,6 +50,15 @@
     return jsonResponse(response);
   }
 
+  async function scanAutoViews(options = {}) {
+    const response = await fetch('/api/lidar/auto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options)
+    });
+    return jsonResponse(response);
+  }
+
   async function getState() {
     const response = await fetch('/api/state', { cache: 'no-store' });
     return jsonResponse(response);
@@ -112,6 +121,7 @@
     uploadScene,
     scan,
     scanFixedViews,
+    scanAutoViews,
     getState,
     getMaps,
     fetchScanMaps

@@ -145,6 +145,17 @@ assert(
   'combined shaded pixels did not retain the darkest view contribution'
 );
 
+const autoColorA = M.viewColor('auto_low_000');
+const autoColorB = M.viewColor('auto_low_180');
+assert(
+  JSON.stringify(Array.from(autoColorA)) !== JSON.stringify(Array.from(autoColorB)),
+  'automatic views should receive distinguishable deterministic debug colors'
+);
+assert(
+  JSON.stringify(Array.from(autoColorA)) === JSON.stringify(Array.from(M.viewColor('auto_low_000'))),
+  'automatic view debug color must be deterministic'
+);
+
 const leftDebug = M.debugColorMapForView('left', count);
 const leftColor = M.VIEW_COLORS.left;
 for (let i = 0; i < count; i++) {

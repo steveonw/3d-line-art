@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase12';
+  const BUILD_VERSION = '5.3-phase13';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -167,6 +167,7 @@
   const modelInput = document.getElementById('modelInput');
   const scanBtn = document.getElementById('scanBtn');
   const scanMultiBtn = document.getElementById('scanMultiBtn');
+  const scanAutoBtn = document.getElementById('scanAutoBtn');
   const multiViewMode = document.getElementById('multiViewMode');
   const multiViewCurrent = document.getElementById('multiViewCurrent');
   const multiViewDebugColors = document.getElementById('multiViewDebugColors');
@@ -310,6 +311,23 @@
     return n >>> 0 || 1;
   }
 
+  function canonicalSensorFloat(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return n;
+    const rounded = Math.round(n * 1e6) / 1e6;
+    return Object.is(rounded, -0) ? 0 : rounded;
+  }
+
+  function canonicalYaw(value) {
+    const n = canonicalSensorFloat(value);
+    if (!Number.isFinite(n)) return n;
+    return canonicalSensorFloat(((n % 360) + 360) % 360);
+  }
+
+  function safeMultiViewName(value) {
+    return typeof value === 'string' && /^[a-z0-9_]{1,48}$/.test(value);
+  }
+
   function randomSeed() {
     if (globalThis.crypto?.getRandomValues) {
       const a = new Uint32Array(1);
@@ -391,10 +409,10 @@
       s.scanResolution,
       s.raysPerPixel,
       s.smartSampling,
-      s.cameraYaw,
-      s.cameraElevation,
-      s.cameraDistance,
-      s.cameraFov,
+      canonicalYaw(s.cameraYaw),
+      canonicalSensorFloat(s.cameraElevation),
+      canonicalSensorFloat(s.cameraDistance),
+      canonicalSensorFloat(s.cameraFov),
       42
     ]);
   }
@@ -404,10 +422,10 @@
       `${scan.width}x${scan.height}`,
       scan.rays_per_pixel,
       !!scan.smart_sampling,
-      Number(scan.camera?.yaw_deg),
-      Number(scan.camera?.elevation_deg),
-      Number(scan.camera?.distance_scale),
-      Number(scan.camera?.fov_deg),
+      canonicalYaw(scan.camera?.yaw_deg),
+      canonicalSensorFloat(scan.camera?.elevation_deg),
+      canonicalSensorFloat(scan.camera?.distance_scale),
+      canonicalSensorFloat(scan.camera?.fov_deg),
       Number(scan.seed ?? 42),
       scan.scene?.sha256 || scan.scene?.name || null
     ]);
@@ -419,8 +437,8 @@
       s.scanResolution,
       s.raysPerPixel,
       s.smartSampling,
-      s.cameraDistance,
-      s.cameraFov,
+      canonicalSensorFloat(s.cameraDistance),
+      canonicalSensorFloat(s.cameraFov),
       42
     ]);
   }
@@ -433,8 +451,8 @@
       `${scan.width}x${scan.height}`,
       scan.rays_per_pixel,
       !!scan.smart_sampling,
-      Number(scan.camera?.distance_scale),
-      Number(scan.camera?.fov_deg),
+      canonicalSensorFloat(scan.camera?.distance_scale),
+      canonicalSensorFloat(scan.camera?.fov_deg),
       Number(scan.seed ?? 42),
       scan.scene?.sha256 || scan.scene?.name || null
     ]);
@@ -502,7 +520,7 @@
       } else {
         const modeLabel = settings.lidar.multiViewMode === 'combined'
           ? 'Combined'
-          : (settings.lidar.multiViewCurrent || 'front').replace(/^./, c => c.toUpperCase());
+          : multiViewViewLabel(settings.lidar.multiViewCurrent || 'front');
         scanSummary.textContent = installedScanCacheHit
           ? `Scan cached · ${installedScanLabel} · ${modeLabel}`
           : `Scan ready · ${installedScanLabel} · ${modeLabel}`;
@@ -588,7 +606,7 @@
     next.lidar.multiViewMode = next.lidar.multiViewMode === 'combined'
       ? 'combined'
       : 'current';
-    if (!LineArtMultiView.VIEW_ORDER.includes(next.lidar.multiViewCurrent)) {
+    if (!safeMultiViewName(next.lidar.multiViewCurrent)) {
       next.lidar.multiViewCurrent = 'front';
     }
     next.lidar.multiViewDebugColors = !!next.lidar.multiViewDebugColors;
@@ -948,9 +966,8 @@
       multiViewBundle &&
       multiViewBundle.order.length
     ) {
-      const currentName = settings.lidar.multiViewCurrent;
-      const current = multiViewBundle.views[currentName] ||
-        multiViewBundle.views[multiViewBundle.order[0]];
+      const currentName = resolveMultiViewCurrent();
+      const current = multiViewBundle.views[currentName];
       if (!current) return null;
 
       if (settings.lidar.multiViewMode === 'combined') {
@@ -996,20 +1013,40 @@
     return nextCanvas;
   }
 
+  function multiViewViewLabel(name) {
+    return multiViewBundle?.views?.[name]?.scan?.view?.label ||
+      String(name || 'view').replace(/^./, letter => letter.toUpperCase());
+  }
+
+  function resolveMultiViewCurrent() {
+    if (!multiViewBundle?.order?.length) return settings.lidar.multiViewCurrent;
+    const requested = settings.lidar.multiViewCurrent;
+    const resolved = multiViewBundle.order.includes(requested)
+      ? requested
+      : multiViewBundle.order[0];
+    if (resolved !== requested) {
+      settings.lidar.multiViewCurrent = resolved;
+    }
+    if (multiViewCurrent.value !== resolved) {
+      multiViewCurrent.value = resolved;
+    }
+    return resolved;
+  }
+
   function updateMultiViewSummary() {
     if (!multiViewBundle) {
-      multiViewSummary.textContent = 'No fixed multi-view scan loaded.';
+      multiViewSummary.textContent = 'No multi-view scan loaded.';
       return;
     }
     const statuses = multiViewBundle.order.map(name => {
       const view = multiViewBundle.views[name];
-      const label = view?.scan?.view?.label ||
-        name.replace(/^./, letter => letter.toUpperCase());
+      const label = multiViewViewLabel(name);
       return `${label} ${view?.scan?.cache_hit ? 'cached' : 'ready'}`;
     });
+    const currentName = resolveMultiViewCurrent();
     const mode = settings.lidar.multiViewMode === 'combined'
       ? 'Combined'
-      : `Current: ${settings.lidar.multiViewCurrent.replace(/^./, letter => letter.toUpperCase())}`;
+      : `Current: ${multiViewViewLabel(currentName)}`;
     multiViewSummary.textContent = `${mode} · ${statuses.join(' · ')}`;
   }
 
@@ -1019,8 +1056,8 @@
     preview = true
   } = {}) {
     if (!multiViewBundle) return false;
-    const current = multiViewBundle.views[settings.lidar.multiViewCurrent] ||
-      multiViewBundle.views[multiViewBundle.order[0]];
+    const currentName = resolveMultiViewCurrent();
+    const current = multiViewBundle.views[currentName];
     if (!current) return false;
 
     rememberInstalledMultiView(multiViewBundle.metadata);
@@ -1036,7 +1073,7 @@
     );
     const maps = composeCurrentLidarMaps();
     const label = settings.lidar.multiViewMode === 'combined'
-      ? 'Combined 5-view LiDAR'
+      ? `Combined ${multiViewBundle.order.length}-view LiDAR`
       : `${current.scan.view?.label || current.name} LiDAR view`;
 
     if (install || sourceKind !== 'lidar' || !sourceImage) {
@@ -1316,6 +1353,7 @@
     });
     scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
     scanMultiBtn.disabled = scanBtn.disabled;
+    scanAutoBtn.disabled = scanBtn.disabled;
     const multiViewAvailable = !!multiViewBundle && modelReady && !modelLoading;
     multiViewMode.disabled = !multiViewAvailable || uiLocked;
     multiViewDebugColors.disabled = !multiViewAvailable || uiLocked;
@@ -1674,10 +1712,24 @@
       if (serial !== loadSerial) return;
       scanRunning = false;
       loadingImage = false;
+      updateScanFreshness();
       refreshButtons();
       const suffix = error.errorId ? ` (${error.errorId})` : '';
       setStatus(`LiDAR scan failed: ${error.message}${suffix}`, 0);
     }
+  }
+
+  function syncMultiViewOptions(order, views) {
+    const currentValue = settings.lidar.multiViewCurrent || multiViewCurrent.value;
+    multiViewCurrent.innerHTML = '';
+    for (const name of order) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = views?.[name]?.scan?.view?.label ||
+        name.replace(/^./, letter => letter.toUpperCase());
+      multiViewCurrent.appendChild(option);
+    }
+    if (order.includes(currentValue)) multiViewCurrent.value = currentValue;
   }
 
   async function runFixedMultiViewScan() {
@@ -1756,6 +1808,7 @@
       );
       const combinedPixels = new ImageData(combinedRgba, width, height);
       const views = Object.fromEntries(loadedViews.map(view => [view.name, view]));
+      syncMultiViewOptions(order, views);
 
       multiViewBundle = {
         metadata: multiview,
@@ -1786,9 +1839,121 @@
       scanRunning = false;
       loadingImage = false;
       scanMultiBtn.textContent = multiViewBundle ? 'Rescan 5 Views' : 'Scan 5 Views';
+      updateScanFreshness();
       refreshButtons();
       const suffix = error.errorId ? ` (${error.errorId})` : '';
       setStatus(`Fixed multi-view scan failed: ${error.message}${suffix}`, 0);
+    }
+  }
+
+  async function runAutoViewScan() {
+    if (!sceneLoaded || scanRunning) return;
+
+    const serial = ++loadSerial;
+    stopRender(false);
+    clearTimeout(previewTimer);
+    previewTimer = 0;
+    scanRunning = true;
+    loadingImage = true;
+    scanSummary.textContent = 'Scan running… · automatic views';
+    scanAutoBtn.textContent = 'Auto Scanning…';
+    refreshButtons();
+    setStatus('Auto Scan is choosing useful LiDAR viewpoints...', 0);
+    setStats(0, 0, 0);
+
+    try {
+      const options = readScanControls();
+      delete options.yaw_deg;
+      delete options.elevation_deg;
+
+      const response = await LidarClient.scanAutoViews(options);
+      const multiview = response.multiview;
+      const order = multiview?.order || [];
+      if (!order.length) {
+        throw new Error('Auto Scan did not acquire any usable views.');
+      }
+
+      setStatus(`Loading ${order.length} auto-selected LiDAR map sets...`, 0);
+      const loadedViews = await Promise.all(order.map(async name => {
+        const scan = multiview.views?.[name];
+        if (!scan) throw new Error(`Missing auto-selected LiDAR view: ${name}`);
+        const images = await LidarClient.fetchScanMaps(scan);
+        try {
+          const sourceMaps = LineArtAnalysis.buildLidarSourceMaps(
+            images.shaded.imageData,
+            images.depth.imageData,
+            images.edge.imageData,
+            images.variance.imageData,
+            images.confidence.imageData,
+            images.shaded.width,
+            images.shaded.height
+          );
+          return {
+            name,
+            scan,
+            width: images.shaded.width,
+            height: images.shaded.height,
+            pixels: images.shaded.imageData,
+            sourceMaps
+          };
+        } finally {
+          for (const item of Object.values(images)) {
+            item.canvas.width = 0;
+            item.canvas.height = 0;
+          }
+        }
+      }));
+
+      if (serial !== loadSerial) return;
+      const width = loadedViews[0].width;
+      const height = loadedViews[0].height;
+      for (const view of loadedViews) {
+        if (view.width !== width || view.height !== height) {
+          throw new Error('Auto-selected LiDAR view dimensions do not match.');
+        }
+      }
+
+      const combinedRgba = LineArtMultiView.combineShadedPixels(
+        loadedViews,
+        width,
+        height
+      );
+      const combinedPixels = new ImageData(combinedRgba, width, height);
+      const views = Object.fromEntries(loadedViews.map(view => [view.name, view]));
+      syncMultiViewOptions(order, views);
+
+      multiViewBundle = {
+        metadata: multiview,
+        order: [...order],
+        views,
+        width,
+        height,
+        combinedPixels
+      };
+
+      if (!views[settings.lidar.multiViewCurrent]) {
+        settings.lidar.multiViewCurrent = order[0];
+        multiViewCurrent.value = order[0];
+      }
+
+      rememberInstalledMultiView(multiview);
+      scanAutoBtn.textContent = 'Auto Scan';
+      const planner = multiview.planner || {};
+      const coverageScore = Math.round(Number(planner.coverage_score || 0) * 100);
+      modelStatus.textContent =
+        `${loadedViews[0].scan.scene?.name || '3D model'} - ${order.length} auto views · ${coverageScore}% view-space coverage · ${planner.stop_reason || 'complete'}`;
+
+      activateMultiViewSource({ install: true });
+    } catch (error) {
+      console.error(error);
+      if (serial !== loadSerial) return;
+      scanRunning = false;
+      loadingImage = false;
+      scanAutoBtn.textContent = 'Auto Scan';
+      updateScanFreshness();
+      refreshButtons();
+      const suffix = error.errorId ? ` (${error.errorId})` : '';
+      setStatus(`Auto Scan failed: ${error.message}${suffix}`, 0);
     }
   }
 
@@ -2102,6 +2267,7 @@
   document.body.dataset.phase11Ready = 'true';
   document.body.dataset.phase115Ready = 'true';
   document.body.dataset.phase12Ready = 'true';
+  document.body.dataset.phase13Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -2131,6 +2297,7 @@
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
   scanBtn.addEventListener('click', runLidarScan);
   scanMultiBtn.addEventListener('click', runFixedMultiViewScan);
+  scanAutoBtn.addEventListener('click', runAutoViewScan);
   multiViewMode.addEventListener('change', () => {
     settings.lidar.multiViewMode = multiViewMode.value === 'combined'
       ? 'combined'
@@ -2139,7 +2306,7 @@
     refreshButtons();
   });
   multiViewCurrent.addEventListener('change', () => {
-    if (!LineArtMultiView.VIEW_ORDER.includes(multiViewCurrent.value)) return;
+    if (!multiViewBundle?.order.includes(multiViewCurrent.value)) return;
     settings.lidar.multiViewCurrent = multiViewCurrent.value;
     activateMultiViewSource({ historyKey: 'lidar:multiViewCurrent' });
   });

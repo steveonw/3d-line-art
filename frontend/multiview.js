@@ -19,8 +19,36 @@
     return 0.5 * Math.atan2(sumY, sumX);
   }
 
+  function viewColor(name) {
+    if (VIEW_COLORS[name]) return VIEW_COLORS[name];
+
+    let hash = 2166136261;
+    const text = String(name || 'view');
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+
+    const hue = (hash % 360) / 60;
+    const chroma = 150;
+    const x = chroma * (1 - Math.abs((hue % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (hue < 1) [r, g] = [chroma, x];
+    else if (hue < 2) [r, g] = [x, chroma];
+    else if (hue < 3) [g, b] = [chroma, x];
+    else if (hue < 4) [g, b] = [x, chroma];
+    else if (hue < 5) [r, b] = [x, chroma];
+    else [r, b] = [chroma, x];
+    const offset = 55;
+    return [
+      Math.round(r + offset),
+      Math.round(g + offset),
+      Math.round(b + offset)
+    ];
+  }
+
   function debugColorMapForView(name, count) {
-    const color = VIEW_COLORS[name] || [96, 96, 96];
+    const color = viewColor(name);
     const out = new Uint8Array(count * 3);
     for (let i = 0; i < count; i++) {
       const base = i * 3;
@@ -158,7 +186,7 @@
       }
 
       if (debugColorMap) {
-        const color = VIEW_COLORS[dominant.name] || [96, 96, 96];
+        const color = viewColor(dominant.name);
         const base = i * 3;
         debugColorMap[base] = color[0];
         debugColorMap[base + 1] = color[1];
@@ -195,6 +223,7 @@
   window.LineArtMultiView = Object.freeze({
     VIEW_ORDER,
     VIEW_COLORS,
+    viewColor,
     debugColorMapForView,
     combineShadedPixels,
     combineComposedViews

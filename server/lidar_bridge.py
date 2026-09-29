@@ -11,6 +11,20 @@ import tempfile
 import uuid
 from typing import Any
 
+from .auto_view import (
+    DEFAULT_AUTO_MAX_VIEWS,
+    DEFAULT_AUTO_MIN_GAIN,
+    DEFAULT_AUTO_MIN_SEPARATION_DEG,
+    DEFAULT_AUTO_MIN_VIEWS,
+    DEFAULT_AUTO_TARGET,
+    choose_next_candidate,
+    generate_candidate_views,
+    normalize_view_quality,
+    scan_quality_score,
+    stop_reason as auto_stop_reason,
+    view_space_coverage_score,
+)
+
 MAX_TRIANGLES = 250_000
 DEFAULT_WIDTH = 320
 DEFAULT_HEIGHT = 240
@@ -20,6 +34,8 @@ DEFAULT_YAW_DEG = 45.0
 DEFAULT_ELEVATION_DEG = 20.0
 DEFAULT_DISTANCE_SCALE = 3.0
 DEFAULT_FOV_DEG = 55.0
+SENSOR_FLOAT_DECIMALS = 6
+MIN_COHERENCE_HITS = 4
 
 FIXED_VIEW_ORDER = ("front", "back", "left", "right", "top")
 FIXED_VIEWS: dict[str, dict[str, Any]] = {
@@ -289,16 +305,34 @@ def _confidence_map(engine, channels, rays_per_pixel: int):
     np = engine.np
     hits = np.asarray(channels["hit_count"], dtype=np.float64)
     has_hit = hits > 0
-    support = np.clip(hits / max(float(rays_per_pixel), 1.0), 0.0, 1.0)
+
+    # Beam coherence is only meaningful once the engine has enough return
+    # evidence. Below that threshold a stored zero means "not measured", not
+    # "incoherent". Grow confidence with evidence instead of collapsing it.
+    evidence_floor = max(float(rays_per_pixel), float(MIN_COHERENCE_HITS), 1.0)
+    support = np.clip(hits / evidence_floor, 0.0, 1.0)
+    if "return_valid_stats" in channels:
+        coherence_measured = np.asarray(
+            channels["return_valid_stats"], dtype=np.float64
+        ) > 0.0
+    else:
+        coherence_measured = hits >= MIN_COHERENCE_HITS
 
     variance = np.asarray(channels["depth_variance"], dtype=np.float64)
-    variance_norm = _normalize_channel(engine, variance, mask=has_hit)
+    finite_hit_variance = variance[has_hit & np.isfinite(variance)]
+    if finite_hit_variance.size and np.ptp(finite_hit_variance) > 1e-12:
+        variance_norm = _normalize_channel(engine, variance, mask=has_hit)
+    else:
+        # A constant variance field carries no relative instability evidence.
+        # _normalize_channel uses 1.0 for a flat channel for display purposes,
+        # which would incorrectly apply the maximum confidence penalty here.
+        variance_norm = np.zeros_like(variance)
 
     beam = np.asarray(
         channels.get("beam_coherence", np.ones_like(hits)),
         dtype=np.float64,
     )
-    beam = np.clip(beam, 0.0, 1.0)
+    beam = np.where(coherence_measured, np.clip(beam, 0.0, 1.0), 1.0)
 
     confidence = np.sqrt(np.clip(support * beam, 0.0, 1.0))
     confidence *= 1.0 - 0.75 * variance_norm
@@ -352,9 +386,31 @@ def _bool_option(options: dict[str, Any], key: str, default: bool) -> bool:
     raise ValueError(f"{key} must be a boolean")
 
 
+def _canonical_sensor_float(value: float) -> float:
+    """Quantize sensor floats once so scan geometry, metadata, and cache agree."""
+    scale = 10 ** SENSOR_FLOAT_DECIMALS
+    # Sensor floats are validated/clamped non-negative. Match the browser's
+    # Math.round rule so freshness signatures and server metadata agree.
+    rounded = math.floor(float(value) * scale + 0.5) / scale
+    return 0.0 if rounded == 0.0 else rounded
+
+
+def _canonical_yaw_deg(value: float) -> float:
+    wrapped = float(value) % 360.0
+    return _canonical_sensor_float(wrapped)
+
+
 def _normalized_scan_options(options: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Validate/clamp only inputs that can change the sensor result."""
+    """Validate/clamp and canonicalize only inputs that change the sensor result."""
     options = options or {}
+    yaw_deg = _float_option(options, "yaw_deg", DEFAULT_YAW_DEG, 0.0, 360.0)
+    elevation_deg = _float_option(
+        options, "elevation_deg", DEFAULT_ELEVATION_DEG, 5.0, 80.0
+    )
+    distance_scale = _float_option(
+        options, "distance_scale", DEFAULT_DISTANCE_SCALE, 1.4, 6.0
+    )
+    fov_deg = _float_option(options, "fov_deg", DEFAULT_FOV_DEG, 25.0, 90.0)
     return {
         "width": _int_option(options, "width", DEFAULT_WIDTH, 64, 640),
         "height": _int_option(options, "height", DEFAULT_HEIGHT, 64, 480),
@@ -373,34 +429,10 @@ def _normalized_scan_options(options: dict[str, Any] | None = None) -> dict[str,
             2_147_483_647,
         ),
         "smart_sampling": _bool_option(options, "smart_sampling", False),
-        "yaw_deg": _float_option(
-            options,
-            "yaw_deg",
-            DEFAULT_YAW_DEG,
-            0.0,
-            360.0,
-        ),
-        "elevation_deg": _float_option(
-            options,
-            "elevation_deg",
-            DEFAULT_ELEVATION_DEG,
-            5.0,
-            80.0,
-        ),
-        "distance_scale": _float_option(
-            options,
-            "distance_scale",
-            DEFAULT_DISTANCE_SCALE,
-            1.4,
-            6.0,
-        ),
-        "fov_deg": _float_option(
-            options,
-            "fov_deg",
-            DEFAULT_FOV_DEG,
-            25.0,
-            90.0,
-        ),
+        "yaw_deg": _canonical_yaw_deg(yaw_deg),
+        "elevation_deg": _canonical_sensor_float(elevation_deg),
+        "distance_scale": _canonical_sensor_float(distance_scale),
+        "fov_deg": _canonical_sensor_float(fov_deg),
     }
 
 
@@ -420,10 +452,10 @@ def _scan_cache_key(scene_info: dict[str, Any], scan_options: dict[str, Any]) ->
         "height": int(scan_options["height"]),
         "rays_per_pixel": int(scan_options["rays_per_pixel"]),
         "smart_sampling": bool(scan_options["smart_sampling"]),
-        "yaw_deg": round(float(scan_options["yaw_deg"]), 6),
-        "elevation_deg": round(float(scan_options["elevation_deg"]), 6),
-        "distance_scale": round(float(scan_options["distance_scale"]), 6),
-        "fov_deg": round(float(scan_options["fov_deg"]), 6),
+        "yaw_deg": float(scan_options["yaw_deg"]),
+        "elevation_deg": float(scan_options["elevation_deg"]),
+        "distance_scale": float(scan_options["distance_scale"]),
+        "fov_deg": float(scan_options["fov_deg"]),
         "seed": int(scan_options["seed"]),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -590,6 +622,13 @@ class LidarBridge:
         variance = _grayscale_image(engine, variance_norm)
         confidence_values = _confidence_map(engine, channels, rays_per_pixel)
         confidence = _grayscale_image(engine, confidence_values)
+        hit_pixels = engine.np.asarray(channels["hit_count"]) > 0
+        mean_confidence = (
+            float(engine.np.mean(confidence_values[hit_pixels]))
+            if engine.np.any(hit_pixels)
+            else 0.0
+        )
+        quality_score = scan_quality_score(burst.coverage, mean_confidence)
 
         scan_id = uuid.uuid4().hex[:12]
         metadata = {
@@ -602,11 +641,13 @@ class LidarBridge:
             "seed": seed,
             "smart_sampling": smart_sampling,
             "coverage": round(float(burst.coverage), 6),
+            "mean_confidence": round(mean_confidence, 6),
+            "quality_score": quality_score,
             "camera": {
-                "yaw_deg": round(yaw_deg, 3),
-                "elevation_deg": round(elevation_deg, 3),
-                "distance_scale": round(distance_scale, 3),
-                "fov_deg": round(fov_deg, 3),
+                "yaw_deg": yaw_deg,
+                "elevation_deg": elevation_deg,
+                "distance_scale": distance_scale,
+                "fov_deg": fov_deg,
             },
             "camera_position": [round(float(x), 4) for x in camera.position],
             "camera_target": [round(float(x), 4) for x in camera.target],
@@ -651,9 +692,129 @@ class LidarBridge:
             views[name] = scan
 
         return {
+            "mode": "fixed",
             "order": list(FIXED_VIEW_ORDER),
             "views": views,
             "current_view": FIXED_VIEW_ORDER[-1],
+            "cache": self.state.scan_cache_stats(),
+        }
+
+    def scan_auto_views(
+        self,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Acquire a deterministic, quality-weighted set of useful viewpoints."""
+        base = dict(options or {})
+        target = _float_option(base, "auto_target", DEFAULT_AUTO_TARGET, 0.20, 0.98)
+        min_views = _int_option(base, "auto_min_views", DEFAULT_AUTO_MIN_VIEWS, 1, 8)
+        max_views = _int_option(
+            base, "auto_max_views", DEFAULT_AUTO_MAX_VIEWS, min_views, 10
+        )
+        min_gain = _float_option(
+            base, "auto_min_gain", DEFAULT_AUTO_MIN_GAIN, 0.0, 0.50
+        )
+        min_separation = _float_option(
+            base,
+            "auto_min_separation_deg",
+            DEFAULT_AUTO_MIN_SEPARATION_DEG,
+            10.0,
+            90.0,
+        )
+        for key in (
+            "auto_target",
+            "auto_min_views",
+            "auto_max_views",
+            "auto_min_gain",
+            "auto_min_separation_deg",
+        ):
+            base.pop(key, None)
+
+        candidates = generate_candidate_views()
+        acquired: list[dict[str, Any]] = []
+        views: dict[str, dict[str, Any]] = {}
+        steps: list[dict[str, Any]] = []
+        reason = "no_candidate"
+
+        while True:
+            coverage_before = view_space_coverage_score(candidates, acquired)
+            candidate = choose_next_candidate(
+                candidates,
+                acquired,
+                min_separation_deg=min_separation,
+            )
+            expected_gain = (
+                float(candidate.get("expected_gain", 0.0))
+                if candidate is not None
+                else None
+            )
+            should_stop = auto_stop_reason(
+                view_count=len(acquired),
+                coverage_score=coverage_before,
+                next_expected_gain=expected_gain,
+                target=target,
+                min_views=min_views,
+                max_views=max_views,
+                min_gain=min_gain,
+            )
+            if should_stop:
+                reason = should_stop
+                break
+            if candidate is None:
+                reason = "no_candidate"
+                break
+
+            view_options = dict(base)
+            view_options["yaw_deg"] = candidate["yaw_deg"]
+            view_options["elevation_deg"] = candidate["elevation_deg"]
+            scan = self.scan(view_options)
+            quality = normalize_view_quality(
+                scan.get("quality_score", scan.get("coverage", 0.0))
+            )
+            acquired_view = {
+                "name": candidate["name"],
+                "label": candidate["label"],
+                "yaw_deg": candidate["yaw_deg"],
+                "elevation_deg": candidate["elevation_deg"],
+                "quality_score": quality,
+            }
+            acquired.append(acquired_view)
+            coverage_after = view_space_coverage_score(candidates, acquired)
+
+            scan["view"] = {
+                **acquired_view,
+                "kind": "auto",
+            }
+            views[candidate["name"]] = scan
+            steps.append({
+                **acquired_view,
+                "scan_id": scan.get("scan_id"),
+                "cache_hit": bool(scan.get("cache_hit")),
+                "ray_hit_fraction": round(float(scan.get("coverage", 0.0)), 6),
+                "coverage_before": coverage_before,
+                "coverage_after": coverage_after,
+                "expected_gain": round(float(expected_gain or 0.0), 6),
+                "actual_gain": round(coverage_after - coverage_before, 6),
+            })
+
+        order = [view["name"] for view in acquired]
+        final_coverage = view_space_coverage_score(candidates, acquired)
+        return {
+            "mode": "auto",
+            "order": order,
+            "views": views,
+            "current_view": order[-1] if order else None,
+            "planner": {
+                "metric": "quality-weighted view-space coverage",
+                "coverage_score": final_coverage,
+                "target": target,
+                "min_views": min_views,
+                "max_views": max_views,
+                "min_gain": min_gain,
+                "min_separation_deg": min_separation,
+                "stop_reason": reason,
+                "candidate_count": len(candidates),
+                "steps": steps,
+            },
             "cache": self.state.scan_cache_stats(),
         }
 

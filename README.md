@@ -663,13 +663,34 @@ Sensor freshness remains explicit. Fixed named views override interactive yaw/el
 
 Changing Current View, Combined Views, debug coloring, or any Phase 11.5 art-mapping control is browser-local and never triggers a raycast.
 
+## Phase 13 automatic view selection
+
+Phase 13 adds **Auto Scan** on top of the same cached single-view sensor path.
+
+The server starts from a deterministic candidate-camera set, acquires a view, measures scan quality, updates a **quality-weighted view-space coverage** score, rejects near-duplicate camera directions, and chooses the next camera with the largest expected angular-coverage gain. It stops when the configured target is reached, expected gain becomes too small, the maximum view count is reached, or no valid candidate remains.
+
+Important scope boundary: this is camera/view-space planning, not registered object-surface coverage. The planner does not yet reconstruct which 3D surfaces remain unseen; that belongs with later multi-view fusion work.
+
+Every automatic view:
+
+- goes through the Phase 11 content-addressed scan cache,
+- keeps its own `scan_id`,
+- keeps shaded / depth / edge / variance / confidence channels,
+- can be inspected individually through **Current View**,
+- can participate in the existing Phase 12 2D **Combined Views** compositor,
+- receives a deterministic debug color.
+
+Automatic view names are preserved through undo/redo and project/autosave settings. The browser displays human labels such as **Low 0°** rather than internal IDs such as `auto_low_000`.
+
+Sensor floats are canonicalized once before camera construction, cache-key generation, and metadata. Equivalent yaw values such as 0° and 360° therefore describe the same sensor request.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
 - request upload cap: 25 MB
 - mesh cap: 250,000 triangles
 - uploaded meshes are normalized to a roughly 6-unit working size
-- one scene and one current scan are kept in memory
+- one scene and one current-scan pointer are kept, plus the bounded Phase 11 LRU of cached scans
 
 ## Current API
 
@@ -680,16 +701,20 @@ POST /api/reset
 
 POST /api/scene/upload?filename=model.obj
 POST /api/lidar/scan
-GET  /api/lidar/maps
+POST /api/lidar/multiview
+POST /api/lidar/auto
+GET  /api/lidar/maps[?scan_id=<id>]
 
-GET  /api/lidar/maps/shaded.png
-GET  /api/lidar/maps/depth.png
-GET  /api/lidar/maps/edge.png
-GET  /api/lidar/maps/variance.png
-GET  /api/lidar/maps/confidence.png
+GET  /api/lidar/maps/shaded.png[?scan_id=<id>]
+GET  /api/lidar/maps/depth.png[?scan_id=<id>]
+GET  /api/lidar/maps/edge.png[?scan_id=<id>]
+GET  /api/lidar/maps/variance.png[?scan_id=<id>]
+GET  /api/lidar/maps/confidence.png[?scan_id=<id>]
 ```
 
 `/api/scene/upload` accepts the model bytes directly as the request body. It does not use multipart form parsing.
+
+Mutating loopback API calls validate browser `Origin` when present. JSON POST routes require `application/json`; model upload requires `application/octet-stream`. This keeps ordinary cross-origin web pages from silently resetting the studio or launching expensive local scans.
 
 A Phase 4 scan request is JSON. Example:
 

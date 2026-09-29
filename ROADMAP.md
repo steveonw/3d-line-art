@@ -433,14 +433,20 @@ scan
   -> stop at target coverage
 ```
 
-- [ ] Add coverage scoring
-- [ ] Generate candidate cameras
-- [ ] Avoid nearly duplicate viewpoints
-- [ ] Choose the most useful next view
-- [ ] Add an Auto Scan button
-- [ ] Add stopping criteria
+- [x] Add coverage scoring
+- [x] Generate candidate cameras
+- [x] Avoid nearly duplicate viewpoints
+- [x] Choose the most useful next view
+- [x] Add an Auto Scan button
+- [x] Add stopping criteria
 
 **Done when:** the application can choose useful viewpoints without manual placement.
+
+**Phase 13 validation:** GitHub Actions passes deterministic candidate generation, angular duplicate rejection, quality-weighted view-space coverage and stopping-rule tests, real-cube automatic acquisition with independently retrievable scan IDs/channels, full cache-only replay with LiDAR engine loading disabled, the automatic-scan API contract, deterministic debug colors for arbitrary auto-view names, and real Chromium verification of Auto Scan selection, local view switching, sensor stale/fresh behavior, and fully cached repeat acquisition.
+
+**Post-review stabilization:** the same branch also fixes and tests low-ray confidence collapse, flat-variance over-penalization, hard-mask stale-point chords, human-readable auto-view labels, undo/redo preservation of automatic view IDs, server/browser current-view consistency, failed-scan summary recovery, canonical sensor floats (including 0°/360° yaw equivalence), first-view expected-gain metadata, deep-JSON rejection, and loopback POST hardening with Origin/media-type checks.
+
+Phase 13 deliberately measures **quality-weighted view-space coverage**, not registered object-surface coverage. Each selected camera still runs through the Phase 11 cached single-view scan path. The current planner remains intentionally view-space based; model-aware unseen-surface selection and true multi-view evidence fusion are not silently folded into this stabilization pass. Phase 14 remains responsible for actual multi-view confidence fusion.
 
 ---
 

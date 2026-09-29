@@ -5,6 +5,7 @@ import types
 import unittest
 from unittest import mock
 
+import numpy as np
 from PIL import Image
 
 from server.lidar_bridge import (
@@ -12,6 +13,7 @@ from server.lidar_bridge import (
     FIXED_VIEWS,
     LidarBridge,
     ScanIdMismatchError,
+    _confidence_map,
     _float_option,
     _int_option,
     _load_engine,
@@ -37,6 +39,67 @@ f 2 6 7 3
 f 3 7 8 4
 f 5 1 4 8
 """
+
+
+class ConfidenceMapTest(unittest.TestCase):
+    engine = types.SimpleNamespace(np=np)
+
+    def confidence(self, hits, beam, variance, rays_per_pixel, valid=None):
+        channels = {
+            "hit_count": np.array(hits, dtype=np.float64),
+            "beam_coherence": np.array(beam, dtype=np.float64),
+            "depth_variance": np.array(variance, dtype=np.float64),
+        }
+        if valid is not None:
+            channels["return_valid_stats"] = np.array(valid, dtype=np.float64)
+        return _confidence_map(self.engine, channels, rays_per_pixel)
+
+    def test_unmeasured_coherence_is_neutral_not_zero(self) -> None:
+        conf = self.confidence(
+            [2, 2], [0.0, 0.0], [0.0, 0.0], rays_per_pixel=2, valid=[0, 0]
+        )
+        np.testing.assert_allclose(conf, [np.sqrt(0.5)] * 2, rtol=1e-9)
+
+    def test_engine_validity_signal_controls_coherence_measurement(self) -> None:
+        conf = self.confidence(
+            [4, 4], [0.0, 1.0], [0.0, 0.0], rays_per_pixel=4, valid=[0, 1]
+        )
+        np.testing.assert_allclose(conf, [1.0, 1.0], atol=1e-9)
+
+    def test_measured_incoherence_still_lowers_confidence(self) -> None:
+        conf = self.confidence(
+            [4, 4], [0.0, 1.0], [0.0, 0.0], rays_per_pixel=4, valid=[1, 1]
+        )
+        np.testing.assert_allclose(conf, [0.0, 1.0], atol=1e-9)
+
+    def test_support_grows_with_return_evidence(self) -> None:
+        conf = self.confidence(
+            [1, 2, 4, 8], [0, 0, 1, 1], [0, 0, 0, 0], rays_per_pixel=1,
+            valid=[0, 0, 1, 1],
+        )
+        self.assertTrue(np.all(np.diff(conf) >= 0))
+        self.assertAlmostEqual(float(conf[0]), 0.5)
+        self.assertAlmostEqual(float(conf[-1]), 1.0)
+
+    def test_constant_variance_is_not_penalized(self) -> None:
+        conf = self.confidence(
+            [4, 4], [1.0, 1.0], [0.3, 0.3], rays_per_pixel=4, valid=[1, 1]
+        )
+        np.testing.assert_allclose(conf, [1.0, 1.0], atol=1e-9)
+
+    def test_varying_variance_still_penalizes_unstable_pixels(self) -> None:
+        conf = self.confidence(
+            [4, 4, 4], [1, 1, 1], [0.0, 0.0, 5.0], rays_per_pixel=4,
+            valid=[1, 1, 1],
+        )
+        self.assertLess(float(conf[2]), float(conf[0]))
+
+    def test_pixels_without_hits_have_zero_confidence(self) -> None:
+        conf = self.confidence(
+            [0, 3], [0.0, 0.0], [0.0, 0.0], rays_per_pixel=2, valid=[0, 0]
+        )
+        self.assertEqual(float(conf[0]), 0.0)
+        self.assertGreater(float(conf[1]), 0.0)
 
 
 class LidarBridgeIntegrationTest(unittest.TestCase):
@@ -97,6 +160,46 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
             2,
             "sample cube shading collapsed to a flat winding-dependent tone",
         )
+
+    def test_confidence_is_meaningful_at_default_ray_count(self) -> None:
+        results = {}
+        for rays in (1, 2, 4):
+            bridge = LidarBridge(StudioState())
+            bridge.upload_scene("cube.obj", CUBE_OBJ)
+            scan = bridge.scan({
+                "width": 64,
+                "height": 64,
+                "rays_per_pixel": rays,
+                "smart_sampling": False,
+                "seed": 7,
+            })
+            results[rays] = scan["mean_confidence"]
+        self.assertGreater(results[2], 0.3, results)
+        self.assertLessEqual(results[1], results[2] + 1e-9, results)
+        self.assertLessEqual(results[2], results[4] + 1e-9, results)
+
+    def test_sensor_float_canonicalization_matches_cache_and_camera(self) -> None:
+        a = _normalized_scan_options({
+            "yaw_deg": 360.0,
+            "distance_scale": 3.00000041,
+            "elevation_deg": 20.00000041,
+            "fov_deg": 55.00000041,
+        })
+        b = _normalized_scan_options({
+            "yaw_deg": 0.0,
+            "distance_scale": 3.00000049,
+            "elevation_deg": 20.00000049,
+            "fov_deg": 55.00000049,
+        })
+        self.assertEqual(a, b)
+        self.assertEqual(a["yaw_deg"], 0.0)
+        scene = {"sha256": "a" * 64}
+        self.assertEqual(_scan_cache_key(scene, a), _scan_cache_key(scene, b))
+
+        c = _normalized_scan_options({"distance_scale": 3.0000014})
+        d = _normalized_scan_options({"distance_scale": 3.0000024})
+        self.assertNotEqual(c["distance_scale"], d["distance_scale"])
+        self.assertNotEqual(_scan_cache_key(scene, c), _scan_cache_key(scene, d))
 
     def test_two_sided_normal_orientation_faces_camera(self) -> None:
         engine = _load_engine()
@@ -219,6 +322,63 @@ f 1 2 3
         self.assertEqual(stats["entries"], 5)
         self.assertEqual(stats["misses"], 5)
         self.assertEqual(stats["hits"], 5)
+
+    def test_auto_views_are_deterministic_inspectable_and_cache_reusable(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        options = {
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "seed": 23,
+            "smart_sampling": False,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+            "auto_target": 0.98,
+            "auto_min_views": 3,
+            "auto_max_views": 4,
+            "auto_min_gain": 0.0,
+        }
+
+        first = bridge.scan_auto_views(options)
+        self.assertEqual(first["mode"], "auto")
+        self.assertEqual(len(first["order"]), 4)
+        self.assertEqual(first["planner"]["stop_reason"], "max_views")
+        self.assertGreater(first["planner"]["coverage_score"], 0)
+        self.assertEqual(len(first["planner"]["steps"]), 4)
+        self.assertEqual(first["current_view"], first["order"][-1])
+        self.assertGreater(first["planner"]["steps"][0]["expected_gain"], 0)
+
+        current_scan = state.get_scan()
+        self.assertIsNotNone(current_scan)
+        self.assertEqual(
+            current_scan["metadata"]["scan_id"],
+            first["views"][first["current_view"]]["scan_id"],
+        )
+
+        first_ids = [first["views"][name]["scan_id"] for name in first["order"]]
+        self.assertEqual(len(set(first_ids)), 4)
+        for name in first["order"]:
+            scan = first["views"][name]
+            self.assertEqual(scan["view"]["kind"], "auto")
+            self.assertGreaterEqual(scan["view"]["quality_score"], 0)
+            self.assertLessEqual(scan["view"]["quality_score"], 1)
+            depth = bridge.channel_png("depth", scan_id=scan["scan_id"])
+            self.assertTrue(depth.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=AssertionError(
+                "repeat auto-view scan should come entirely from scan cache"
+            ),
+        ):
+            second = bridge.scan_auto_views(options)
+
+        self.assertEqual(second["order"], first["order"])
+        for index, name in enumerate(second["order"]):
+            self.assertTrue(second["views"][name]["cache_hit"])
+            self.assertEqual(second["views"][name]["scan_id"], first_ids[index])
 
     def test_identical_scan_reuses_cache_without_engine(self) -> None:
         state = StudioState()

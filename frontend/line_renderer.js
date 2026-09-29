@@ -462,7 +462,14 @@
         out[pointCount * 2 + 1] = fwd[i * 2 + 1];
         pointCount++;
       }
-      return Math.max(2, pointCount);
+      if (pointCount < 2) {
+        // The mask blocked both first steps: emit a zero-length stroke rather
+        // than letting the renderer read the previous stroke's stale point.
+        out[2] = candidate.x;
+        out[3] = candidate.y;
+        pointCount = 2;
+      }
+      return pointCount;
     }
     
     function depositPathCoverage(renderState, points, pointCount, alpha, weight) {
