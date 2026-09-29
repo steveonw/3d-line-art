@@ -608,6 +608,7 @@
     next.lineCount = clamp(Math.round(Number(next.lineCount) / 1000) * 1000, 1000, 400000);
     next.seed = normalizeSeed(next.seed);
     next.mode = next.mode === 'black' ? 'black' : 'color';
+    next.inkSpace = next.inkSpace === '3d' ? '3d' : '2d';
 
     const palettes = new Set(['original', 'muted', 'warm', 'cool', 'monochrome', 'limited']);
     if (!palettes.has(next.palette)) next.palette = DEFAULT_SETTINGS.palette;
@@ -1439,7 +1440,8 @@
       mesh: inspectionShowMesh.checked,
       points: inspectionShowPoints.checked,
       rays: inspectionShowRays.checked,
-      cameras: inspectionShowCameras.checked
+      cameras: inspectionShowCameras.checked,
+      ink: inspectionShowInk.checked
     };
   }
 
@@ -1511,15 +1513,20 @@
     const preview = sceneSnapshot?.preview;
     const scanId = scanSnapshot?.scan_id || inspectionCurrentScanId();
     const entry = inspectionEntries().find(item => item.scan.scan_id === scanId);
-    inspectionHudTitle.textContent = entry
-      ? `3D inspection · ${entry.label}`
-      : `3D inspection · ${sceneInfo?.name || 'normalized mesh'}`;
+    inspectionHudTitle.textContent = settings.inkSpace === '3d'
+      ? `3D Ink · ${entry?.label || sceneInfo?.name || 'surface'}`
+      : (entry
+          ? `3D inspection · ${entry.label}`
+          : `3D inspection · ${sceneInfo?.name || 'normalized mesh'}`);
 
     if (scanSnapshot) {
+      const inkDetail = ink3dSnapshot
+        ? ` · ${ink3dSnapshot.stroke_count} surface strokes / ${ink3dSnapshot.point_count} world points`
+        : '';
       inspectionHudDetail.textContent =
         `${preview?.triangle_count || 0} mesh triangles · ` +
         `${scanSnapshot.points?.preview_count || 0}/${scanSnapshot.points?.source_count || 0} hit points · ` +
-        `${scanSnapshot.rays?.count || 0} cached hit rays · drag to orbit, Shift/right-drag to pan, wheel to zoom`;
+        `${scanSnapshot.rays?.count || 0} cached hit rays${inkDetail} · drag to orbit, Shift/right-drag to pan, wheel to zoom`;
     } else {
       inspectionHudDetail.textContent =
         `${preview?.triangle_count || 0} preview triangles · run LiDAR to add point cloud and hit rays · drag to orbit`;
@@ -1638,6 +1645,11 @@
     if (!inspectionOpen) {
       inspectionSerial++;
       inspectionLoading = false;
+      if (settings.inkSpace === '3d') {
+        settings.inkSpace = '2d';
+        syncInkSpaceButtons();
+        recordSettingsChange('inkSpace');
+      }
       inspectionShell.hidden = true;
       canvasShell.hidden = !sourceImage;
       emptyState.hidden = !!sourceImage;
@@ -1681,7 +1693,9 @@
         rays: { positions: [] }
       });
       inspectionViewer.setCameraViews([], null);
+      inspectionViewer.setInkSnapshot(null);
     }
+    resetInk3D();
     syncInspectionControls();
   }
 
@@ -1698,6 +1712,7 @@
       presetSelect.value = 'custom';
     }
     if (highQualityStrokeStore) highQualityStale = true;
+    markInk3DDirty();
     updateExportNote();
     recordSettingsChange(historyKey);
   }
@@ -1759,6 +1774,7 @@
     syncProceduralControls();
     syncFlowMixerControls();
     syncModeButtons();
+    syncInkSpaceButtons();
     syncPaletteAvailability();
   }
 
@@ -1904,6 +1920,7 @@
       inspectionShowPoints,
       inspectionShowRays,
       inspectionShowCameras,
+      inspectionShowInk,
       inspectionResetView
     ].forEach(el => {
       el.disabled = !inspectionOpen || inspectionLoading || inspectionLocked;
