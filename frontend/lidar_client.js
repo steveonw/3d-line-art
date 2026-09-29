@@ -59,6 +59,15 @@
     return jsonResponse(response);
   }
 
+  async function fuseConfidence(scanIds) {
+    const response = await fetch('/api/lidar/fusion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scan_ids: scanIds })
+    });
+    return jsonResponse(response);
+  }
+
   async function getState() {
     const response = await fetch('/api/state', { cache: 'no-store' });
     return jsonResponse(response);
@@ -122,6 +131,7 @@
     scan,
     scanFixedViews,
     scanAutoViews,
+    fuseConfidence,
     getState,
     getMaps,
     fetchScanMaps
