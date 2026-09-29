@@ -48,6 +48,7 @@ class StudioState:
         self._scene_object: Any = None
         self._scan_metadata: dict[str, Any] | None = None
         self._scan_channels: dict[str, bytes] = {}
+        self._scan_evidence: bytes | None = None
 
         # Phase 11 bounded in-memory LRU. Keys are stable sensor-result keys,
         # never art settings. Current scan bytes remain independently available
@@ -63,6 +64,10 @@ class StudioState:
     @staticmethod
     def _channels_size(channels: dict[str, bytes]) -> int:
         return sum(len(payload) for payload in channels.values())
+
+    @staticmethod
+    def _evidence_size(evidence: bytes | None) -> int:
+        return len(evidence) if evidence else 0
 
     def _cache_summary_locked(self) -> dict[str, Any]:
         return {
@@ -95,6 +100,7 @@ class StudioState:
             self._scene_object = None
             self._scan_metadata = None
             self._scan_channels = {}
+            self._scan_evidence = None
             self._scan_cache.clear()
             self._scan_cache_bytes = 0
             self._scan_cache_hits = 0
@@ -110,6 +116,7 @@ class StudioState:
             self._scene_object = scene_object
             self._scan_metadata = None
             self._scan_channels = {}
+            self._scan_evidence = None
             self._workspace["scene"] = {"loaded": True, **deepcopy(info)}
             self._workspace["scan"] = {"status": "idle", "scan_id": None}
             # Do not clear the cache here. Every entry is namespaced by the
@@ -128,10 +135,12 @@ class StudioState:
         scan_id: str,
         metadata: dict[str, Any],
         channels: dict[str, bytes],
+        evidence: bytes | None = None,
     ) -> dict[str, Any]:
         with self._state_lock:
             self._scan_metadata = deepcopy(metadata)
             self._scan_channels = dict(channels)
+            self._scan_evidence = evidence
             self._workspace["scan"] = {
                 "status": "ready",
                 "scan_id": scan_id,
@@ -167,6 +176,7 @@ class StudioState:
                 return {
                     "metadata": deepcopy(self._scan_metadata),
                     "channels": dict(self._scan_channels),
+                    "evidence": self._scan_evidence,
                 }
 
             for cache_key, entry in list(self._scan_cache.items()):
@@ -176,6 +186,7 @@ class StudioState:
                 return {
                     "metadata": deepcopy(entry["metadata"]),
                     "channels": dict(entry["channels"]),
+                    "evidence": entry.get("evidence"),
                 }
             return None
 
@@ -196,6 +207,7 @@ class StudioState:
             return {
                 "metadata": deepcopy(entry["metadata"]),
                 "channels": dict(entry["channels"]),
+                "evidence": entry.get("evidence"),
                 "bytes": entry["bytes"],
             }
 
@@ -204,10 +216,11 @@ class StudioState:
         cache_key: str,
         metadata: dict[str, Any],
         channels: dict[str, bytes],
+        evidence: bytes | None = None,
     ) -> dict[str, Any]:
         with self._state_lock:
             stored_channels = dict(channels)
-            size = self._channels_size(stored_channels)
+            size = self._channels_size(stored_channels) + self._evidence_size(evidence)
 
             previous = self._scan_cache.pop(cache_key, None)
             if previous is not None:
@@ -216,6 +229,7 @@ class StudioState:
             self._scan_cache[cache_key] = {
                 "metadata": deepcopy(metadata),
                 "channels": stored_channels,
+                "evidence": evidence,
                 "bytes": size,
             }
             self._scan_cache_bytes += size
