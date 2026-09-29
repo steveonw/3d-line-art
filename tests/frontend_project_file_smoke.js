@@ -61,6 +61,10 @@ const defaults = {
     depthInfluence: 0.75,
     depthContourStrength: 0,
     confidenceSmoothing: 0,
+    useFusedConfidence: false,
+    confidenceLength: 0,
+    confidenceOpacity: 0,
+    confidenceFragmentation: 0,
     cleanBackground: false,
     objectCenteredFields: false,
     multiViewMode: 'current',
@@ -98,6 +102,10 @@ const settings = {
     depthInfluence: 0.9,
     depthContourStrength: 0.8,
     confidenceSmoothing: 0.65,
+    useFusedConfidence: true,
+    confidenceLength: 0.45,
+    confidenceOpacity: 0.55,
+    confidenceFragmentation: 0.35,
     cleanBackground: true,
     objectCenteredFields: true,
     multiViewMode: 'combined',
@@ -140,6 +148,10 @@ assert(reopened.settings.lidar.cameraYaw === 132, 'camera did not round-trip');
 assert(reopened.settings.lidar.smartSampling === true, 'LiDAR settings did not round-trip');
 assert(reopened.settings.lidar.depthContourStrength === 0.8, 'contour coverage did not round-trip');
 assert(reopened.settings.lidar.confidenceSmoothing === 0.65, 'confidence smoothing did not round-trip');
+assert(reopened.settings.lidar.useFusedConfidence === true, 'fused confidence toggle did not round-trip');
+assert(reopened.settings.lidar.confidenceLength === 0.45, 'confidence length did not round-trip');
+assert(reopened.settings.lidar.confidenceOpacity === 0.55, 'confidence opacity did not round-trip');
+assert(reopened.settings.lidar.confidenceFragmentation === 0.35, 'confidence fragmentation did not round-trip');
 assert(reopened.settings.lidar.cleanBackground === true, 'clean background did not round-trip');
 assert(reopened.settings.lidar.objectCenteredFields === true, 'object-centered fields did not round-trip');
 assert(reopened.settings.lidar.multiViewMode === 'combined', 'multi-view mode did not round-trip');
