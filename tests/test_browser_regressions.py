@@ -756,6 +756,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         self.page.on("request", record)
 
+        self.select_control_tab("model")
         self.page.click("#inspectionToggle")
         self.page.wait_for_function(
             "!document.getElementById('inspectionShell').hidden"
@@ -768,6 +769,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertTrue(self.is_disabled("#inspectionScanSelect"))
         self.assertIn("run LiDAR", self.text("#inspectionHudDetail"))
 
+        self.select_control_tab("lidar")
         self.page.click("#scanMultiBtn")
         self.page.wait_for_function(
             "!document.getElementById('scanMultiBtn').disabled"
@@ -783,6 +785,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertEqual(len(scan_inspection_requests), 1)
         self.assertIn("hit points", self.text("#inspectionHudDetail"))
 
+        self.select_control_tab("model")
         before_multi = len(multiview_requests)
         before_fusion = len(fusion_requests)
         self.page.locator("#inspectionViewpoints button", has_text="Back").click()
@@ -830,6 +833,7 @@ class BrowserRegressionTests(unittest.TestCase):
         multiview_requests = []
         fusion_requests = []
         single_scan_requests = []
+        self.select_control_tab("lidar")
         self.page.on(
             "request",
             lambda request: (
@@ -867,6 +871,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         before = len(multiview_requests)
         before_fusion = len(fusion_requests)
+        self.select_control_tab("art")
         self.page.check("#useFusedConfidence")
         self.page.fill("#confidenceLength", "0.65")
         self.page.dispatch_event("#confidenceLength", "input")
@@ -880,6 +885,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertNotIn("Scan stale", self.text("#scanSummary"))
         self.assertFalse(self.is_disabled("#renderBtn"))
 
+        self.select_control_tab("lidar")
         self.page.select_option("#multiViewCurrent", "back")
         self.page.wait_for_function(
             "document.getElementById('multiViewSummary').textContent.includes('Current: Back')"
@@ -942,6 +948,7 @@ class BrowserRegressionTests(unittest.TestCase):
         auto_requests = []
         fusion_requests = []
         single_scan_requests = []
+        self.select_control_tab("lidar")
         self.page.on(
             "request",
             lambda request: (
@@ -981,12 +988,14 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertFalse(self.is_disabled("#renderBtn"))
         self.assertFalse(self.is_disabled("#useFusedConfidence"))
 
+        self.select_control_tab("art")
         self.page.check("#useFusedConfidence")
         self.page.fill("#confidenceLength", "0.4")
         self.page.dispatch_event("#confidenceLength", "input")
         self.assertEqual(len(auto_requests), 1)
         self.assertEqual(len(fusion_requests), 1)
 
+        self.select_control_tab("lidar")
         self.page.select_option("#multiViewCurrent", second_value)
         second_label = options[1].text_content().strip()
         self.page.wait_for_function(
@@ -998,9 +1007,11 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertEqual(len(auto_requests), 1)
         self.assertNotIn("Scan stale", self.text("#scanSummary"))
 
+        self.select_control_tab("art")
         self.page.fill("#confidenceSmoothing", "0.45")
         self.page.dispatch_event("#confidenceSmoothing", "input")
         self.page.wait_for_function("!document.getElementById('undoBtn').disabled")
+        self.select_control_tab("source")
         self.page.click("#undoBtn")
         self.page.wait_for_function(
             "value => document.getElementById('multiViewCurrent').value === value",
@@ -1008,6 +1019,7 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertIn(second_label, self.text("#multiViewSummary"))
 
+        self.select_control_tab("lidar")
         # Orbit/elevation do not stale an acquired automatic view set because
         # Auto Scan owns camera placement just like fixed multi-view scanning.
         self.page.fill("#cameraYaw", "133")
@@ -1042,6 +1054,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.set_input_files("#modelInput", str(CUBE_OBJ))
         self.page.wait_for_function("!document.getElementById('scanAutoBtn').disabled")
 
+        self.select_control_tab("lidar")
         self.page.route(
             "**/api/lidar/auto",
             lambda route: route.fulfill(
@@ -1074,6 +1087,7 @@ class BrowserRegressionTests(unittest.TestCase):
         before = len(scan_requests)
         before_status = self.text("#scanSummary")
 
+        self.select_control_tab("art")
         self.page.select_option("#preset", "sensorSketch")
         self.page.wait_for_function(
             "document.getElementById('preset').value === 'sensorSketch'"
@@ -1108,6 +1122,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.open_project(project)
         self.page.set_input_files("#modelInput", str(CUBE_OBJ))
         self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
+        self.select_control_tab("lidar")
 
         self.page.click("#scanBtn")
         self.page.wait_for_function(
