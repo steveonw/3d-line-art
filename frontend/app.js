@@ -2072,7 +2072,7 @@
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
-    const transformLocked = !sceneLoaded || uiLocked || modelLoading;
+    const transformLocked = !sceneLoaded || !modelReady || uiLocked || modelLoading;
     [
       modelPositionX,
       modelPositionY,
