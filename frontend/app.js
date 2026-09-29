@@ -2300,14 +2300,7 @@
   async function uploadModelFile(file) {
     if (!file) return;
 
-    const previous = {
-      sceneLoaded,
-      modelReference,
-      scanDirty,
-      modelStatus: modelStatus.textContent,
-      scanSummary: scanSummary.textContent,
-      scanButton: scanBtn.textContent
-    };
+    const previous = captureModelLoadState();
 
     modelLoading = true;
     modelStatus.textContent = `Uploading ${file.name}...`;
@@ -2316,53 +2309,11 @@
     try {
       const result = await LidarClient.uploadScene(file);
       const scene = result.scene;
-      sceneLoaded = true;
-      modelReference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
-      const previousScanLabel = installedScanLabel;
-      multiViewBundle = null;
-      installedMultiViewSignature = null;
-      installedScanSignature = null;
-      installedScanId = null;
-      installedScanMetadata = null;
-      installedScanCacheHit = false;
-      installedScanMode = 'single';
-      updateMultiViewSummary();
-
-      // Uploading a model replaces the server scene/scan, but it does not
-      // relabel the old canvas. sourceReference stays tied to the installed
-      // drawing until a new scan is installed.
-      scanDirty = true;
-      scanBtn.textContent = 'Scan LiDAR';
-      scanSummary.textContent = sourceKind === 'lidar' && sourceImage
-        ? `Scan stale · ${previousScanLabel || 'scan'}`
-        : 'Scan stale · ready to scan';
-      modelStatus.textContent =
-        `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
-      resetInspectionForScene();
-      if (inspectionOpen) {
-        await loadInspectionScene({ force: true });
-      }
-
-      if (!projectModelReady()) {
-        const needed = requiredSourceLabel();
-        setProjectStatus(`Loaded model does not match this project. Load ${needed}.`, true);
-        setStatus(`Model loaded, but the project is waiting for ${needed}.`, 0);
-      } else {
-        setProjectStatus(
-          requiredSourceReference
-            ? 'Referenced model loaded. Run LiDAR to reproduce the project.'
-            : '3D model loaded.'
-        );
-        setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
-      }
-      autosaveCurrentState();
+      const reference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
+      await installLoadedScene(scene, reference);
     } catch (error) {
       console.error(error);
-      sceneLoaded = previous.sceneLoaded;
-      modelReference = previous.modelReference;
-      scanDirty = previous.scanDirty;
-      scanSummary.textContent = previous.scanSummary;
-      scanBtn.textContent = previous.scanButton;
+      restoreModelLoadState(previous);
       const suffix = error.errorId ? ` (${error.errorId})` : '';
       modelStatus.textContent = previous.sceneLoaded
         ? `Model upload failed: ${error.message}${suffix}. Previous model is still loaded.`
@@ -2375,6 +2326,54 @@
       );
     } finally {
       modelLoading = false;
+      refreshButtons();
+    }
+  }
+
+  async function generateGeometryScene(specOverride = null) {
+    if (modelLoading || scanRunning) return null;
+    const previous = captureModelLoadState();
+    let spec;
+    try {
+      spec = specOverride || readGeometrySpec();
+    } catch (error) {
+      geometryStatus.textContent = `Geometry settings error: ${error.message}`;
+      return null;
+    }
+
+    modelLoading = true;
+    const label = spec.type === 'heightfield' ? 'height field' : spec.type;
+    geometryStatus.textContent = `Creating ${label}…`;
+    modelStatus.textContent = `Creating ${label}…`;
+    syncGeometryBuilderFields();
+    refreshButtons();
+
+    try {
+      const result = await LidarClient.generateScene(spec);
+      const scene = result.scene;
+      const reference = generatedSourceReference(scene);
+      await installLoadedScene(scene, reference, { generated: true });
+      geometryStatus.textContent =
+        `Created ${label} · ${formatCount(scene.triangles)} triangles · normalized through the standard OBJ pipeline.`;
+      return scene;
+    } catch (error) {
+      console.error(error);
+      restoreModelLoadState(previous);
+      const suffix = error.errorId ? ` (${error.errorId})` : '';
+      geometryStatus.textContent = `Geometry creation failed: ${error.message}${suffix}`;
+      modelStatus.textContent = previous.sceneLoaded
+        ? `Geometry creation failed. Previous model is still loaded.`
+        : `Geometry creation failed: ${error.message}${suffix}`;
+      setStatus(
+        previous.sceneLoaded
+          ? 'Could not create that geometry. The previous model is still available.'
+          : 'Could not create that geometry.',
+        0
+      );
+      return null;
+    } finally {
+      modelLoading = false;
+      syncGeometryBuilderFields();
       refreshButtons();
     }
   }
