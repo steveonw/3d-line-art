@@ -502,19 +502,47 @@
       const c = strokeCandidate(s, renderState, renderState.candidate);
       if (!c) return false;
       const importance = c.importance;
+      const styleConfidence = sensorConfidence ? clamp(c.confidence, 0, 1) : 1;
+      const confidenceLength = clamp(Number(s.lidar?.confidenceLength) || 0, 0, 1);
+      const confidenceOpacity = clamp(Number(s.lidar?.confidenceOpacity) || 0, 0, 1);
+      const confidenceFragmentation = clamp(
+        Number(s.lidar?.confidenceFragmentation) || 0,
+        0,
+        1
+      );
       const lengthJitter = RandomField.randomForIndex(
         renderState.drawn | 0,
         renderState.seed,
         64
       );
-      const len = s.strokeLength * (0.40 + importance * 0.95) * (0.72 + lengthJitter * 0.56);
+      const fragmentRoll = RandomField.randomForIndex(
+        renderState.drawn | 0,
+        renderState.seed,
+        65
+      );
+      const fragmentChance =
+        confidenceFragmentation * (1 - styleConfidence) * 0.82;
+      if (fragmentRoll < fragmentChance) {
+        Placement.recordSelection(renderState.placement, c);
+        return true;
+      }
+
+      const confidenceLengthScale =
+        1 - confidenceLength * (1 - styleConfidence) * 0.68;
+      const len =
+        s.strokeLength *
+        (0.40 + importance * 0.95) *
+        (0.72 + lengthJitter * 0.56) *
+        confidenceLengthScale;
 
       // Preview amplification affects appearance, not the coverage solver. This
       // keeps the candidate prefix stable when only requested line count changes.
       const baseWeight = Math.max(0.12, s.strokeWeight * (0.34 + importance * 0.88));
       const weight = baseWeight * renderState.previewWeightMultiplier;
+      const confidenceOpacityScale =
+        1 - confidenceOpacity * (1 - styleConfidence) * 0.78;
       const baseAlpha = clamp(
-        s.opacity * (0.28 + importance * 0.83),
+        s.opacity * (0.28 + importance * 0.83) * confidenceOpacityScale,
         0.02,
         1
       );
