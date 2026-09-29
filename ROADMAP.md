@@ -540,7 +540,7 @@ material
 
 The UI now has explicit **2D Ink** and **3D Ink** modes. 2D Ink preserves the existing canvas renderer and PNG/SVG workflow. 3D Ink reuses the offline Phase 15 Three.js viewer as a visualization host, with a separately toggleable world-space ink layer; a tiny render-only normal lift avoids z-fighting while stored XYZ remains on the hit surface. Combined Views stays explicitly 2D-only because it has no single camera projection.
 
-Projection is bounded to the deterministic first 5,000 completed 2D strokes and at most 80,000 dense projected samples. The new `POST /api/ink3d/project` route has its own 4 MB JSON cap and uses the existing operation gate; the normal 64 KB sensor/control JSON cap is unchanged. 3D Ink uses direct mesh intersections and cached confidence evidence and performs no new LiDAR burst, smart-sampling pass, or confidence fusion. GitHub Actions passes real-mesh projection/determinism/metadata tests, no-rescan bridge coverage, API and frontend packing tests, and real Chromium verification of 2D → 3D Ink → art-only refresh → 2D with zero additional LiDAR/fusion requests.
+Projection is bounded to the deterministic first 5,000 completed 2D strokes and at most 80,000 dense projected samples. The new `POST /api/ink3d/project` route has its own 4 MB JSON cap and uses the existing operation gate; the normal 64 KB sensor/control JSON cap is unchanged. 3D Ink uses direct mesh intersections and cached confidence evidence and performs no new LiDAR burst, smart-sampling pass, or confidence fusion. Three.js now receives straight RGB plus the original per-stroke alpha instead of premultiplying color and then drawing near-opaque, so faint pencil strokes keep their intended tone. Selecting the current scan/viewpoint also frames the orbit camera from that scan's camera position, target, and vertical FOV before the user continues orbiting. GitHub Actions passes real-mesh projection/determinism/metadata tests, no-rescan bridge coverage, API and frontend packing tests, alpha/camera-framing smoke coverage, and real Chromium verification of 2D → 3D Ink → art-only refresh → 2D with zero additional LiDAR/fusion requests.
 
 ## v0.5 checkpoint
 
@@ -616,6 +616,15 @@ automated review sessions: zero uncaught page errors observed
 ```
 
 The review concluded that the 2D renderer/art engine is currently stronger than the LiDAR sensor-to-art mapping. Prefer improving the LiDAR evidence/mapping path before adding more decorative flow fields.
+
+## 3D inspection / ink follow-ups
+
+These are quality and scale follow-ups, not blockers for the Phase 16 world-space geometry contract:
+
+- [ ] Revisit the 5,000-stroke 3D Ink projection prefix so dense 2D drawings can retain more visual density without making projection latency or JSON payloads unbounded
+- [ ] Make ink-only inspection readable when the mesh is hidden instead of placing dark ink on the near-black inspector background
+- [ ] Preserve stroke-width differences in 3D with a portable geometry-based line/ribbon path rather than relying on platform-limited WebGL line width
+- [ ] Replace triangle-order sampling in the bounded mesh preview with a topology-aware simplification/LOD strategy so very dense meshes do not appear perforated
 
 ## Mathematical experimental modes
 
