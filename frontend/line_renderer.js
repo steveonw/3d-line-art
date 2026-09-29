@@ -1,6 +1,22 @@
 (() => {
   'use strict';
 
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, Number(value) || 0));
+  }
+
+  function confidenceStyleFactors(confidence, lidar = {}) {
+    const conf = clamp01(confidence);
+    const lengthStrength = clamp01(lidar.confidenceLength);
+    const opacityStrength = clamp01(lidar.confidenceOpacity);
+    const fragmentationStrength = clamp01(lidar.confidenceFragmentation);
+    return Object.freeze({
+      lengthScale: 1 - lengthStrength * (1 - conf) * 0.68,
+      opacityScale: 1 - opacityStrength * (1 - conf) * 0.78,
+      fragmentChance: fragmentationStrength * (1 - conf) * 0.82
+    });
+  }
+
   function createRenderer({ ctx, coverageCell = 3, maxStreamPoints = 6 }) {
     const COVERAGE_CELL = coverageCell;
     const MAX_STREAM_POINTS = maxStreamPoints;
@@ -502,19 +518,38 @@
       const c = strokeCandidate(s, renderState, renderState.candidate);
       if (!c) return false;
       const importance = c.importance;
+      const styleConfidence = sensorConfidence ? clamp(c.confidence, 0, 1) : 1;
+      const styleFactors = confidenceStyleFactors(
+        styleConfidence,
+        s.lidar || {}
+      );
       const lengthJitter = RandomField.randomForIndex(
         renderState.drawn | 0,
         renderState.seed,
         64
       );
-      const len = s.strokeLength * (0.40 + importance * 0.95) * (0.72 + lengthJitter * 0.56);
+      const fragmentRoll = RandomField.randomForIndex(
+        renderState.drawn | 0,
+        renderState.seed,
+        65
+      );
+      if (fragmentRoll < styleFactors.fragmentChance) {
+        Placement.recordSelection(renderState.placement, c);
+        return true;
+      }
+
+      const len =
+        s.strokeLength *
+        (0.40 + importance * 0.95) *
+        (0.72 + lengthJitter * 0.56) *
+        styleFactors.lengthScale;
 
       // Preview amplification affects appearance, not the coverage solver. This
       // keeps the candidate prefix stable when only requested line count changes.
       const baseWeight = Math.max(0.12, s.strokeWeight * (0.34 + importance * 0.88));
       const weight = baseWeight * renderState.previewWeightMultiplier;
       const baseAlpha = clamp(
-        s.opacity * (0.28 + importance * 0.83),
+        s.opacity * (0.28 + importance * 0.83) * styleFactors.opacityScale,
         0.02,
         1
       );
@@ -583,6 +618,7 @@
   }
 
   window.LineArtRenderer = Object.freeze({
-    createRenderer
+    createRenderer,
+    confidenceStyleFactors
   });
 })();

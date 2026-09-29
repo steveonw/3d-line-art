@@ -183,6 +183,26 @@
           <input id="confidenceSmoothing" type="range" min="0" max="1" step="0.05" value="0" disabled />
         </div>
 
+        <label class="checkbox-row" for="useFusedConfidence">
+          <input id="useFusedConfidence" type="checkbox" disabled />
+          <span>Use multi-view fused confidence</span>
+        </label>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="confidenceLength">Confidence → length</label><span class="value" id="confidenceLengthValue">0%</span></div>
+          <input id="confidenceLength" type="range" min="0" max="1" step="0.05" value="0" disabled />
+        </div>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="confidenceOpacity">Confidence → opacity</label><span class="value" id="confidenceOpacityValue">0%</span></div>
+          <input id="confidenceOpacity" type="range" min="0" max="1" step="0.05" value="0" disabled />
+        </div>
+
+        <div class="compact-slider">
+          <div class="label-row"><label for="confidenceFragmentation">Confidence → fragmentation</label><span class="value" id="confidenceFragmentationValue">0%</span></div>
+          <input id="confidenceFragmentation" type="range" min="0" max="1" step="0.05" value="0" disabled />
+        </div>
+
         <label class="checkbox-row" for="cleanBackground">
           <input id="cleanBackground" type="checkbox" disabled />
           <span>Clean known-empty background</span>

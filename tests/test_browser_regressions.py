@@ -273,6 +273,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.wait_for_function("!document.getElementById('scanMultiBtn').disabled")
 
         multiview_requests = []
+        fusion_requests = []
         single_scan_requests = []
         self.page.on(
             "request",
@@ -280,9 +281,13 @@ class BrowserRegressionTests(unittest.TestCase):
                 multiview_requests.append(request.url)
                 if request.url.endswith("/api/lidar/multiview")
                 else (
-                    single_scan_requests.append(request.url)
-                    if request.url.endswith("/api/lidar/scan")
-                    else None
+                    fusion_requests.append(request.url)
+                    if request.url.endswith("/api/lidar/fusion")
+                    else (
+                        single_scan_requests.append(request.url)
+                        if request.url.endswith("/api/lidar/scan")
+                        else None
+                    )
                 )
             ),
         )
@@ -296,18 +301,36 @@ class BrowserRegressionTests(unittest.TestCase):
         )
 
         self.assertEqual(len(multiview_requests), 1)
+        self.assertEqual(len(fusion_requests), 1)
         self.assertEqual(len(single_scan_requests), 0)
         self.assertFalse(self.is_disabled("#multiViewMode"))
         self.assertFalse(self.is_disabled("#multiViewCurrent"))
         self.assertIn("Current: Front", self.text("#multiViewSummary"))
         self.assertFalse(self.is_disabled("#renderBtn"))
+        self.assertFalse(self.is_disabled("#useFusedConfidence"))
+        self.assertIn("fused confidence", self.text("#modelStatus").lower())
 
         before = len(multiview_requests)
+        before_fusion = len(fusion_requests)
+        self.page.check("#useFusedConfidence")
+        self.page.fill("#confidenceLength", "0.65")
+        self.page.dispatch_event("#confidenceLength", "input")
+        self.page.fill("#confidenceOpacity", "0.55")
+        self.page.dispatch_event("#confidenceOpacity", "input")
+        self.page.fill("#confidenceFragmentation", "0.35")
+        self.page.dispatch_event("#confidenceFragmentation", "input")
+        self.assertEqual(len(multiview_requests), before)
+        self.assertEqual(len(fusion_requests), before_fusion)
+        self.assertEqual(len(single_scan_requests), 0)
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
         self.page.select_option("#multiViewCurrent", "back")
         self.page.wait_for_function(
             "document.getElementById('multiViewSummary').textContent.includes('Current: Back')"
         )
         self.assertEqual(len(multiview_requests), before)
+        self.assertEqual(len(fusion_requests), before_fusion)
         self.assertNotIn("Scan stale", self.text("#scanSummary"))
 
         self.page.select_option("#multiViewMode", "combined")
@@ -350,6 +373,7 @@ class BrowserRegressionTests(unittest.TestCase):
             timeout=SCAN_TIMEOUT_MS,
         )
         self.assertEqual(len(multiview_requests), 2)
+        self.assertEqual(len(fusion_requests), 2)
         self.assertEqual(len(single_scan_requests), 0)
         self.assertIn("Scan cached", self.text("#scanSummary"))
 
@@ -361,6 +385,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.wait_for_function("!document.getElementById('scanAutoBtn').disabled")
 
         auto_requests = []
+        fusion_requests = []
         single_scan_requests = []
         self.page.on(
             "request",
@@ -368,9 +393,13 @@ class BrowserRegressionTests(unittest.TestCase):
                 auto_requests.append(request.url)
                 if request.url.endswith("/api/lidar/auto")
                 else (
-                    single_scan_requests.append(request.url)
-                    if request.url.endswith("/api/lidar/scan")
-                    else None
+                    fusion_requests.append(request.url)
+                    if request.url.endswith("/api/lidar/fusion")
+                    else (
+                        single_scan_requests.append(request.url)
+                        if request.url.endswith("/api/lidar/scan")
+                        else None
+                    )
                 )
             ),
         )
@@ -379,11 +408,12 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.wait_for_function(
             "document.getElementById('multiViewSummary').textContent.includes('ready')"
             " && !document.getElementById('scanAutoBtn').disabled"
-            " && document.body.dataset.phase13Ready === 'true'",
+            " && document.body.dataset.phase14Ready === 'true'",
             timeout=SCAN_TIMEOUT_MS,
         )
 
         self.assertEqual(len(auto_requests), 1)
+        self.assertEqual(len(fusion_requests), 1)
         self.assertEqual(len(single_scan_requests), 0)
         options = self.page.locator("#multiViewCurrent option").all()
         self.assertGreaterEqual(len(options), 3)
@@ -394,6 +424,13 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertTrue(second_value.startswith("auto_"))
         self.assertIn("views", self.text("#scanSummary"))
         self.assertFalse(self.is_disabled("#renderBtn"))
+        self.assertFalse(self.is_disabled("#useFusedConfidence"))
+
+        self.page.check("#useFusedConfidence")
+        self.page.fill("#confidenceLength", "0.4")
+        self.page.dispatch_event("#confidenceLength", "input")
+        self.assertEqual(len(auto_requests), 1)
+        self.assertEqual(len(fusion_requests), 1)
 
         self.page.select_option("#multiViewCurrent", second_value)
         second_label = options[1].text_content().strip()
@@ -439,6 +476,7 @@ class BrowserRegressionTests(unittest.TestCase):
             timeout=SCAN_TIMEOUT_MS,
         )
         self.assertEqual(len(auto_requests), 2)
+        self.assertEqual(len(fusion_requests), 2)
         self.assertEqual(len(single_scan_requests), 0)
         self.assertIn("Scan cached", self.text("#scanSummary"))
 

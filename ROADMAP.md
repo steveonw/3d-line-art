@@ -454,11 +454,11 @@ Phase 13 deliberately measures **quality-weighted view-space coverage**, not reg
 
 Borrow selected multi-view ideas from `lidar-numpy`.
 
-- [ ] Fuse evidence from multiple scans
-- [ ] Produce confidence as a first-class map
-- [ ] Allow confidence to affect stroke length
-- [ ] Allow confidence to affect opacity
-- [ ] Allow confidence to affect fragmentation
+- [x] Fuse evidence from multiple scans
+- [x] Produce confidence as a first-class map
+- [x] Allow confidence to affect stroke length
+- [x] Allow confidence to affect opacity
+- [x] Allow confidence to affect fragmentation
 
 Concept:
 
@@ -474,6 +474,10 @@ low confidence
 ```
 
 **Done when:** sensor certainty is visibly represented in the drawing.
+
+**Phase 14 validation:** cached scans retain compact metric depth + confidence evidence inside the bounded Phase 11 LRU. Fusion reconstructs approximate world-space hit points, reprojects evidence across acquired camera frames, rejects farther projected evidence behind the nearest depth layer, preserves a lone source's confidence, and raises certainty only when additional views agree. GitHub Actions passes cross-camera reprojection tests, cache-only fusion with LiDAR engine loading deliberately disabled, fusion API/PNG tests, cache byte-accounting tests, project-state round trips, deterministic confidence-style smoke tests, and real Chromium checks that confidence-art controls and view switching never rescan or re-fuse.
+
+The existing Phase 12 **Combined Views** image remains a 2D evidence compositor. Phase 14 confidence fusion is a separate geometric evidence layer derived from cached metric depth. Per-pixel depth is a camera-pixel mean reconstructed through the pixel center, so this is intentionally an approximate world-space reprojection rather than a full retained raw-ray point cloud.
 
 ## v0.4 checkpoint
 

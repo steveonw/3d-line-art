@@ -15,15 +15,15 @@ steveonw/3d-line-art
 Current development head as of 2026-09-28:
 
 ```text
-branch: phase-13-auto-view-selection
-PR:     #16 — Phase 13: add automatic LiDAR view selection
-base:   phase-12-fixed-multiview
+branch: phase-14-confidence-fusion
+PR:     #17 — Phase 14: add multi-view confidence fusion
+base:   phase-13-auto-view-selection
 CI:     passed
 ```
 
-Resume from **Phase 14 — Confidence fusion**.
+Resume from **Phase 15 — 3D inspection viewer**.
 
-Do **not** start Phase 15 3D inspection viewer until Phase 14 is implemented, tested, committed, and green.
+Do **not** start Phase 16 3D Ink until Phase 15 is implemented, tested, committed, and green.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -66,22 +66,24 @@ main
   ↓
 #15 phase-12-fixed-multiview
   ↓
-#16 phase-13-auto-view-selection ← CURRENT HEAD
+#16 phase-13-auto-view-selection
+  ↓
+#17 phase-14-confidence-fusion ← CURRENT HEAD
 ```
 
-For Phase 14:
+For Phase 15:
 
-1. Branch from `phase-13-auto-view-selection`.
+1. Branch from `phase-14-confidence-fusion`.
 2. Suggested branch name:
 
    ```text
-   phase-14-confidence-fusion
+   phase-15-3d-inspection-viewer
    ```
 
 3. Open the new PR against:
 
    ```text
-   phase-13-auto-view-selection
+   phase-14-confidence-fusion
    ```
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
@@ -768,17 +770,54 @@ Post-review stabilization on the same Phase 13 branch additionally establishes:
 
 Do **not** undo these fixes by forcing Smart Sampling, lowering the 0.72 target merely to make Auto Scan stop earlier, or changing the Phase 13 planner into object-space fusion. Reviews correctly observed that the current planner often chooses similar angular sequences for different models and that the 2D Combined Views mode is an overlay/compositor. Those are known design boundaries, not reasons to blur the Phase 13/14 separation.
 
-## 12.75. Next task: Phase 14 — Confidence fusion
+## 12.75. Completed Phase 14 — Confidence fusion
+
+Phase 14 is complete.
+
+Architecture:
+
+```text
+cached scan
+  -> compact metric depth + confidence evidence
+  -> reconstruct approximate world points
+  -> reproject into each canonical acquired view
+  -> nearest-depth visibility guard
+  -> per-source strongest observation
+  -> confidence agreement accumulation
+  -> fused confidence + support maps
+```
+
+Key invariants:
+
+- fusion performs **zero additional LiDAR raycasts**,
+- compact fusion evidence is byte-accounted in the existing Phase 11 bounded LRU,
+- fusion can be rebuilt with LiDAR engine loading disabled as long as source scans remain cached,
+- one-source pixels keep their original confidence,
+- additional agreeing camera evidence can increase confidence,
+- different model identities cannot be fused,
+- Current View and Combined Views use the same per-view fused-confidence products,
+- confidence → length / opacity / fragmentation are art-only settings and never rescan or re-fuse,
+- zero-strength values preserve legacy rendering.
+
+The world-space reconstruction is intentionally approximate because `depth_per_pixel` is a per-pixel mean and is reconstructed through the pixel center. Phase 14 does not claim retained raw-ray geometry or a full point-cloud archive.
+
+The Phase 12 Combined Views image remains a 2D compositor. Do not conflate that overlay with the separate world-space confidence-fusion layer.
+
+## 12.9. Next task: Phase 15 — 3D inspection viewer
 
 Roadmap scope:
 
-- fuse evidence from multiple scans,
-- produce confidence as a first-class multi-view map,
-- allow confidence to affect stroke length,
-- allow confidence to affect opacity,
-- allow confidence to affect fragmentation.
+- add Three.js without an LLM dependency,
+- show source mesh,
+- show LiDAR camera,
+- show ray/hit preview,
+- show point cloud,
+- show selected scan,
+- add orbit controls,
+- add camera direction gizmo,
+- allow scan-viewpoint selection.
 
-Use selected multi-view ideas from `steveonw/lidar-numpy` where useful. Preserve the Phase 13 planner as an acquisition layer; Phase 14 should consume acquired views rather than replacing automatic view selection or the Phase 11 cache.
+Inspect the owner's `Math-tools` for reusable camera/viewer ideas and `text-to-3d` for non-LLM viewer/scaffold ideas where useful. Preserve the Phase 11 cache, Phase 13 automatic acquisition, and Phase 14 confidence products.
 
 ## 13. Determinism and behavior invariants
 
@@ -900,9 +939,10 @@ Keep these intact:
 - Project JSON does not yet embed cached scan products.
 - Local image bytes are not placed in localStorage.
 - The server is single-user/local and maintains one active operation at a time.
-- Confidence is currently a corrected single-view proxy, not later multi-view confidence fusion.
+- Single-view confidence remains available, and Phase 14 additionally provides per-view multi-view fused confidence.
 - Phase 13 automatic selection measures view-space angular coverage; it does not know registered unseen object surfaces.
-- Combined Views is a deterministic 2D evidence compositor/overlay, not geometric registration.
+- Phase 14 reconstructs approximate world-space evidence from per-pixel mean depth; it does not retain the original raw LiDAR ray point cloud.
+- Combined Views is a deterministic 2D evidence compositor/overlay; it is distinct from Phase 14 confidence reprojection.
 - The current LiDAR camera is pinhole-based single-view scanning.
 - LLM support is optional future work, not infrastructure.
 
@@ -936,31 +976,27 @@ For every major phase:
 Start here:
 
 ```text
-Phase 14 — Confidence fusion
+Phase 15 — 3D inspection viewer
 ```
 
-Branch from `phase-13-auto-view-selection` and base the Phase 14 PR on `phase-13-auto-view-selection`.
+Branch from `phase-14-confidence-fusion` and base the Phase 15 PR on `phase-14-confidence-fusion`.
 
 First inspect:
 
 ```text
-server/auto_view.py
 server/state.py
 server/lidar_bridge.py
-server/api.py
-frontend/analysis_maps.js
-frontend/multiview.js
+server/confidence_fusion.py
 frontend/app.js
+frontend/multiview.js
+frontend/lidar_client.js
 tests/test_lidar_bridge.py
-tests/frontend_multiview_smoke.js
 tests/test_browser_regressions.py
 ROADMAP.md
 ```
 
-Preserve the Phase 11 content-addressed LRU cache, the Phase 11.5 common art-mapping path, Phase 12's independently inspectable scan IDs/view sets, and Phase 13 automatic acquisition.
+Also inspect owner-controlled `steveonw/Math-tools` for camera/viewer interaction ideas and `steveonw/text-to-3d` for useful non-LLM Three.js viewer/scaffold patterns.
 
-Before designing fusion, inspect owner-controlled `steveonw/lidar-numpy` and other relevant `steveonw` repositories for reusable multi-view/confidence subsystems.
+Preserve the Phase 11 content-addressed LRU cache, Phase 12/13 scan IDs and multi-view acquisition, and Phase 14 confidence fusion. The viewer should inspect those products rather than introducing a second scan or reconstruction pipeline.
 
-Implement multi-view confidence fusion as a separate evidence-combination step over acquired scans. Keep the distinction between Phase 13 view-space acquisition coverage and Phase 14 fused sensor confidence explicit. If fused uncertainty later feeds back into next-view selection, treat that as an explicit active-perception feedback design rather than quietly retuning the Phase 13 angular planner.
-
-Do not touch Phase 15 3D inspection viewer.
+Do not touch Phase 16 3D Ink.

@@ -191,6 +191,46 @@ class FakeLidarBridge:
             "cache": self.state.scan_cache_stats(),
         }
 
+    def clear_fusion_cache(self) -> None:
+        pass
+
+    def fuse_scan_confidence(self, scan_ids: list[str]) -> dict:
+        if len(scan_ids) < 2:
+            raise ValueError("confidence fusion requires at least two distinct scans")
+        views = {
+            scan_id: {
+                "scan_id": scan_id,
+                "mean_confidence": 0.82,
+                "overlap_fraction": 0.65,
+                "max_support": len(scan_ids),
+                "width": 160,
+                "height": 120,
+                "confidence": (
+                    f"/api/lidar/fusion/confidence.png?fusion_id=fakefusion"
+                    f"&scan_id={scan_id}"
+                ),
+                "support": (
+                    f"/api/lidar/fusion/support.png?fusion_id=fakefusion"
+                    f"&scan_id={scan_id}"
+                ),
+            }
+            for scan_id in scan_ids
+        }
+        return {
+            "fusion_id": "fakefusion",
+            "cache_hit": False,
+            "source_count": len(scan_ids),
+            "scan_ids": list(scan_ids),
+            "metric": "world-space reprojected confidence agreement",
+            "views": views,
+        }
+
+    def fusion_png(self, fusion_id: str, scan_id: str, channel: str) -> bytes:
+        if fusion_id != "fakefusion" or channel not in {"confidence", "support"}:
+            from server.lidar_bridge import ScanIdMismatchError
+            raise ScanIdMismatchError("fusion result is not available")
+        return PNG + f"{scan_id}-{channel}".encode("ascii")
+
     def maps_summary(self, scan_id: str | None = None) -> dict:
         if scan_id:
             stored = self.scans.get(scan_id)
@@ -323,8 +363,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.4-phase13")
-        self.assertEqual(payload["api_version"], 5)
+        self.assertEqual(payload["server_version"], "0.4-phase14")
+        self.assertEqual(payload["api_version"], 6)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -505,6 +545,46 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(multiview["current_view"], multiview["order"][-1])
         first = multiview["views"][multiview["order"][0]]
         self.assertEqual(first["view"]["kind"], "auto")
+
+    def test_confidence_fusion_endpoint_and_pngs(self) -> None:
+        self.upload_fake_scene()
+        fixed_status, fixed_payload = self.json_request(
+            "/api/lidar/multiview",
+            method="POST",
+            body=json.dumps({
+                "width": 160,
+                "height": 120,
+                "rays_per_pixel": 1,
+            }).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(fixed_status, 200)
+        multiview = fixed_payload["multiview"]
+        scan_ids = [
+            multiview["views"][name]["scan_id"]
+            for name in multiview["order"][:3]
+        ]
+
+        status, payload = self.json_request(
+            "/api/lidar/fusion",
+            method="POST",
+            body=json.dumps({"scan_ids": scan_ids}).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        fusion = payload["fusion"]
+        self.assertEqual(fusion["source_count"], 3)
+        self.assertEqual(fusion["scan_ids"], scan_ids)
+        first = fusion["views"][scan_ids[0]]
+        self.assertIn("confidence.png", first["confidence"])
+        self.assertIn("support.png", first["support"])
+
+        status, body, content_type = self.request(
+            first["confidence"]
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(body.startswith(PNG))
+        self.assertEqual(content_type, "image/png")
 
     def test_cross_origin_mutation_is_rejected(self) -> None:
         status, payload = self.json_request(

@@ -59,6 +59,15 @@
     return jsonResponse(response);
   }
 
+  async function fuseConfidence(scanIds) {
+    const response = await fetch('/api/lidar/fusion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scan_ids: scanIds })
+    });
+    return jsonResponse(response);
+  }
+
   async function getState() {
     const response = await fetch('/api/state', { cache: 'no-store' });
     return jsonResponse(response);
@@ -87,6 +96,23 @@
       width: canvas.width,
       height: canvas.height
     };
+  }
+
+  async function fetchFusionMaps(fusion) {
+    const entries = await Promise.all(
+      (fusion?.scan_ids || []).map(async scanId => {
+        const descriptor = fusion.views?.[scanId];
+        if (!descriptor?.confidence || !descriptor?.support) {
+          throw new Error('Confidence fusion did not provide all required maps.');
+        }
+        const [confidence, support] = await Promise.all([
+          fetchImageData(descriptor.confidence),
+          fetchImageData(descriptor.support)
+        ]);
+        return [scanId, { descriptor, confidence, support }];
+      })
+    );
+    return Object.fromEntries(entries);
   }
 
   async function fetchScanMaps(scan) {
@@ -122,8 +148,10 @@
     scan,
     scanFixedViews,
     scanAutoViews,
+    fuseConfidence,
     getState,
     getMaps,
+    fetchFusionMaps,
     fetchScanMaps
   });
 })();

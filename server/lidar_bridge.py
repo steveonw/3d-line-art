@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import io
+from collections import OrderedDict
 import json
 import math
 import os
 import tempfile
 import uuid
 from typing import Any
+
+from .confidence_fusion import (
+    EVIDENCE_VERSION,
+    encode_scan_evidence,
+    fuse_confidence,
+    grayscale_png,
+    support_png,
+)
 
 from .auto_view import (
     DEFAULT_AUTO_MAX_VIEWS,
@@ -509,6 +518,8 @@ class LidarBridge:
 
     def __init__(self, state) -> None:
         self.state = state
+        self._fusion_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._fusion_cache_max_entries = 8
 
     def upload_scene(self, filename: str, raw: bytes) -> dict[str, Any]:
         if not filename:
@@ -561,6 +572,7 @@ class LidarBridge:
                 metadata["scan_id"],
                 metadata,
                 cached["channels"],
+                cached.get("evidence"),
             )
             return self.maps_summary()
 
@@ -629,6 +641,10 @@ class LidarBridge:
             else 0.0
         )
         quality_score = scan_quality_score(burst.coverage, mean_confidence)
+        evidence = encode_scan_evidence(
+            channels["depth_per_pixel"],
+            confidence_values,
+        )
 
         scan_id = uuid.uuid4().hex[:12]
         metadata = {
@@ -643,14 +659,15 @@ class LidarBridge:
             "coverage": round(float(burst.coverage), 6),
             "mean_confidence": round(mean_confidence, 6),
             "quality_score": quality_score,
+            "fusion_evidence_version": EVIDENCE_VERSION,
             "camera": {
                 "yaw_deg": yaw_deg,
                 "elevation_deg": elevation_deg,
                 "distance_scale": distance_scale,
                 "fov_deg": fov_deg,
             },
-            "camera_position": [round(float(x), 4) for x in camera.position],
-            "camera_target": [round(float(x), 4) for x in camera.target],
+            "camera_position": [float(x) for x in camera.position],
+            "camera_target": [float(x) for x in camera.target],
             "scene": {
                 "name": scene_info.get("name"),
                 "triangles": scene_info.get("triangles"),
@@ -665,8 +682,8 @@ class LidarBridge:
             "variance": _png_bytes(variance),
             "confidence": _png_bytes(confidence),
         }
-        self.state.set_scan(scan_id, metadata, image_bytes)
-        self.state.put_cached_scan(cache_key, metadata, image_bytes)
+        self.state.set_scan(scan_id, metadata, image_bytes, evidence)
+        self.state.put_cached_scan(cache_key, metadata, image_bytes, evidence)
         return self.maps_summary()
 
     def scan_fixed_views(
@@ -817,6 +834,121 @@ class LidarBridge:
             },
             "cache": self.state.scan_cache_stats(),
         }
+
+    def clear_fusion_cache(self) -> None:
+        self._fusion_cache.clear()
+
+    def fuse_scan_confidence(
+        self,
+        scan_ids: list[str],
+    ) -> dict[str, Any]:
+        """Fuse cached metric evidence into every requested canonical view."""
+        ordered_ids = []
+        seen = set()
+        for raw in scan_ids:
+            scan_id = str(raw or "").strip()
+            if not scan_id or scan_id in seen:
+                continue
+            seen.add(scan_id)
+            ordered_ids.append(scan_id)
+        if len(ordered_ids) < 2:
+            raise ValueError("confidence fusion requires at least two distinct scans")
+        if len(ordered_ids) > 8:
+            raise ValueError("confidence fusion supports at most eight scans")
+
+        scans = []
+        for scan_id in ordered_ids:
+            stored = self.state.get_scan_by_id(scan_id)
+            if stored is None:
+                raise ScanIdMismatchError(
+                    f"scan {scan_id} is not available for confidence fusion"
+                )
+            if not stored.get("evidence"):
+                raise ValueError(
+                    f"scan {scan_id} does not contain Phase 14 fusion evidence"
+                )
+            scans.append(stored)
+
+        fingerprints = {
+            scan["metadata"].get("scene", {}).get("sha256")
+            for scan in scans
+        }
+        if len(fingerprints) != 1:
+            raise ValueError("all fused scans must belong to the same model")
+
+        key_payload = {
+            "scan_ids": sorted(ordered_ids),
+            "evidence_version": EVIDENCE_VERSION,
+        }
+        canonical = json.dumps(key_payload, sort_keys=True, separators=(",", ":"))
+        fusion_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+        cached = self._fusion_cache.get(fusion_id)
+        if cached is not None:
+            self._fusion_cache.move_to_end(fusion_id)
+            return {
+                **cached["summary"],
+                "cache_hit": True,
+            }
+
+        views: dict[str, dict[str, Any]] = {}
+        pngs: dict[tuple[str, str], bytes] = {}
+        for scan_id in ordered_ids:
+            fused = fuse_confidence(scans, scan_id)
+            pngs[(scan_id, "confidence")] = grayscale_png(fused["confidence"])
+            pngs[(scan_id, "support")] = support_png(
+                fused["support"],
+                len(ordered_ids),
+            )
+            views[scan_id] = {
+                "scan_id": scan_id,
+                "mean_confidence": round(float(fused["mean_confidence"]), 6),
+                "overlap_fraction": round(float(fused["overlap_fraction"]), 6),
+                "max_support": int(fused["max_support"]),
+                "width": int(fused["width"]),
+                "height": int(fused["height"]),
+                "confidence": (
+                    f"/api/lidar/fusion/confidence.png?fusion_id={fusion_id}"
+                    f"&scan_id={scan_id}"
+                ),
+                "support": (
+                    f"/api/lidar/fusion/support.png?fusion_id={fusion_id}"
+                    f"&scan_id={scan_id}"
+                ),
+            }
+
+        summary = {
+            "fusion_id": fusion_id,
+            "cache_hit": False,
+            "source_count": len(ordered_ids),
+            "scan_ids": ordered_ids,
+            "metric": "world-space reprojected confidence agreement",
+            "views": views,
+        }
+        self._fusion_cache[fusion_id] = {
+            "summary": summary,
+            "pngs": pngs,
+        }
+        self._fusion_cache.move_to_end(fusion_id)
+        while len(self._fusion_cache) > self._fusion_cache_max_entries:
+            self._fusion_cache.popitem(last=False)
+        return summary
+
+    def fusion_png(
+        self,
+        fusion_id: str,
+        scan_id: str,
+        channel: str,
+    ) -> bytes:
+        if channel not in {"confidence", "support"}:
+            raise ValueError("unknown confidence-fusion channel")
+        entry = self._fusion_cache.get(str(fusion_id or ""))
+        if entry is None:
+            raise ScanIdMismatchError("confidence fusion result is not available")
+        payload = entry["pngs"].get((str(scan_id or ""), channel))
+        if payload is None:
+            raise ScanIdMismatchError("requested fused scan is not available")
+        self._fusion_cache.move_to_end(str(fusion_id))
+        return payload
 
     def maps_summary(self, scan_id: str | None = None) -> dict[str, Any]:
         if scan_id:
