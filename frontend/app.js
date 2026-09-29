@@ -2808,23 +2808,27 @@
 
       let workspace = result.state?.workspace;
       let scene = workspace?.scene;
-      const requiredGenerator =
-        requiredSourceReference?.kind === 'lidar' &&
-        requiredSourceReference?.generator
-          ? requiredSourceReference.generator
-          : null;
+      const generatorReference =
+        requiredSourceReference?.kind === 'lidar'
+          ? requiredSourceReference
+          : (
+              !requiredSourceReference && restoredSourceHint?.kind === 'lidar'
+                ? restoredSourceHint
+                : null
+            );
+      const requiredGenerator = generatorReference?.generator || null;
 
       if (
         requiredGenerator &&
         (
           !scene?.loaded ||
           !LineArtProjectState.sourceMatches(
-            requiredSourceReference,
+            generatorReference,
             serverSceneReference(scene)
           )
         )
       ) {
-        geometryStatus.textContent = 'Regenerating the project geometry…';
+        geometryStatus.textContent = 'Regenerating the saved project geometry…';
         const generated = await LidarClient.generateScene(requiredGenerator);
         if (serial !== loadSerial) return null;
         geometryStatus.textContent =
