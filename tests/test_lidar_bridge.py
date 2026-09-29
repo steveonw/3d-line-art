@@ -323,6 +323,60 @@ f 1 2 3
         self.assertEqual(stats["misses"], 5)
         self.assertEqual(stats["hits"], 5)
 
+    def test_confidence_fusion_rebuilds_from_cached_scan_evidence_without_engine(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        bridge.upload_scene("cube.obj", CUBE_OBJ)
+        multiview = bridge.scan_fixed_views({
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 2,
+            "seed": 31,
+            "smart_sampling": False,
+            "distance_scale": 3.0,
+            "fov_deg": 55,
+        })
+        scan_ids = [multiview["views"][name]["scan_id"] for name in multiview["order"]]
+
+        first = bridge.fuse_scan_confidence(scan_ids)
+        self.assertEqual(first["source_count"], 5)
+        self.assertFalse(first["cache_hit"])
+        self.assertEqual(set(first["views"]), set(scan_ids))
+        for scan_id in scan_ids:
+            view = first["views"][scan_id]
+            self.assertGreaterEqual(view["mean_confidence"], 0)
+            self.assertLessEqual(view["mean_confidence"], 1)
+            confidence = bridge.fusion_png(first["fusion_id"], scan_id, "confidence")
+            support = bridge.fusion_png(first["fusion_id"], scan_id, "support")
+            self.assertTrue(confidence.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertTrue(support.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        bridge.clear_fusion_cache()
+        with mock.patch(
+            "server.lidar_bridge._load_engine",
+            side_effect=AssertionError(
+                "confidence fusion must rebuild from cached evidence without LiDAR engine"
+            ),
+        ):
+            second = bridge.fuse_scan_confidence(scan_ids)
+
+        self.assertFalse(second["cache_hit"])
+        self.assertEqual(second["fusion_id"], first["fusion_id"])
+        self.assertEqual(second["scan_ids"], first["scan_ids"])
+
+        third = bridge.fuse_scan_confidence(scan_ids)
+        self.assertTrue(third["cache_hit"])
+
+    def test_scan_cache_byte_accounting_includes_fusion_evidence(self) -> None:
+        state = StudioState(scan_cache_limit_bytes=10_000, scan_cache_max_entries=2)
+        state.put_cached_scan(
+            "key",
+            {"scan_id": "scan"},
+            {"shaded": b"a" * 100},
+            b"e" * 250,
+        )
+        self.assertEqual(state.scan_cache_stats()["bytes"], 350)
+
     def test_auto_views_are_deterministic_inspectable_and_cache_reusable(self) -> None:
         state = StudioState()
         bridge = LidarBridge(state)
