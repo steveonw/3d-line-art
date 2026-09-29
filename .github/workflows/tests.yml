@@ -52,6 +52,9 @@ jobs:
       - name: Run LiDAR mask chord smoke test
         run: node tests/frontend_lidar_mask_chord_smoke.js
 
+      - name: Run 3D inspection viewer smoke test
+        run: node tests/frontend_inspection_viewer_smoke.js
+
       - name: Run confidence fusion smoke test
         run: node tests/frontend_confidence_fusion_smoke.js
 
