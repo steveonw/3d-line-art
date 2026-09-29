@@ -194,8 +194,11 @@ def fuse_confidence(
         best_weight[active] = np.maximum(best_weight[active], source_grid[active])
         support[active] = np.minimum(255, support[active] + 1)
 
-    saturated = 1.0 - np.exp(-max(float(alpha_gain), 1e-6) * sum_weight)
-    fused = np.maximum(best_weight, saturated)
+    extra_weight = np.maximum(sum_weight - best_weight, 0.0)
+    agreement = 1.0 - np.exp(
+        -max(float(alpha_gain), 1e-6) * extra_weight
+    )
+    fused = best_weight + (1.0 - best_weight) * agreement
     fused = np.clip(fused, 0.0, 1.0).reshape(height, width)
     support_map = support.reshape(height, width)
 
