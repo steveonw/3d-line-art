@@ -684,6 +684,40 @@ Automatic view names are preserved through undo/redo and project/autosave settin
 
 Sensor floats are canonicalized once before camera construction, cache-key generation, and metadata. Equivalent yaw values such as 0° and 360° therefore describe the same sensor request.
 
+## Phase 14 confidence fusion
+
+Multi-view scans now derive a confidence-fusion layer without firing any additional LiDAR rays.
+
+Each Phase 14 scan-cache entry retains a compact internal evidence payload containing:
+
+```text
+metric depth_per_pixel
+single-view confidence
+```
+
+The payload is byte-accounted inside the existing bounded Phase 11 LRU. For a fusion request, the server reconstructs approximate world-space hit positions from metric depth plus camera metadata, reprojects those points into each requested canonical scan view, applies a nearest-depth visibility guard, and accumulates confidence from independent views.
+
+The confidence rule deliberately distinguishes a single observation from agreement:
+
+- one source keeps its original confidence,
+- additional agreeing sources can increase confidence,
+- fused confidence never drops below the strongest contributing observation.
+
+The implementation borrows the useful canonical-camera / weighted-evidence / saturating-confidence ideas from the owner's `steveonw/lidar-numpy` repository, but remains integrated with this application's cache and scan-ID model.
+
+The server exposes a fused **confidence map** and **support map** for every participating scan. The browser can substitute the fused confidence map into the existing LiDAR art-mapping path.
+
+Art-only Phase 14 controls are:
+
+- **Use multi-view fused confidence**
+- **Confidence → length**
+- **Confidence → opacity**
+- **Confidence → fragmentation**
+
+At high confidence, strokes can remain longer, darker, and more continuous. Lower confidence can make them shorter, fainter, and more broken. All three effect strengths default to zero, preserving older project/render behavior unless enabled. Changing these controls, Current View, or Combined Views never reruns LiDAR or confidence fusion.
+
+Important boundary: the Phase 12 **Combined Views** picture is still a 2D compositor. Confidence fusion is geometrically reprojected evidence, but the cached metric depth is a per-pixel mean reconstructed through the pixel center rather than a retained raw point cloud. Phase 15's 3D inspection tools can make that geometry/evidence relationship directly inspectable.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -703,7 +737,11 @@ POST /api/scene/upload?filename=model.obj
 POST /api/lidar/scan
 POST /api/lidar/multiview
 POST /api/lidar/auto
+POST /api/lidar/fusion
 GET  /api/lidar/maps[?scan_id=<id>]
+
+GET  /api/lidar/fusion/confidence.png?fusion_id=<id>&scan_id=<id>
+GET  /api/lidar/fusion/support.png?fusion_id=<id>&scan_id=<id>
 
 GET  /api/lidar/maps/shaded.png[?scan_id=<id>]
 GET  /api/lidar/maps/depth.png[?scan_id=<id>]
