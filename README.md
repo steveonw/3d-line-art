@@ -858,6 +858,30 @@ POST /api/scene/transform
 
 It uses the ordinary JSON media-type/origin protections, 64 KB JSON limit, and non-blocking operation gate.
 
+## Floating Control Dock
+
+Post-v0.5 stabilization replaces the long page-height sidebar with a movable **Control Dock** so the artwork or 3D inspection view stays fixed while controls move independently.
+
+Desktop Control Dock modes:
+
+- **Float** — draggable by the title bar and resizable from the window edge
+- **Left** — docked as an overlay on the left side
+- **Right** — docked as an overlay on the right side
+- **Minimize** — collapse to the title bar
+- **Close / Controls** — hide the dock and reopen it from the floating Controls button
+
+Controls are grouped into five tabs:
+
+```text
+Source | Model | LiDAR | Art | Export
+```
+
+The window behavior is adapted from the owner's EquationWright scratch-pad implementation rather than introducing a third-party windowing dependency. On smaller screens the desktop drag/dock controls disappear and the Control Dock behaves as a viewport-constrained bottom drawer.
+
+The main canvas and Three.js inspection workspace now own the viewport separately from the controls. Scrolling, dragging, docking, minimizing, or closing the Control Dock does not scroll or recenter the image/model underneath.
+
+Dock layout is intentionally a local workspace preference. The active tab, dock mode, floating position/size, minimized state, and closed state are persisted in browser `localStorage`; they are not written into portable Line Art project JSON.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
