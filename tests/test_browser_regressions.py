@@ -265,6 +265,101 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertEqual(len(scan_requests), 2)
 
+    def test_3d_inspector_uses_local_mesh_and_cached_scan_views(self) -> None:
+        project = self.write_project("cube-inspection.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.page.set_input_files("#modelInput", str(CUBE_OBJ))
+        self.page.wait_for_function(
+            "document.body.dataset.phase15Ready === 'true'"
+            " && !document.getElementById('inspectionToggle').disabled"
+        )
+
+        scene_requests = []
+        scan_inspection_requests = []
+        multiview_requests = []
+        fusion_requests = []
+        single_scan_requests = []
+
+        def record(request):
+            url = request.url
+            if "/api/inspection/scene" in url:
+                scene_requests.append(url)
+            elif "/api/inspection/scan" in url:
+                scan_inspection_requests.append(url)
+            elif url.endswith("/api/lidar/multiview"):
+                multiview_requests.append(url)
+            elif url.endswith("/api/lidar/fusion"):
+                fusion_requests.append(url)
+            elif url.endswith("/api/lidar/scan"):
+                single_scan_requests.append(url)
+
+        self.page.on("request", record)
+
+        self.page.click("#inspectionToggle")
+        self.page.wait_for_function(
+            "!document.getElementById('inspectionShell').hidden"
+            " && document.querySelectorAll('#inspectionViewport canvas').length === 1"
+            " && document.getElementById('inspectionStatus').textContent.includes('Mesh ready')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(scene_requests), 1)
+        self.assertEqual(len(scan_inspection_requests), 0)
+        self.assertTrue(self.is_disabled("#inspectionScanSelect"))
+        self.assertIn("run LiDAR", self.text("#inspectionHudDetail"))
+
+        self.page.click("#scanMultiBtn")
+        self.page.wait_for_function(
+            "!document.getElementById('scanMultiBtn').disabled"
+            " && document.getElementById('inspectionStatus').textContent.includes('hit rays')"
+            " && !document.getElementById('inspectionScanSelect').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+
+        self.assertEqual(len(multiview_requests), 1)
+        self.assertEqual(len(fusion_requests), 1)
+        self.assertEqual(len(single_scan_requests), 0)
+        self.assertEqual(len(scene_requests), 1)
+        self.assertEqual(len(scan_inspection_requests), 1)
+        self.assertIn("hit points", self.text("#inspectionHudDetail"))
+
+        before_multi = len(multiview_requests)
+        before_fusion = len(fusion_requests)
+        self.page.locator("#inspectionViewpoints button", has_text="Back").click()
+        self.page.wait_for_function(
+            "document.getElementById('multiViewCurrent').value === 'back'"
+            " && document.getElementById('inspectionStatus').textContent.startsWith('Back')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(multiview_requests), before_multi)
+        self.assertEqual(len(fusion_requests), before_fusion)
+        self.assertEqual(len(single_scan_requests), 0)
+        self.assertEqual(len(scan_inspection_requests), 2)
+
+        self.page.locator("#inspectionViewpoints button", has_text="Front").click()
+        self.page.wait_for_function(
+            "document.getElementById('multiViewCurrent').value === 'front'"
+            " && document.getElementById('inspectionStatus').textContent.startsWith('Front')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(
+            len(scan_inspection_requests),
+            2,
+            "returning to an inspected scan should use the browser inspection cache",
+        )
+
+        self.page.uncheck("#inspectionShowPoints")
+        self.page.uncheck("#inspectionShowRays")
+        self.assertEqual(len(multiview_requests), before_multi)
+        self.assertEqual(len(fusion_requests), before_fusion)
+        self.assertEqual(len(scan_inspection_requests), 2)
+
+        self.page.click("#inspectionToggle")
+        self.page.wait_for_function(
+            "document.getElementById('inspectionShell').hidden"
+            " && !document.getElementById('canvasShell').hidden"
+        )
+
     def test_fixed_multiview_is_inspectable_combinable_and_cached(self) -> None:
         project = self.write_project("cube-multiview.lidar-ink.json")
         self.open_app()
