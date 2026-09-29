@@ -3026,7 +3026,52 @@
 
       if (!scene?.loaded) return null;
 
+      const desiredModelReference =
+        requiredSourceReference?.kind === 'lidar'
+          ? requiredSourceReference
+          : (
+              !requiredSourceReference && restoredSourceHint?.kind === 'lidar'
+                ? restoredSourceHint
+                : null
+            );
+      const sceneReferenceBeforeTransform = serverSceneReference(scene);
+      if (
+        desiredModelReference &&
+        LineArtProjectState.sourceMatches(
+          desiredModelReference,
+          sceneReferenceBeforeTransform
+        )
+      ) {
+        const desiredTransform = normalizeModelTransform(settings.modelTransform);
+        const serverTransform = normalizeModelTransform(
+          scene.transform || identityModelTransform()
+        );
+        if (
+          modelTransformSignature(desiredTransform) !==
+          modelTransformSignature(serverTransform)
+        ) {
+          modelTransformStatus.textContent = 'Restoring the saved model transform…';
+          const transformed = await LidarClient.transformScene(desiredTransform);
+          if (serial !== loadSerial) return null;
+          scene = transformed.scene;
+          result = await LidarClient.getState();
+          if (serial !== loadSerial) return null;
+          workspace = result.state?.workspace;
+        }
+      } else {
+        settings.modelTransform = normalizeModelTransform(
+          scene.transform || identityModelTransform()
+        );
+      }
+
       sceneLoaded = true;
+      appliedModelTransformSignature = modelTransformSignature(
+        scene.transform || settings.modelTransform
+      );
+      syncModelTransformControls();
+      modelTransformStatus.textContent = modelTransformIsIdentity(settings.modelTransform)
+        ? 'Normalized model pose ready.'
+        : 'Restored model transform from the saved/server scene.';
       const serverReference = serverSceneReference(scene);
       const hintedReference =
         (requiredSourceReference?.kind === 'lidar' &&
