@@ -783,7 +783,7 @@ projection JSON body      <= 4 MB
 
 The normal sensor/control JSON cap remains 64 KB. `POST /api/ink3d/project` uses the same loopback/origin/content-type protections and non-blocking operation gate as the other mutating local APIs.
 
-The Three.js viewer renders the world-space polyline layer separately from the mesh, point cloud, hit rays, and camera helpers. A tiny visual-only normal offset prevents z-fighting; the stored XYZ values remain exactly on the mesh hit positions. Current View can be reprojected after art-only edits without rescanning. **Combined Views** remains a 2D compositor and is intentionally unavailable as a 3D Ink projection source because it has no single camera.
+The Three.js viewer renders the world-space polyline layer separately from the mesh, point cloud, hit rays, and camera helpers. A tiny visual-only normal offset prevents z-fighting; the stored XYZ values remain exactly on the mesh hit positions. Stroke RGB remains un-premultiplied and the original per-stroke alpha is passed to Three.js per vertex, preserving faint graphite/soft-pencil tones instead of turning them near-black. Selecting a scan/viewpoint frames the orbit camera from that scan's camera position, target, and vertical FOV, after which normal orbit/pan/zoom remains available. Current View can be reprojected after art-only edits without rescanning. **Combined Views** remains a 2D compositor and is intentionally unavailable as a 3D Ink projection source because it has no single camera.
 
 ## Mesh guardrails
 
