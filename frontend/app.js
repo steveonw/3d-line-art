@@ -329,6 +329,7 @@
   let installedMultiViewSignature = null;
   let multiViewBundle = null;
   let scanDirty = false;
+  let appliedModelTransformSignature = null;
   let activeRender = null;
 
   let inspectionViewer = null;
@@ -445,6 +446,71 @@
       type: file.type || null,
       sha256: knownSha256 || await sha256File(file)
     };
+  }
+
+  function canonicalRotation(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    const wrapped = ((n + 180) % 360 + 360) % 360 - 180;
+    return canonicalSensorFloat(wrapped);
+  }
+
+  function normalizeModelTransform(value = settings.modelTransform) {
+    const position = value?.position || {};
+    const rotation = value?.rotation || {};
+    return {
+      position: {
+        x: canonicalSensorFloat(clamp(Number(position.x) || 0, -24, 24)),
+        y: canonicalSensorFloat(clamp(Number(position.y) || 0, -24, 24)),
+        z: canonicalSensorFloat(clamp(Number(position.z) || 0, -24, 24))
+      },
+      rotation: {
+        x: canonicalRotation(rotation.x),
+        y: canonicalRotation(rotation.y),
+        z: canonicalRotation(rotation.z)
+      },
+      scale: canonicalSensorFloat(clamp(Number(value?.scale) || 1, 0.05, 10))
+    };
+  }
+
+  function modelTransformSignature(value = settings.modelTransform) {
+    const t = normalizeModelTransform(value);
+    return JSON.stringify([
+      t.position.x, t.position.y, t.position.z,
+      t.rotation.x, t.rotation.y, t.rotation.z,
+      t.scale
+    ]);
+  }
+
+  function readModelTransformControls() {
+    return normalizeModelTransform({
+      position: {
+        x: modelPositionX.value,
+        y: modelPositionY.value,
+        z: modelPositionZ.value
+      },
+      rotation: {
+        x: modelRotationX.value,
+        y: modelRotationY.value,
+        z: modelRotationZ.value
+      },
+      scale: modelScale.value
+    });
+  }
+
+  function syncModelTransformControls() {
+    const t = normalizeModelTransform(settings.modelTransform);
+    modelPositionX.value = String(t.position.x);
+    modelPositionY.value = String(t.position.y);
+    modelPositionZ.value = String(t.position.z);
+    modelRotationX.value = String(t.rotation.x);
+    modelRotationY.value = String(t.rotation.y);
+    modelRotationZ.value = String(t.rotation.z);
+    modelScale.value = String(t.scale);
+  }
+
+  function modelTransformIsIdentity(value = settings.modelTransform) {
+    return modelTransformSignature(value) === modelTransformSignature(DEFAULT_SETTINGS.modelTransform);
   }
 
   function generatedSourceReference(scene) {
