@@ -17,11 +17,12 @@ from .state import StudioState
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.4-phase15"
-API_VERSION = 7
+SERVER_VERSION = "0.5-phase16"
+API_VERSION = 8
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
+MAX_INK3D_JSON_BYTES = 4 * 1024 * 1024
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 _JSON_POST_PATHS = {
     "/api/reset",
@@ -29,6 +30,7 @@ _JSON_POST_PATHS = {
     "/api/lidar/multiview",
     "/api/lidar/auto",
     "/api/lidar/fusion",
+    "/api/ink3d/project",
 }
 _UPLOAD_POST_PATHS = {"/api/scene/upload"}
 _MUTATING_API_PATHS = _JSON_POST_PATHS | _UPLOAD_POST_PATHS
@@ -304,6 +306,21 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if method == "POST" and path == "/api/ink3d/project":
+            payload = self._read_json(MAX_INK3D_JSON_BYTES)
+            if not self.server.state.try_begin_operation("ink3d-project"):
+                self._busy()
+                return
+            try:
+                ink = self.server.lidar.project_ink3d(payload)
+            finally:
+                self.server.state.end_operation()
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "ink3d": ink},
+            )
+            return
+
         if method == "GET" and path.startswith("/api/lidar/fusion/") and path.endswith(".png"):
             channel = path.rsplit("/", 1)[-1][:-4]
             params = parse_qs(query, keep_blank_values=True)
@@ -378,6 +395,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             "/api/lidar/auto",
             "/api/lidar/fusion",
             "/api/lidar/maps",
+            "/api/ink3d/project",
             "/api/inspection/scene",
             "/api/inspection/scan",
         }
