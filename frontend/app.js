@@ -1222,6 +1222,173 @@
     confidenceFragmentation.disabled = !available;
   }
 
+  function syncInkSpaceButtons() {
+    for (const button of inkSpaceControl.querySelectorAll('button[data-space]')) {
+      const active = button.dataset.space === settings.inkSpace;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    }
+  }
+
+  function currentInk3DScanId() {
+    if (
+      sourceKind !== 'lidar' ||
+      scanDirty ||
+      !sceneLoaded ||
+      !projectModelReady()
+    ) {
+      return null;
+    }
+    if (multiViewBundle?.order?.length) {
+      if (settings.lidar.multiViewMode === 'combined') return null;
+      const view = multiViewBundle.views?.[resolveMultiViewCurrent()];
+      return view?.scan?.scan_id || null;
+    }
+    return installedScanId || installedScanMetadata?.scan_id || null;
+  }
+
+  function resetInk3D(message = null) {
+    ink3dSerial++;
+    ink3dLoading = false;
+    ink3dDirty = true;
+    ink3dSnapshot = null;
+    inspectionViewer?.setInkSnapshot(null);
+    if (message) ink3dStatus.textContent = message;
+  }
+
+  function markInk3DDirty(message = '3D Ink is stale; rebuild after the 2D preview finishes.') {
+    ink3dDirty = true;
+    if (ink3dSnapshot) ink3dStatus.textContent = message;
+  }
+
+  function canBuildInk3D() {
+    return (
+      sourceKind === 'lidar' &&
+      !!sourceImage &&
+      !!displayStrokeStore &&
+      !!displayRenderMeta &&
+      !!currentInk3DScanId() &&
+      settings.lidar.multiViewMode !== 'combined' &&
+      !loadingImage &&
+      !modelLoading &&
+      !scanRunning &&
+      !activeRender &&
+      !ink3dLoading
+    );
+  }
+
+  async function buildCurrentInk3D({ force = false } = {}) {
+    const scanId = currentInk3DScanId();
+    if (settings.lidar.multiViewMode === 'combined' && multiViewBundle) {
+      ink3dStatus.textContent = '3D Ink needs a single Current View; Combined Views remains a 2D compositor.';
+      return null;
+    }
+    if (!scanId) {
+      ink3dStatus.textContent = scanDirty
+        ? '3D Ink is unavailable while the LiDAR scan is stale.'
+        : 'Run LiDAR and select a current view before building 3D Ink.';
+      return null;
+    }
+    if (!displayStrokeStore || !displayRenderMeta) {
+      ink3dStatus.textContent = 'Finish a 2D preview before building 3D Ink.';
+      return null;
+    }
+    if (
+      !force &&
+      !ink3dDirty &&
+      ink3dSnapshot?.scan_id === scanId
+    ) {
+      ensureInspectionViewer().setInkSnapshot(ink3dSnapshot);
+      return ink3dSnapshot;
+    }
+
+    const serial = ++ink3dSerial;
+    ink3dLoading = true;
+    buildInk3DBtn.textContent = 'Building 3D Ink…';
+    ink3dStatus.textContent = 'Projecting deterministic 2D strokes onto the real mesh…';
+    refreshButtons();
+
+    try {
+      const payload = LineArtInk3D.buildProjectionPayload(
+        displayStrokeStore,
+        displayRenderMeta,
+        scanId
+      );
+      const response = await LidarClient.projectInk3D(payload);
+      if (serial !== ink3dSerial) return null;
+      const snapshot = LineArtInk3D.validateSnapshot(response.ink3d);
+      if (snapshot.scan_id !== scanId) {
+        throw new Error('3D Ink response does not match the selected scan.');
+      }
+
+      ink3dSnapshot = snapshot;
+      ink3dDirty = false;
+      inspectionShowInk.checked = true;
+      const viewer = ensureInspectionViewer();
+      viewer.setInkSnapshot(snapshot);
+      viewer.setLayers(inspectionLayerState());
+      ink3dStatus.textContent =
+        `3D Ink ready · ${formatCount(snapshot.stroke_count)} surface strokes · ` +
+        `${formatCount(snapshot.point_count)} world points · ` +
+        `${formatCount(snapshot.miss_count)} projected samples missed the mesh.`;
+      updateInspectionHud(inspectionSceneCache, inspectionScanCache.get(scanId) || null);
+      return snapshot;
+    } catch (error) {
+      if (serial !== ink3dSerial) return null;
+      console.error(error);
+      ink3dStatus.textContent = `3D Ink failed: ${error.message}`;
+      throw error;
+    } finally {
+      if (serial === ink3dSerial) {
+        ink3dLoading = false;
+        buildInk3DBtn.textContent = ink3dSnapshot ? 'Refresh 3D Ink' : 'Build 3D Ink';
+        refreshButtons();
+      }
+    }
+  }
+
+  async function setInkSpace(space) {
+    const next = space === '3d' ? '3d' : '2d';
+    if (next === '3d') {
+      if (sourceKind !== 'lidar' || !sourceImage) {
+        ink3dStatus.textContent = '3D Ink is available for a completed LiDAR source.';
+        return false;
+      }
+      if (settings.lidar.multiViewMode === 'combined' && multiViewBundle) {
+        ink3dStatus.textContent = 'Choose Current View before entering 3D Ink; Combined Views is 2D only.';
+        return false;
+      }
+      if (!currentInk3DScanId() || scanDirty) {
+        ink3dStatus.textContent = 'Run or refresh LiDAR before entering 3D Ink.';
+        return false;
+      }
+      if (!displayStrokeStore || activeRender) {
+        ink3dStatus.textContent = 'Finish the current 2D preview before entering 3D Ink.';
+        return false;
+      }
+
+      settings.inkSpace = '3d';
+      syncInkSpaceButtons();
+      recordSettingsChange('inkSpace');
+      await setInspectionOpen(true);
+      if (!inspectionOpen) return false;
+      await buildCurrentInk3D();
+      return true;
+    }
+
+    settings.inkSpace = '2d';
+    syncInkSpaceButtons();
+    recordSettingsChange('inkSpace');
+    if (inspectionOpen) await setInspectionOpen(false);
+    else {
+      canvasShell.hidden = !sourceImage;
+      emptyState.hidden = !!sourceImage;
+      inspectionShell.hidden = true;
+    }
+    refreshButtons();
+    return true;
+  }
+
   function inspectionEntries() {
     if (multiViewBundle?.order?.length) {
       return multiViewBundle.order
