@@ -2059,6 +2059,20 @@
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
+    const transformLocked = !sceneLoaded || uiLocked || modelLoading;
+    [
+      modelPositionX,
+      modelPositionY,
+      modelPositionZ,
+      modelRotationX,
+      modelRotationY,
+      modelRotationZ,
+      modelScale,
+      applyModelTransformBtn,
+      resetModelTransformBtn
+    ].forEach(element => {
+      element.disabled = transformLocked;
+    });
     const geometryLocked = uiLocked || modelLoading;
     [
       geometryType,
