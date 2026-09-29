@@ -14,6 +14,7 @@ from typing import Any
 
 from .inspection import scene_inspection_snapshot, scan_inspection_snapshot
 from .ink3d import project_strokes_to_mesh
+from .geometry_generators import generate_obj
 
 from .confidence_fusion import (
     EVIDENCE_VERSION,
@@ -524,7 +525,13 @@ class LidarBridge:
         self._fusion_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._fusion_cache_max_entries = 8
 
-    def upload_scene(self, filename: str, raw: bytes) -> dict[str, Any]:
+    def upload_scene(
+        self,
+        filename: str,
+        raw: bytes,
+        *,
+        generator: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not filename:
             raise ValueError("filename is required")
         if not raw:
@@ -554,8 +561,18 @@ class LidarBridge:
             "normalized": True,
             "sha256": fingerprint,
         }
+        if generator is not None:
+            info["generator"] = generator
         self.state.set_scene(scene, info)
         return info
+
+    def generate_scene(self, spec: dict[str, Any] | None) -> dict[str, Any]:
+        filename, canonical, raw = generate_obj(spec)
+        return self.upload_scene(
+            filename,
+            raw,
+            generator=canonical,
+        )
 
     def scan(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
         scene = self.state.get_scene_object()

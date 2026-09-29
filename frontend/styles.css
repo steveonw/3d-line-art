@@ -597,3 +597,47 @@
 #inkSpaceControl button {
   font-weight: 700;
 }
+
+
+/* Phase 17 — deterministic built-in geometry creation */
+.geometry-builder-section {
+  background: linear-gradient(180deg, rgba(23, 23, 23, 0.018), transparent);
+}
+
+.geometry-fields {
+  margin-top: 8px;
+}
+
+.geometry-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.geometry-builder-section textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 68px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.geometry-generate-btn {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  background: var(--soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-weight: 700;
+}
+
+#geometryStatus {
+  margin-top: 7px;
+  min-height: 30px;
+}

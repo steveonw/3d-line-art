@@ -785,6 +785,43 @@ The normal sensor/control JSON cap remains 64 KB. `POST /api/ink3d/project` uses
 
 The Three.js viewer renders the world-space polyline layer separately from the mesh, point cloud, hit rays, and camera helpers. A tiny visual-only normal offset prevents z-fighting; the stored XYZ values remain exactly on the mesh hit positions. Stroke RGB remains un-premultiplied and the original per-stroke alpha is passed to Three.js per vertex, preserving faint graphite/soft-pencil tones instead of turning them near-black. Selecting a scan/viewpoint frames the orbit camera from that scan's camera position, target, and vertical FOV, after which normal orbit/pan/zoom remains available. Current View can be reprojected after art-only edits without rescanning. **Combined Views** remains a 2D compositor and is intentionally unavailable as a 3D Ink projection source because it has no single camera.
 
+## Phase 17 deterministic geometry creation
+
+The studio can now create simple 3D source geometry without a file upload or an LLM.
+
+Built-in generators:
+
+- **Sphere**
+- **Box**
+- **Cylinder**
+- **Lathe / profile** with editable radius,Y profile points
+- **Height field** with Waves, Ripple, Saddle, and Radial patterns
+
+The important implementation rule is that generated objects do not get their own renderer or LiDAR path. Every generator serializes deterministic **OBJ bytes** and immediately sends those bytes through the same server-side OBJ parser, validation, 250,000-triangle limit, normalization, SHA-256 fingerprinting, and scene-state installation used by an uploaded `.obj` file.
+
+After that boundary, generated and uploaded models use the same:
+
+```text
+normalized scene
+  -> LiDAR scan/cache
+  -> fixed or automatic multi-view
+  -> confidence fusion
+  -> 3D inspection
+  -> world-space 3D Ink
+```
+
+Because normal scene loading scales the longest model dimension to the common working size, absolute primitive scale is intentionally not a separate world-unit system. Relative dimensions and shape remain meaningful: box proportions, cylinder radius/height ratio, lathe profile, and height-field width/depth/amplitude relationships survive normalization.
+
+Generated source references also store the server-canonical generator specification inside project/autosave JSON. If that project is reopened after the local server has restarted—or while another scene is loaded—the browser can deterministically regenerate the expected OBJ source/hash before normal project source-matching and scan-staleness logic continues. Uploaded-file projects remain reference-only and are unchanged.
+
+The generation API is:
+
+```text
+POST /api/scene/generate
+```
+
+It uses the ordinary 64 KB JSON limit, JSON media-type requirement, same-loopback origin validation, and non-blocking operation gate.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -801,6 +838,7 @@ GET  /api/state
 POST /api/reset
 
 POST /api/scene/upload?filename=model.obj
+POST /api/scene/generate
 POST /api/lidar/scan
 POST /api/lidar/multiview
 POST /api/lidar/auto
@@ -897,6 +935,12 @@ Run the Phase 16 3D Ink smoke test:
 
 ```bash
 node tests/frontend_ink3d_smoke.js
+```
+
+Run the Phase 17 geometry-builder smoke test:
+
+```bash
+node tests/frontend_geometry_builder_smoke.js
 ```
 
 Run the deterministic-randomness regression test:

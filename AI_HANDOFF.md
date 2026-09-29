@@ -12,18 +12,18 @@ Repository:
 steveonw/3d-line-art
 ```
 
-Current development head as of 2026-09-28:
+Current development head as of 2026-09-29:
 
 ```text
-branch: phase-16-3d-ink
-PR:     #19 — Phase 16: add world-space 3D Ink
-base:   phase-15-3d-inspection-viewer
+branch: phase-17-simple-geometry
+PR:     #20 — Phase 17: add deterministic simple geometry creation
+base:   phase-16-3d-ink
 CI:     passed
 ```
 
-Resume from **Phase 17 — Simple geometry creation**.
+The numbered core roadmap through **Phase 17 — Simple geometry creation** is complete.
 
-Do **not** start the optional LLM Scene Assistant or later polish as a substitute for completing Phase 17.
+Default next work is **post-v0.5 stabilization / later polish**, not a new numbered phase. The optional LLM Scene Assistant remains opt-in and should not be started unless explicitly requested.
 
 The project intentionally follows this rule from `ROADMAP.md`:
 
@@ -72,23 +72,14 @@ main
   ↓
 #18 phase-15-3d-inspection-viewer
   ↓
-#19 phase-16-3d-ink ← CURRENT HEAD
+#19 phase-16-3d-ink
+  ↓
+#20 phase-17-simple-geometry ← CURRENT HEAD
 ```
 
-For Phase 17:
+There is no numbered Phase 18 in the core roadmap.
 
-1. Branch from `phase-16-3d-ink`.
-2. Suggested branch name:
-
-   ```text
-   phase-17-simple-geometry
-   ```
-
-3. Open the new PR against:
-
-   ```text
-   phase-16-3d-ink
-   ```
+For a normal follow-up branch, branch from `phase-17-simple-geometry` and base its PR on `phase-17-simple-geometry`. Keep individual polish/stabilization topics scoped rather than reopening a parallel architecture.
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
 
@@ -910,32 +901,83 @@ These are not blockers for the world-space geometry contract, but a later polish
 
 Do not "fix" the 5,000-stroke item by removing bounds. Preserve bounded payload/latency behavior and solve density with an explicit scalable representation or deterministic level-of-detail strategy.
 
-## 12.97. Next task: Phase 17 — Simple geometry creation
+## 12.97. Completed Phase 17 — Simple geometry creation
 
-Roadmap scope:
+Phase 17 is complete.
 
-Add deterministic built-in generators for:
+Built-in deterministic generators:
 
 - Sphere
 - Box
 - Cylinder
-- Lathe/profile
-- Height field
+- Lathe/Profile
+- Height Field
 
-Use the owner's Math-tools curve/revolution ideas where useful.
-
-Every generated object must cross the same standard scene boundary as an uploaded model and then use the existing:
+Architecture:
 
 ```text
-normalization
- -> LiDAR scan/cache
- -> fixed/auto multi-view
- -> confidence fusion
- -> Phase 15 inspection
- -> Phase 16 3D Ink
+generator settings
+  -> deterministic OBJ bytes
+  -> existing OBJ parser
+  -> existing mesh validation / 250k triangle cap
+  -> existing normalization
+  -> SHA-256 source fingerprint
+  -> normal scene state
+       -> LiDAR scan/cache
+       -> fixed/auto multi-view
+       -> confidence fusion
+       -> Phase 15 inspection
+       -> Phase 16 3D Ink
 ```
 
-Do not add a separate procedural-object sensor or renderer. A generated object should be indistinguishable from an uploaded OBJ/STL once it enters the normalized scene pipeline, except for its source metadata.
+Key invariants:
+
+- there is **no separate procedural-object renderer or sensor pipeline**,
+- generator output becomes an ordinary normalized scene before LiDAR sees it,
+- lathe profiles accept explicit radius/Y points,
+- height fields support deterministic Waves, Ripple, Saddle, and Radial patterns,
+- generator inputs are bounded before OBJ creation,
+- the generation endpoint keeps the ordinary 64 KB JSON cap and operation lock,
+- uploaded file behavior is unchanged,
+- canonical generator specs are preserved in project/autosave source references,
+- explicit projects and autosaves can regenerate the saved source after a server reset,
+- content identity remains authoritative through the generated OBJ SHA-256 fingerprint,
+- overall size is normalized exactly like uploads; relative dimensions/profile shape are the meaningful controls.
+
+Real Chromium coverage proves:
+
+```text
+custom lathe
+  -> generated OBJ scene
+  -> LiDAR scan
+  -> Phase 15 inspection
+  -> Phase 16 3D Ink
+```
+
+and separately:
+
+```text
+generated box
+  -> autosave
+  -> local-server reset
+  -> browser reload
+  -> deterministic generator replay
+  -> same project model restored
+```
+
+## 12.99. Default next work — post-v0.5 stabilization
+
+The numbered core roadmap is complete. Do not invent a Phase 18 unless the roadmap is deliberately extended.
+
+Recommended default follow-ups already recorded in `ROADMAP.md`:
+
+1. improve 3D Ink density beyond the current bounded 5,000-stroke prefix without removing payload/latency bounds,
+2. improve ink-only 3D contrast,
+3. preserve stroke width in 3D with geometry/ribbon lines,
+4. replace triangle-order mesh-preview sampling with topology-aware simplification/LOD,
+5. consider formalizing the versioned project JSON as a supported automation/headless input contract.
+
+The optional LLM Scene Assistant is still explicitly optional. If it is ever started, its output must cross the same standard scene boundary and it must contain no LiDAR logic.
 
 ## 13. Determinism and behavior invariants
 
@@ -1094,28 +1136,29 @@ For every major phase:
 Start here:
 
 ```text
-Phase 17 — Simple geometry creation
+Post-v0.5 stabilization / later polish
 ```
 
-Branch from `phase-16-3d-ink` and base the Phase 17 PR on `phase-16-3d-ink`.
+Branch from `phase-17-simple-geometry` and base follow-up PRs on `phase-17-simple-geometry`.
 
 First inspect:
 
 ```text
-server/lidar_bridge.py
-server/state.py
-server/ink3d.py
-frontend/app.js
-frontend/inspection_viewer.js
-frontend/lidar_client.js
-tests/test_lidar_bridge.py
-tests/test_ink3d.py
-tests/test_browser_regressions.py
 ROADMAP.md
+README.md
+server/geometry_generators.py
+server/lidar_bridge.py
+server/ink3d.py
+server/inspection.py
+frontend/geometry_builder.js
+frontend/inspection_viewer.js
+frontend/app.js
+tests/test_geometry_generators.py
+tests/test_browser_regressions.py
 ```
 
-Also inspect the owner's Math-tools for deterministic lathe/profile and height-field/revolution ideas where useful.
+The highest-value known 3D follow-ups are the four items under **3D inspection / ink follow-ups** in `ROADMAP.md`: bounded 3D Ink density, ink-only contrast, geometry-based stroke width, and topology-aware mesh preview LOD.
 
-Preserve the entire current pipeline. Generated Sphere / Box / Cylinder / Lathe/Profile / Height Field geometry should enter the same normalized scene representation and therefore automatically inherit scan caching, multi-view acquisition, confidence fusion, 3D inspection, and world-space 3D Ink. Do not create a second geometry renderer or sensor path.
+Preserve all completed Phase 1–17 invariants. Do not create alternate scene, LiDAR, inspection, or 3D Ink pipelines.
 
-Do not start the optional LLM Scene Assistant as part of Phase 17.
+Do not start the optional LLM Scene Assistant unless the owner explicitly chooses that branch.

@@ -38,6 +38,23 @@ class FakeLidarBridge:
         self.state.set_scene(object(), info)
         return info
 
+    def generate_scene(self, spec: dict | None = None) -> dict:
+        spec = dict(spec or {})
+        kind = str(spec.get("type") or "sphere")
+        if kind not in {"sphere", "box", "cylinder", "lathe", "heightfield"}:
+            raise ValueError("type must be sphere, box, cylinder, lathe, or heightfield")
+        info = {
+            "name": f"generated-{kind}.obj",
+            "format": "obj",
+            "triangles": 48,
+            "vertices": 26,
+            "normalized": True,
+            "sha256": (kind[0] * 64),
+            "generator": {"type": kind, **{k: v for k, v in spec.items() if k != "type"}},
+        }
+        self.state.set_scene(object(), info)
+        return info
+
     def scan(self, options: dict | None = None) -> dict:
         if self.state.get_scene_object() is None:
             raise ValueError("no 3D model is loaded")
@@ -459,8 +476,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.5-phase16")
-        self.assertEqual(payload["api_version"], 8)
+        self.assertEqual(payload["server_version"], "0.6-phase17")
+        self.assertEqual(payload["api_version"], 9)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -517,6 +534,48 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(state["state"]["workspace"]["scene"]["loaded"])
         self.assertEqual(state["state"]["workspace"]["scene"]["name"], "cube.obj")
+
+    def test_generated_scene_endpoint_updates_standard_scene_state(self) -> None:
+        status, payload = self.json_request(
+            "/api/scene/generate",
+            method="POST",
+            body=json.dumps({
+                "type": "heightfield",
+                "pattern": "ripple",
+                "grid": 12,
+            }).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 200)
+        scene = payload["scene"]
+        self.assertEqual(scene["name"], "generated-heightfield.obj")
+        self.assertEqual(scene["format"], "obj")
+        self.assertEqual(scene["generator"]["type"], "heightfield")
+
+        status, state = self.json_request("/api/state")
+        self.assertEqual(status, 200)
+        stored = state["state"]["workspace"]["scene"]
+        self.assertTrue(stored["loaded"])
+        self.assertEqual(stored["generator"]["type"], "heightfield")
+
+        scan_status, scan_payload = self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=json.dumps({"width": 160, "height": 120}).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(scan_status, 200)
+        self.assertEqual(scan_payload["scan"]["scan_id"], "fake123")
+
+    def test_generated_scene_rejects_unknown_type(self) -> None:
+        status, payload = self.json_request(
+            "/api/scene/generate",
+            method="POST",
+            body=json.dumps({"type": "torus"}).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "bad_request")
 
     def test_scan_requires_scene(self) -> None:
         status, payload = self.json_request(

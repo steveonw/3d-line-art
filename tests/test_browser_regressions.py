@@ -265,6 +265,125 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertEqual(len(scan_requests), 2)
 
+    def test_generated_lathe_runs_through_scan_inspection_and_3d_ink(self) -> None:
+        self.open_app()
+        self.page.wait_for_function(
+            "document.body.dataset.phase17Ready === 'true'"
+            " && !document.getElementById('generateGeometryBtn').disabled"
+        )
+
+        generate_requests = []
+        upload_requests = []
+        scan_requests = []
+        ink_requests = []
+
+        def record(request):
+            url = request.url
+            if url.endswith("/api/scene/generate"):
+                generate_requests.append(url)
+            elif "/api/scene/upload" in url:
+                upload_requests.append(url)
+            elif url.endswith("/api/lidar/scan"):
+                scan_requests.append(url)
+            elif url.endswith("/api/ink3d/project"):
+                ink_requests.append(url)
+
+        self.page.on("request", record)
+
+        self.page.select_option("#geometryType", "lathe")
+        self.page.fill("#geometrySegments", "18")
+        self.page.fill(
+            "#geometryProfile",
+            "0,-1; 0.72,-0.85; 0.95,-0.25; 0.55,0.2; 0.8,0.75; 0,1",
+        )
+        self.page.click("#generateGeometryBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelStatus').textContent.includes('generated-lathe.obj')"
+            " && !document.getElementById('scanBtn').disabled"
+            " && document.getElementById('geometryStatus').textContent.startsWith('Created lathe')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(generate_requests), 1)
+        self.assertEqual(len(upload_requests), 0)
+        self.assertIn("normalized through the standard OBJ pipeline", self.text("#geometryStatus"))
+
+        self.page.click("#inspectionToggle")
+        self.page.wait_for_function(
+            "!document.getElementById('inspectionShell').hidden"
+            " && document.getElementById('inspectionStatus').textContent.includes('Mesh ready')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertIn("generated-lathe.obj", self.text("#inspectionHudTitle"))
+
+        self.page.select_option("#scanResolution", "160x120")
+        self.page.select_option("#raysPerPixel", "1")
+        self.page.click("#scanBtn")
+        self.page.wait_for_function(
+            "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
+            " && !document.getElementById('scanSummary').textContent.startsWith('Scan running')"
+            " && !document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').disabled",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertEqual(len(scan_requests), 1)
+        self.assertIn("Current scan", self.text("#inspectionScanSelect"))
+
+        self.page.click('#inkSpaceControl button[data-space="3d"]')
+        self.page.wait_for_function(
+            "document.getElementById('ink3dStatus').textContent.startsWith('3D Ink ready')"
+            " && document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').classList.contains('active')",
+            timeout=SCAN_TIMEOUT_MS,
+        )
+        self.assertEqual(len(ink_requests), 1)
+        self.assertEqual(len(scan_requests), 1)
+        self.assertIn("surface strokes", self.text("#inspectionHudDetail"))
+
+    def test_generated_geometry_autosave_regenerates_after_server_reset(self) -> None:
+        self.open_app()
+        generate_requests = []
+        self.page.on(
+            "request",
+            lambda request: (
+                generate_requests.append(request.url)
+                if request.url.endswith("/api/scene/generate")
+                else None
+            ),
+        )
+
+        self.page.select_option("#geometryType", "box")
+        self.page.fill("#geometryWidth", "2")
+        self.page.fill("#geometryHeight", "3")
+        self.page.fill("#geometryDepth", "1.5")
+        self.page.click("#generateGeometryBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelStatus').textContent.includes('generated-box.obj')"
+            " && !document.getElementById('scanBtn').disabled"
+        )
+        self.assertEqual(len(generate_requests), 1)
+
+        self.page.evaluate(
+            """async () => {
+              const response = await fetch('/api/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+              });
+              if (!response.ok) throw new Error('reset failed');
+            }"""
+        )
+        self.reload_app()
+        self.page.wait_for_function(
+            "document.body.dataset.phase17Ready === 'true'"
+            " && document.getElementById('modelStatus').textContent.includes('generated-box.obj')"
+            " && document.getElementById('geometryStatus').textContent.includes('Restored generated box')"
+            " && !document.getElementById('scanBtn').disabled",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(
+            len(generate_requests),
+            2,
+            "autosave recovery should regenerate the saved procedural scene after a server reset",
+        )
+
     def test_3d_ink_projects_current_art_without_rescanning(self) -> None:
         project = self.write_project("cube-3d-ink.lidar-ink.json")
         self.open_app()

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase16';
+  const BUILD_VERSION = '5.3-phase17';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -170,6 +170,20 @@
   const ctx = canvas.getContext('2d', { alpha: false });
   const imageInput = document.getElementById('imageInput');
   const modelInput = document.getElementById('modelInput');
+  const geometryType = document.getElementById('geometryType');
+  const geometryRadius = document.getElementById('geometryRadius');
+  const geometryWidth = document.getElementById('geometryWidth');
+  const geometryHeight = document.getElementById('geometryHeight');
+  const geometryDepth = document.getElementById('geometryDepth');
+  const geometrySegments = document.getElementById('geometrySegments');
+  const geometryRings = document.getElementById('geometryRings');
+  const geometryProfile = document.getElementById('geometryProfile');
+  const geometryPattern = document.getElementById('geometryPattern');
+  const geometryAmplitude = document.getElementById('geometryAmplitude');
+  const geometryFrequency = document.getElementById('geometryFrequency');
+  const geometryGrid = document.getElementById('geometryGrid');
+  const generateGeometryBtn = document.getElementById('generateGeometryBtn');
+  const geometryStatus = document.getElementById('geometryStatus');
   const inkSpaceControl = document.getElementById('inkSpaceControl');
   const buildInk3DBtn = document.getElementById('buildInk3DBtn');
   const ink3dStatus = document.getElementById('ink3dStatus');
@@ -416,6 +430,59 @@
       type: file.type || null,
       sha256: knownSha256 || await sha256File(file)
     };
+  }
+
+  function generatedSourceReference(scene) {
+    return {
+      kind: 'lidar',
+      name: scene?.name || 'generated.obj',
+      size: null,
+      lastModified: null,
+      type: 'text/plain',
+      sha256: scene?.sha256 || null,
+      generator: scene?.generator || null
+    };
+  }
+
+  function serverSceneReference(scene) {
+    if (!scene?.loaded) return null;
+    return {
+      kind: 'lidar',
+      name: scene.name || '3D model',
+      size: null,
+      lastModified: null,
+      type: null,
+      sha256: scene.sha256 || null,
+      generator: scene.generator || null
+    };
+  }
+
+  function readGeometrySpec() {
+    return LineArtGeometryBuilder.buildSpec({
+      type: geometryType.value,
+      radius: geometryRadius.value,
+      width: geometryWidth.value,
+      height: geometryHeight.value,
+      depth: geometryDepth.value,
+      segments: geometrySegments.value,
+      rings: geometryRings.value,
+      profile: geometryProfile.value,
+      pattern: geometryPattern.value,
+      amplitude: geometryAmplitude.value,
+      frequency: geometryFrequency.value,
+      grid: geometryGrid.value
+    });
+  }
+
+  function syncGeometryBuilderFields() {
+    const type = geometryType.value;
+    document.querySelectorAll('[data-geometry-types]').forEach(group => {
+      const types = String(group.dataset.geometryTypes || '').split(/\s+/).filter(Boolean);
+      group.hidden = !types.includes(type);
+    });
+    const ringsField = geometryRings.closest('.control-field');
+    if (ringsField) ringsField.hidden = type !== 'sphere';
+    generateGeometryBtn.textContent = modelLoading ? 'Creating…' : 'Create Geometry';
   }
 
   function currentSourceReference() {
@@ -1905,6 +1972,25 @@
     setHighQualityControlsLocked(uiLocked);
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
+    const geometryLocked = uiLocked || modelLoading;
+    [
+      geometryType,
+      geometryRadius,
+      geometryWidth,
+      geometryHeight,
+      geometryDepth,
+      geometrySegments,
+      geometryRings,
+      geometryProfile,
+      geometryPattern,
+      geometryAmplitude,
+      geometryFrequency,
+      geometryGrid,
+      generateGeometryBtn
+    ].forEach(element => {
+      element.disabled = geometryLocked;
+    });
+    syncGeometryBuilderFields();
     openProjectBtn.disabled = uiLocked || modelLoading;
     saveProjectBtn.disabled = highActive || exportBusy || scanRunning || modelLoading || ink3dLoading;
 
@@ -2163,10 +2249,55 @@
     }
   }
 
-  async function uploadModelFile(file) {
-    if (!file) return;
+  async function installLoadedScene(scene, reference, { generated = false } = {}) {
+    sceneLoaded = true;
+    modelReference = reference;
+    const previousScanLabel = installedScanLabel;
+    multiViewBundle = null;
+    installedMultiViewSignature = null;
+    installedScanSignature = null;
+    installedScanId = null;
+    installedScanMetadata = null;
+    installedScanCacheHit = false;
+    installedScanMode = 'single';
+    updateMultiViewSummary();
 
-    const previous = {
+    // Replacing the model never relabels the old canvas. The installed
+    // drawing stays tied to sourceReference until a new scan is installed.
+    scanDirty = true;
+    scanBtn.textContent = 'Scan LiDAR';
+    scanSummary.textContent = sourceKind === 'lidar' && sourceImage
+      ? `Scan stale · ${previousScanLabel || 'scan'}`
+      : 'Scan stale · ready to scan';
+    modelStatus.textContent =
+      `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
+    resetInspectionForScene();
+    if (inspectionOpen) {
+      await loadInspectionScene({ force: true });
+    }
+
+    if (!projectModelReady()) {
+      const needed = requiredSourceLabel();
+      setProjectStatus(`Loaded model does not match this project. Load ${needed}.`, true);
+      setStatus(`Model loaded, but the project is waiting for ${needed}.`, 0);
+    } else {
+      setProjectStatus(
+        requiredSourceReference
+          ? 'Referenced model loaded. Run LiDAR to reproduce the project.'
+          : (generated ? 'Generated 3D model loaded.' : '3D model loaded.')
+      );
+      setStatus(
+        generated
+          ? 'Generated 3D model loaded. Adjust scan controls, then run LiDAR.'
+          : '3D model loaded. Adjust scan controls, then run LiDAR.',
+        0
+      );
+    }
+    autosaveCurrentState();
+  }
+
+  function captureModelLoadState() {
+    return {
       sceneLoaded,
       modelReference,
       scanDirty,
@@ -2174,6 +2305,21 @@
       scanSummary: scanSummary.textContent,
       scanButton: scanBtn.textContent
     };
+  }
+
+  function restoreModelLoadState(previous) {
+    sceneLoaded = previous.sceneLoaded;
+    modelReference = previous.modelReference;
+    scanDirty = previous.scanDirty;
+    modelStatus.textContent = previous.modelStatus;
+    scanSummary.textContent = previous.scanSummary;
+    scanBtn.textContent = previous.scanButton;
+  }
+
+  async function uploadModelFile(file) {
+    if (!file) return;
+
+    const previous = captureModelLoadState();
 
     modelLoading = true;
     modelStatus.textContent = `Uploading ${file.name}...`;
@@ -2182,53 +2328,11 @@
     try {
       const result = await LidarClient.uploadScene(file);
       const scene = result.scene;
-      sceneLoaded = true;
-      modelReference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
-      const previousScanLabel = installedScanLabel;
-      multiViewBundle = null;
-      installedMultiViewSignature = null;
-      installedScanSignature = null;
-      installedScanId = null;
-      installedScanMetadata = null;
-      installedScanCacheHit = false;
-      installedScanMode = 'single';
-      updateMultiViewSummary();
-
-      // Uploading a model replaces the server scene/scan, but it does not
-      // relabel the old canvas. sourceReference stays tied to the installed
-      // drawing until a new scan is installed.
-      scanDirty = true;
-      scanBtn.textContent = 'Scan LiDAR';
-      scanSummary.textContent = sourceKind === 'lidar' && sourceImage
-        ? `Scan stale · ${previousScanLabel || 'scan'}`
-        : 'Scan stale · ready to scan';
-      modelStatus.textContent =
-        `${scene.name} - ${formatCount(scene.triangles)} triangles, ${formatCount(scene.vertices)} vertices`;
-      resetInspectionForScene();
-      if (inspectionOpen) {
-        await loadInspectionScene({ force: true });
-      }
-
-      if (!projectModelReady()) {
-        const needed = requiredSourceLabel();
-        setProjectStatus(`Loaded model does not match this project. Load ${needed}.`, true);
-        setStatus(`Model loaded, but the project is waiting for ${needed}.`, 0);
-      } else {
-        setProjectStatus(
-          requiredSourceReference
-            ? 'Referenced model loaded. Run LiDAR to reproduce the project.'
-            : '3D model loaded.'
-        );
-        setStatus('3D model loaded. Adjust scan controls, then run LiDAR.', 0);
-      }
-      autosaveCurrentState();
+      const reference = await fileSourceReference(file, 'lidar', scene.sha256 || null);
+      await installLoadedScene(scene, reference);
     } catch (error) {
       console.error(error);
-      sceneLoaded = previous.sceneLoaded;
-      modelReference = previous.modelReference;
-      scanDirty = previous.scanDirty;
-      scanSummary.textContent = previous.scanSummary;
-      scanBtn.textContent = previous.scanButton;
+      restoreModelLoadState(previous);
       const suffix = error.errorId ? ` (${error.errorId})` : '';
       modelStatus.textContent = previous.sceneLoaded
         ? `Model upload failed: ${error.message}${suffix}. Previous model is still loaded.`
@@ -2241,6 +2345,54 @@
       );
     } finally {
       modelLoading = false;
+      refreshButtons();
+    }
+  }
+
+  async function generateGeometryScene(specOverride = null) {
+    if (modelLoading || scanRunning) return null;
+    const previous = captureModelLoadState();
+    let spec;
+    try {
+      spec = specOverride || readGeometrySpec();
+    } catch (error) {
+      geometryStatus.textContent = `Geometry settings error: ${error.message}`;
+      return null;
+    }
+
+    modelLoading = true;
+    const label = spec.type === 'heightfield' ? 'height field' : spec.type;
+    geometryStatus.textContent = `Creating ${label}…`;
+    modelStatus.textContent = `Creating ${label}…`;
+    syncGeometryBuilderFields();
+    refreshButtons();
+
+    try {
+      const result = await LidarClient.generateScene(spec);
+      const scene = result.scene;
+      const reference = generatedSourceReference(scene);
+      await installLoadedScene(scene, reference, { generated: true });
+      geometryStatus.textContent =
+        `Created ${label} · ${formatCount(scene.triangles)} triangles · normalized through the standard OBJ pipeline.`;
+      return scene;
+    } catch (error) {
+      console.error(error);
+      restoreModelLoadState(previous);
+      const suffix = error.errorId ? ` (${error.errorId})` : '';
+      geometryStatus.textContent = `Geometry creation failed: ${error.message}${suffix}`;
+      modelStatus.textContent = previous.sceneLoaded
+        ? `Geometry creation failed. Previous model is still loaded.`
+        : `Geometry creation failed: ${error.message}${suffix}`;
+      setStatus(
+        previous.sceneLoaded
+          ? 'Could not create that geometry. The previous model is still available.'
+          : 'Could not create that geometry.',
+        0
+      );
+      return null;
+    } finally {
+      modelLoading = false;
+      syncGeometryBuilderFields();
       refreshButtons();
     }
   }
@@ -2651,22 +2803,46 @@
         return null;
       }
 
-      const result = await LidarClient.getState();
+      let result = await LidarClient.getState();
       if (serial !== loadSerial) return null;
 
-      const workspace = result.state?.workspace;
-      const scene = workspace?.scene;
+      let workspace = result.state?.workspace;
+      let scene = workspace?.scene;
+      const generatorReference =
+        requiredSourceReference?.kind === 'lidar'
+          ? requiredSourceReference
+          : (
+              !requiredSourceReference && restoredSourceHint?.kind === 'lidar'
+                ? restoredSourceHint
+                : null
+            );
+      const requiredGenerator = generatorReference?.generator || null;
+
+      if (
+        requiredGenerator &&
+        (
+          !scene?.loaded ||
+          !LineArtProjectState.sourceMatches(
+            generatorReference,
+            serverSceneReference(scene)
+          )
+        )
+      ) {
+        geometryStatus.textContent = 'Regenerating the saved project geometry…';
+        const generated = await LidarClient.generateScene(requiredGenerator);
+        if (serial !== loadSerial) return null;
+        geometryStatus.textContent =
+          `Restored generated ${generated.scene?.generator?.type || 'geometry'} from the project.`;
+        result = await LidarClient.getState();
+        if (serial !== loadSerial) return null;
+        workspace = result.state?.workspace;
+        scene = workspace?.scene;
+      }
+
       if (!scene?.loaded) return null;
 
       sceneLoaded = true;
-      const serverReference = {
-        kind: 'lidar',
-        name: scene.name || '3D model',
-        size: null,
-        lastModified: null,
-        type: null,
-        sha256: scene.sha256 || null
-      };
+      const serverReference = serverSceneReference(scene);
       const hintedReference =
         (requiredSourceReference?.kind === 'lidar' &&
           LineArtProjectState.sourceMatches(requiredSourceReference, serverReference))
@@ -2943,6 +3119,7 @@
 
   syncUI();
   syncInspectionControls();
+  syncGeometryBuilderFields();
   history.initialize(captureProjectState());
   historyReady = true;
   refreshButtons();
@@ -2963,6 +3140,7 @@
   document.body.dataset.phase14Ready = 'true';
   document.body.dataset.phase15Ready = 'true';
   document.body.dataset.phase16Ready = 'true';
+  document.body.dataset.phase17Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -2990,6 +3168,13 @@
 
   imageInput.addEventListener('change', e => loadImageFile(e.target.files?.[0]));
   modelInput.addEventListener('change', e => uploadModelFile(e.target.files?.[0]));
+  geometryType.addEventListener('change', syncGeometryBuilderFields);
+  generateGeometryBtn.addEventListener('click', () => {
+    generateGeometryScene().catch(error => {
+      console.error(error);
+      geometryStatus.textContent = `Geometry creation failed: ${error.message}`;
+    });
+  });
   scanBtn.addEventListener('click', runLidarScan);
   scanMultiBtn.addEventListener('click', runFixedMultiViewScan);
   scanAutoBtn.addEventListener('click', runAutoViewScan);

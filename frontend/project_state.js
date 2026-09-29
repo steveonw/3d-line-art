@@ -48,7 +48,8 @@
       type: typeof source.type === 'string' && source.type ? source.type : null,
       sha256: typeof source.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(source.sha256)
         ? source.sha256.toLowerCase()
-        : null
+        : null,
+      generator: isPlainObject(source.generator) ? clone(source.generator) : null
     };
   }
 
@@ -128,6 +129,10 @@
     // Content identity is authoritative when both sides have it. This lets the
     // same bytes survive copies, downloads, git checkouts, and filename changes.
     if (a.sha256 && b.sha256) return a.sha256 === b.sha256;
+
+    if (a.generator && b.generator) {
+      return JSON.stringify(a.generator) === JSON.stringify(b.generator);
+    }
 
     // Older project files and server-restored scenes may not have a hash yet.
     // Fall back to filename + known size. lastModified is only a hint because
