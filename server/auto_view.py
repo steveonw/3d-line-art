@@ -161,7 +161,15 @@ def choose_next_candidate(
     acquired_names = {str(view.get("name")) for view in acquired_list}
 
     if not acquired_list:
-        return dict(candidate_list[0]) if candidate_list else None
+        if not candidate_list:
+            return None
+        first = dict(candidate_list[0])
+        projected = dict(first)
+        projected["quality_score"] = 1.0
+        score = view_space_coverage_score(candidate_list, [projected])
+        first["expected_gain"] = round(score, 6)
+        first["expected_coverage_score"] = round(score, 6)
+        return first
 
     current = view_space_coverage_score(candidate_list, acquired_list)
     best: dict[str, Any] | None = None
