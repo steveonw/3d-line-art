@@ -23,6 +23,14 @@ API_VERSION = 5
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+_JSON_POST_PATHS = {
+    "/api/reset",
+    "/api/lidar/scan",
+    "/api/lidar/multiview",
+    "/api/lidar/auto",
+}
+_UPLOAD_POST_PATHS = {"/api/scene/upload"}
+_MUTATING_API_PATHS = _JSON_POST_PATHS | _UPLOAD_POST_PATHS
 
 
 class PayloadTooLarge(ValueError):
@@ -77,6 +85,21 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
             parsed = urlsplit(self.path)
             path = unquote(parsed.path)
+
+            if (
+                method == "POST"
+                and path in _MUTATING_API_PATHS
+                and not self._origin_is_allowed()
+            ):
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {
+                        "ok": False,
+                        "error": "origin not allowed",
+                        "code": "origin_not_allowed",
+                    },
+                )
+                return
 
             if path.startswith("/api/"):
                 self._handle_api(method, path, parsed.query)
@@ -143,6 +166,30 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_api(self, method: str, path: str, query: str) -> None:
+        if method == "POST" and path in _JSON_POST_PATHS:
+            if not self._content_type_is("application/json"):
+                self._send_json(
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    {
+                        "ok": False,
+                        "error": "Content-Type must be application/json",
+                        "code": "unsupported_media_type",
+                    },
+                )
+                return
+
+        if method == "POST" and path in _UPLOAD_POST_PATHS:
+            if not self._content_type_is("application/octet-stream"):
+                self._send_json(
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    {
+                        "ok": False,
+                        "error": "Content-Type must be application/octet-stream",
+                        "code": "unsupported_media_type",
+                    },
+                )
+                return
+
         if method == "GET" and path == "/api/health":
             snapshot = self.server.state.snapshot()
             self._send_json(
@@ -301,7 +348,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         raw = self._read_body(max_bytes)
         if not raw:
             return {}
-        payload = json.loads(raw.decode("utf-8"))
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except RecursionError as error:
+            raise ValueError("JSON nesting is too deep") from error
         if not isinstance(payload, dict):
             raise ValueError("JSON body must be an object")
         return payload
@@ -344,6 +394,28 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         else:
             host = raw_host.split(":", 1)[0]
         return host.lower() in _ALLOWED_HOSTS
+
+    def _origin_is_allowed(self) -> bool:
+        raw_origin = self.headers.get("Origin")
+        if raw_origin is None:
+            # Non-browser local clients and the test harness may omit Origin.
+            # Browser requests that carry Origin must be same-loopback-origin.
+            return True
+        try:
+            parsed = urlsplit(raw_origin)
+            port = parsed.port
+        except ValueError:
+            return False
+        if parsed.scheme.lower() != "http":
+            return False
+        if (parsed.hostname or "").lower() not in _ALLOWED_HOSTS:
+            return False
+        return port == int(self.server.server_address[1])
+
+    def _content_type_is(self, expected: str) -> bool:
+        raw = self.headers.get("Content-Type", "")
+        media_type = raw.split(";", 1)[0].strip().lower()
+        return media_type == expected
 
     def _send_json(
         self,
