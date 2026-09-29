@@ -228,6 +228,19 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertNotIn("settings changed", self.text("#scanSummary"))
         self.assertFalse(self.is_disabled("#renderBtn"))
 
+    def test_equivalent_zero_and_360_yaw_remain_fresh(self) -> None:
+        project = self.write_project(
+            "cube-yaw-zero.lidar-ink.json",
+            lambda data: data["settings"]["lidar"].update({"cameraYaw": 0}),
+        )
+        self.open_app()
+        self.open_project(project)
+        self.upload_cube_and_scan()
+        self.page.fill("#cameraYaw", "360")
+        self.page.dispatch_event("#cameraYaw", "input")
+        self.assertNotIn("Scan stale", self.text("#scanSummary"))
+        self.assertFalse(self.is_disabled("#renderBtn"))
+
     def test_repeated_scan_uses_cache_and_shows_cached_state(self) -> None:
         project = self.write_project("cube-cache.lidar-ink.json")
         self.open_app()
@@ -383,8 +396,25 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertFalse(self.is_disabled("#renderBtn"))
 
         self.page.select_option("#multiViewCurrent", second_value)
+        second_label = options[1].text_content().strip()
+        self.page.wait_for_function(
+            "label => document.getElementById('multiViewSummary').textContent"
+            ".includes('Current: ' + label)",
+            arg=second_label,
+        )
+        self.assertNotIn("current: auto_", self.text("#multiViewSummary").lower())
         self.assertEqual(len(auto_requests), 1)
         self.assertNotIn("Scan stale", self.text("#scanSummary"))
+
+        self.page.fill("#confidenceSmoothing", "0.45")
+        self.page.dispatch_event("#confidenceSmoothing", "input")
+        self.page.wait_for_function("!document.getElementById('undoBtn').disabled")
+        self.page.click("#undoBtn")
+        self.page.wait_for_function(
+            "value => document.getElementById('multiViewCurrent').value === value",
+            arg=second_value,
+        )
+        self.assertIn(second_label, self.text("#multiViewSummary"))
 
         # Orbit/elevation do not stale an acquired automatic view set because
         # Auto Scan owns camera placement just like fixed multi-view scanning.
@@ -411,6 +441,28 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertEqual(len(auto_requests), 2)
         self.assertEqual(len(single_scan_requests), 0)
         self.assertIn("Scan cached", self.text("#scanSummary"))
+
+    def test_failed_auto_scan_clears_running_summary(self) -> None:
+        project = self.write_project("cube-auto-failure.lidar-ink.json")
+        self.open_app()
+        self.open_project(project)
+        self.page.set_input_files("#modelInput", str(CUBE_OBJ))
+        self.page.wait_for_function("!document.getElementById('scanAutoBtn').disabled")
+
+        self.page.route(
+            "**/api/lidar/auto",
+            lambda route: route.fulfill(
+                status=500,
+                content_type="application/json",
+                body='{"ok":false,"error":"forced auto failure"}',
+            ),
+        )
+        self.page.click("#scanAutoBtn")
+        self.page.wait_for_function(
+            "!document.getElementById('scanAutoBtn').disabled"
+            " && document.getElementById('status').textContent.includes('Auto Scan failed')"
+        )
+        self.assertNotIn("running", self.text("#scanSummary").lower())
 
     def test_art_preset_change_reuses_current_scan_without_scan_request(self) -> None:
         project = self.write_project("cube-art-reuse.lidar-ink.json")
