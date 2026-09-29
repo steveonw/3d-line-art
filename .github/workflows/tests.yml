@@ -30,6 +30,7 @@ jobs:
 
       - name: Check frontend JavaScript syntax
         run: |
+          node --check frontend/inspection_viewer.js
           node --check frontend/analysis_maps.js
           node --check frontend/multiview.js
           node --check frontend/random_field.js
