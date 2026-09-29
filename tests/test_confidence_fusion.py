@@ -11,9 +11,17 @@ from server.confidence_fusion import (
 )
 
 
-def scan(scan_id: str, confidence: float, *, scene_hash: str = "a" * 64) -> dict:
+def scan(
+    scan_id: str,
+    confidence: float,
+    *,
+    scene_hash: str = "a" * 64,
+    camera_position=(0.0, 0.0, 0.0),
+    camera_target=(0.0, 0.0, 1.0),
+    depth_value: float = 5.0,
+) -> dict:
     depth = np.zeros((5, 5), dtype=np.float64)
-    depth[2, 2] = 5.0
+    depth[2, 2] = depth_value
     conf = np.zeros((5, 5), dtype=np.float64)
     conf[2, 2] = confidence
     metadata = {
@@ -21,8 +29,8 @@ def scan(scan_id: str, confidence: float, *, scene_hash: str = "a" * 64) -> dict
         "width": 5,
         "height": 5,
         "camera": {"fov_deg": 90.0},
-        "camera_position": [0.0, 0.0, 0.0],
-        "camera_target": [0.0, 0.0, 1.0],
+        "camera_position": list(camera_position),
+        "camera_target": list(camera_target),
         "scene": {"sha256": scene_hash},
     }
     return {
@@ -50,6 +58,25 @@ class ConfidenceFusionTest(unittest.TestCase):
         self.assertGreater(two["mean_confidence"], one["mean_confidence"])
         self.assertEqual(int(two["support"][2, 2]), 2)
         self.assertGreater(float(two["confidence"][2, 2]), 0.5)
+
+    def test_different_cameras_reproject_shared_world_point(self) -> None:
+        front = scan(
+            "front",
+            0.6,
+            camera_position=(0.0, 0.0, -5.0),
+            camera_target=(0.0, 0.0, 0.0),
+            depth_value=5.0,
+        )
+        side = scan(
+            "side",
+            0.7,
+            camera_position=(5.0, 0.0, 0.0),
+            camera_target=(0.0, 0.0, 0.0),
+            depth_value=5.0,
+        )
+        fused = fuse_confidence([front, side], "front")
+        self.assertEqual(int(fused["support"][2, 2]), 2)
+        self.assertGreater(float(fused["confidence"][2, 2]), 0.7)
 
     def test_best_single_observation_is_never_reduced(self) -> None:
         fused = fuse_confidence([scan("a", 0.9), scan("b", 0.1)], "a")
