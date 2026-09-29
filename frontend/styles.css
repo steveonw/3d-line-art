@@ -641,3 +641,37 @@
   margin-top: 7px;
   min-height: 30px;
 }
+
+
+/* Post-v0.5 — authoritative model transform controls */
+.model-transform-section {
+  background: linear-gradient(180deg, rgba(35, 45, 60, 0.025), transparent);
+}
+
+.transform-group-label {
+  margin-top: 8px;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.transform-three-col {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.transform-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.transform-actions .secondary {
+  min-height: 38px;
+  font-weight: 700;
+}
