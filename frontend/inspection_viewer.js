@@ -89,7 +89,8 @@
 
     function clearGroup(group) {
       while (group.children.length) {
-        const child = group.children.pop();
+        const child = group.children[group.children.length - 1];
+        group.remove(child);
         child.geometry?.dispose?.();
         disposeMaterial(child.material);
         if (child.children?.length) clearGroup(child);
