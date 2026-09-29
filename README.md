@@ -822,6 +822,42 @@ POST /api/scene/generate
 
 It uses the ordinary 64 KB JSON limit, JSON media-type requirement, same-loopback origin validation, and non-blocking operation gate.
 
+## Authoritative Model Transform
+
+Post-v0.5 stabilization adds a **Model Transform** section for imported and generated 3D scenes:
+
+- Position X / Y / Z
+- Rotation X / Y / Z
+- Uniform scale
+- Apply Transform
+- Reset Transform
+
+The transform is not a Three.js-only display adjustment. Studio applies it to the authoritative normalized triangle scene before any later sensor or geometry work. Rotation uses X → Y → Z order around the normalized model center; translation is a world-space offset; Reset restores the normalized pose.
+
+Applying a transform deliberately makes current LiDAR products stale. Studio clears current scan/multi-view/inspection/3D-Ink products and waits for an explicit rescan rather than firing LiDAR automatically.
+
+Source identity and geometry identity are kept separate:
+
+```text
+source sha256
+  = uploaded/generated asset identity
+
+geometry_sha256
+  = source sha256 + canonical model transform
+```
+
+That distinction lets projects continue recognizing the same STL/OBJ while preventing a scan from one model pose from being reused for another pose. Returning to the exact identity transform recreates the identity geometry fingerprint, so a still-valid cached identity scan can be reused.
+
+Model transforms are stored in normal project/autosave settings and participate in Undo/Redo. Explicit projects reapply their saved transform when the referenced model is loaded. Generated-scene autosave recovery regenerates the deterministic source and then reapplies its saved transform after a local-server reset.
+
+The transform API is:
+
+```text
+POST /api/scene/transform
+```
+
+It uses the ordinary JSON media-type/origin protections, 64 KB JSON limit, and non-blocking operation gate.
+
 ## Mesh guardrails
 
 - accepted formats: `.stl`, `.obj`
@@ -839,6 +875,7 @@ POST /api/reset
 
 POST /api/scene/upload?filename=model.obj
 POST /api/scene/generate
+POST /api/scene/transform
 POST /api/lidar/scan
 POST /api/lidar/multiview
 POST /api/lidar/auto
