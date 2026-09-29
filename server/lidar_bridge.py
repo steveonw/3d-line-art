@@ -666,8 +666,8 @@ class LidarBridge:
                 "distance_scale": distance_scale,
                 "fov_deg": fov_deg,
             },
-            "camera_position": [round(float(x), 4) for x in camera.position],
-            "camera_target": [round(float(x), 4) for x in camera.target],
+            "camera_position": [float(x) for x in camera.position],
+            "camera_target": [float(x) for x in camera.target],
             "scene": {
                 "name": scene_info.get("name"),
                 "triangles": scene_info.get("triangles"),
