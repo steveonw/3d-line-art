@@ -438,14 +438,15 @@ class BrowserRegressionTests(unittest.TestCase):
     def test_generated_geometry_autosave_regenerates_after_server_reset(self) -> None:
         self.open_app()
         generate_requests = []
-        self.page.on(
-            "request",
-            lambda request: (
+        transform_requests = []
+
+        def record(request):
+            if request.url.endswith("/api/scene/generate"):
                 generate_requests.append(request.url)
-                if request.url.endswith("/api/scene/generate")
-                else None
-            ),
-        )
+            elif request.url.endswith("/api/scene/transform"):
+                transform_requests.append(request.url)
+
+        self.page.on("request", record)
 
         self.page.select_option("#geometryType", "box")
         self.page.fill("#geometryWidth", "2")
@@ -457,6 +458,17 @@ class BrowserRegressionTests(unittest.TestCase):
             " && !document.getElementById('scanBtn').disabled"
         )
         self.assertEqual(len(generate_requests), 1)
+
+        self.page.fill("#modelPositionX", "1.5")
+        self.page.fill("#modelPositionY", "0.5")
+        self.page.fill("#modelRotationY", "45")
+        self.page.fill("#modelRotationZ", "-20")
+        self.page.fill("#modelScale", "1.1")
+        self.page.click("#applyModelTransformBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelTransformStatus').textContent.startsWith('Applied')"
+        )
+        self.assertEqual(len(transform_requests), 1)
 
         self.page.evaluate(
             """async () => {
@@ -473,6 +485,10 @@ class BrowserRegressionTests(unittest.TestCase):
             "document.body.dataset.phase17Ready === 'true'"
             " && document.getElementById('modelStatus').textContent.includes('generated-box.obj')"
             " && document.getElementById('geometryStatus').textContent.includes('Restored generated box')"
+            " && document.getElementById('modelPositionX').value === '1.5'"
+            " && document.getElementById('modelRotationY').value === '45'"
+            " && document.getElementById('modelScale').value === '1.1'"
+            " && document.getElementById('modelTransformStatus').textContent.includes('Restored model transform')"
             " && !document.getElementById('scanBtn').disabled",
             timeout=UI_TIMEOUT_MS,
         )
@@ -481,6 +497,22 @@ class BrowserRegressionTests(unittest.TestCase):
             2,
             "autosave recovery should regenerate the saved procedural scene after a server reset",
         )
+        self.assertEqual(
+            len(transform_requests),
+            2,
+            "autosave recovery should reapply the saved authoritative model transform",
+        )
+        workspace = self.page.evaluate(
+            """async () => {
+              const response = await fetch('/api/state');
+              if (!response.ok) throw new Error('state failed');
+              return (await response.json()).state.workspace;
+            }"""
+        )
+        self.assertEqual(workspace["scene"]["transform"]["position"]["x"], 1.5)
+        self.assertEqual(workspace["scene"]["transform"]["rotation"]["y"], 45.0)
+        self.assertEqual(workspace["scene"]["transform"]["rotation"]["z"], -20.0)
+        self.assertEqual(workspace["scene"]["transform"]["scale"], 1.1)
 
     def test_3d_ink_projects_current_art_without_rescanning(self) -> None:
         project = self.write_project("cube-3d-ink.lidar-ink.json")
