@@ -115,7 +115,6 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.set_input_files("#modelInput", str(CUBE_OBJ))
         self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
         self.select_control_tab("lidar")
-        self.select_control_tab("lidar")
         self.page.click("#scanBtn")
         self.page.wait_for_function(
             "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
@@ -468,6 +467,7 @@ class BrowserRegressionTests(unittest.TestCase):
             state["scene"]["sha256"],
         )
 
+        self.select_control_tab("lidar")
         self.page.click("#scanBtn")
         self.page.wait_for_function(
             "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
