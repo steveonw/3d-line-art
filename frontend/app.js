@@ -2437,6 +2437,7 @@
               ? restoredSourceHint
               : serverReference);
       modelReference = hintedReference;
+      resetInspectionForScene();
 
       modelStatus.textContent =
         `${scene.name || '3D model'} - ${formatCount(scene.triangles || 0)} triangles loaded on server`;
@@ -2502,6 +2503,7 @@
             'lidar',
             modelReference
           );
+          await refreshInspectionAfterAcquisition();
 
           if (scanDirty) {
             setProjectStatus(
@@ -2522,6 +2524,7 @@
       if (requiredSourceReference?.kind === 'lidar') {
         setProjectStatus('Referenced model is loaded. Run LiDAR to reproduce the project.', true);
       }
+      syncInspectionControls();
       refreshButtons();
       return 'scene';
     } catch (_) {
@@ -2694,6 +2697,7 @@
   }
 
   syncUI();
+  syncInspectionControls();
   history.initialize(captureProjectState());
   historyReady = true;
   refreshButtons();
@@ -2712,6 +2716,7 @@
   document.body.dataset.phase12Ready = 'true';
   document.body.dataset.phase13Ready = 'true';
   document.body.dataset.phase14Ready = 'true';
+  document.body.dataset.phase15Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
@@ -2742,6 +2747,31 @@
   scanBtn.addEventListener('click', runLidarScan);
   scanMultiBtn.addEventListener('click', runFixedMultiViewScan);
   scanAutoBtn.addEventListener('click', runAutoViewScan);
+
+  inspectionToggle.addEventListener('click', () => {
+    setInspectionOpen(!inspectionOpen).catch(error => {
+      console.error(error);
+      inspectionStatus.textContent = `3D inspection failed: ${error.message}`;
+    });
+  });
+  inspectionScanSelect.addEventListener('change', () => {
+    selectInspectionScanById(inspectionScanSelect.value).catch(error => {
+      console.error(error);
+      inspectionStatus.textContent = `Could not select scan: ${error.message}`;
+    });
+  });
+  [
+    inspectionShowMesh,
+    inspectionShowPoints,
+    inspectionShowRays,
+    inspectionShowCameras
+  ].forEach(control => {
+    control.addEventListener('change', () => {
+      inspectionViewer?.setLayers(inspectionLayerState());
+    });
+  });
+  inspectionResetView.addEventListener('click', () => inspectionViewer?.resetView());
+
   multiViewMode.addEventListener('change', () => {
     settings.lidar.multiViewMode = multiViewMode.value === 'combined'
       ? 'combined'
