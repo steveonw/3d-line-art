@@ -68,6 +68,17 @@
     return jsonResponse(response);
   }
 
+  async function getInspectionScene() {
+    const response = await fetch('/api/inspection/scene', { cache: 'no-store' });
+    return jsonResponse(response);
+  }
+
+  async function getInspectionScan(scanId = null) {
+    const suffix = scanId ? `?scan_id=${encodeURIComponent(scanId)}` : '';
+    const response = await fetch(`/api/inspection/scan${suffix}`, { cache: 'no-store' });
+    return jsonResponse(response);
+  }
+
   async function getState() {
     const response = await fetch('/api/state', { cache: 'no-store' });
     return jsonResponse(response);
@@ -149,6 +160,8 @@
     scanFixedViews,
     scanAutoViews,
     fuseConfidence,
+    getInspectionScene,
+    getInspectionScan,
     getState,
     getMaps,
     fetchFusionMaps,
