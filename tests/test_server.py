@@ -191,6 +191,64 @@ class FakeLidarBridge:
             "cache": self.state.scan_cache_stats(),
         }
 
+    def inspection_scene(self) -> dict:
+        scene = self.state.snapshot()["workspace"]["scene"]
+        if not scene.get("loaded"):
+            raise ValueError("no 3D model is loaded")
+        return {
+            "scene": {
+                "name": scene.get("name"),
+                "sha256": scene.get("sha256"),
+                "triangles": scene.get("triangles", 12),
+                "vertices": scene.get("vertices", 8),
+                "bounds_min": [-1.0, 0.0, -1.0],
+                "bounds_max": [1.0, 2.0, 1.0],
+            },
+            "preview": {
+                "triangle_count": 2,
+                "source_triangle_count": 12,
+                "positions": [
+                    -1.0, 0.0, -1.0, 1.0, 0.0, -1.0, 1.0, 2.0, -1.0,
+                    -1.0, 0.0, -1.0, 1.0, 2.0, -1.0, -1.0, 2.0, -1.0,
+                ],
+                "center": [0.0, 1.0, 0.0],
+                "radius": 1.732,
+            },
+        }
+
+    def inspection_scan(self, scan_id: str | None = None) -> dict:
+        requested = scan_id or self.state.snapshot()["workspace"]["scan"].get("scan_id")
+        if not requested or requested not in self.scans:
+            from server.lidar_bridge import ScanIdMismatchError
+            raise ScanIdMismatchError("requested inspection scan is not available")
+        return {
+            "scan_id": requested,
+            "scene_sha256": None,
+            "camera": {
+                "position": [0.0, 2.0, -6.0],
+                "target": [0.0, 1.0, 0.0],
+                "fov_deg": 55.0,
+                "width": 160,
+                "height": 120,
+                "yaw_deg": 0.0,
+                "elevation_deg": 20.0,
+            },
+            "points": {
+                "source_count": 2,
+                "preview_count": 2,
+                "positions": [0.0, 0.5, 0.0, 0.5, 1.0, 0.0],
+                "confidence": [180, 230],
+            },
+            "rays": {
+                "kind": "cached-hit-rays",
+                "count": 2,
+                "positions": [
+                    0.0, 2.0, -6.0, 0.0, 0.5, 0.0,
+                    0.0, 2.0, -6.0, 0.5, 1.0, 0.0,
+                ],
+            },
+        }
+
     def clear_fusion_cache(self) -> None:
         pass
 
@@ -363,8 +421,8 @@ class ServerTestCase(unittest.TestCase):
         status, payload = self.json_request("/api/health")
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["server_version"], "0.4-phase14")
-        self.assertEqual(payload["api_version"], 6)
+        self.assertEqual(payload["server_version"], "0.4-phase15")
+        self.assertEqual(payload["api_version"], 7)
 
     def test_state_and_reset(self) -> None:
         status, before = self.json_request("/api/state")
@@ -545,6 +603,30 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(multiview["current_view"], multiview["order"][-1])
         first = multiview["views"][multiview["order"][0]]
         self.assertEqual(first["view"]["kind"], "auto")
+
+    def test_inspection_scene_and_scan_endpoints(self) -> None:
+        self.upload_fake_scene()
+        status, scene_payload = self.json_request("/api/inspection/scene")
+        self.assertEqual(status, 200)
+        self.assertEqual(scene_payload["inspection"]["preview"]["triangle_count"], 2)
+
+        scan_status, scan_payload = self.json_request(
+            "/api/lidar/scan",
+            method="POST",
+            body=json.dumps({"width": 160, "height": 120}).encode("utf-8"),
+            content_type="application/json",
+        )
+        self.assertEqual(scan_status, 200)
+        scan_id = scan_payload["scan"]["scan_id"]
+
+        status, inspection_payload = self.json_request(
+            f"/api/inspection/scan?scan_id={scan_id}"
+        )
+        self.assertEqual(status, 200)
+        inspection = inspection_payload["inspection"]
+        self.assertEqual(inspection["scan_id"], scan_id)
+        self.assertEqual(inspection["points"]["preview_count"], 2)
+        self.assertEqual(inspection["rays"]["count"], 2)
 
     def test_confidence_fusion_endpoint_and_pngs(self) -> None:
         self.upload_fake_scene()
