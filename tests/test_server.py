@@ -349,7 +349,12 @@ class ServerTestCase(unittest.TestCase):
     def test_busy_write_returns_conflict(self) -> None:
         self.assertTrue(self.state.try_begin_operation("test-operation"))
         try:
-            status, payload = self.json_request("/api/reset", method="POST")
+            status, payload = self.json_request(
+                "/api/reset",
+                method="POST",
+                body=b"{}",
+                content_type="application/json",
+            )
         finally:
             self.state.end_operation()
 
@@ -545,7 +550,7 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(payload["code"], "unsupported_media_type")
 
     def test_deep_json_returns_bad_request_not_internal_error(self) -> None:
-        deeply_nested = ("{" + '"x":' * 1200 + "0" + "}" * 1200).encode("utf-8")
+        deeply_nested = ('{"x":' * 1200 + "0" + "}" * 1200).encode("utf-8")
         status, payload = self.json_request(
             "/api/lidar/scan",
             method="POST",
@@ -563,7 +568,12 @@ class ServerTestCase(unittest.TestCase):
             body=b"{}",
             content_type="application/json",
         )
-        status, _ = self.json_request("/api/reset", method="POST")
+        status, _ = self.json_request(
+            "/api/reset",
+            method="POST",
+            body=b"{}",
+            content_type="application/json",
+        )
         self.assertEqual(status, 200)
         self.assertIsNone(self.state.get_scene_object())
         self.assertIsNone(self.state.get_scan())
