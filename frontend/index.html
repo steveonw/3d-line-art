@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Line Art Studio 5.3</title>
-  <meta name="application-version" content="5.3-phase16" />
+  <meta name="application-version" content="5.3-phase17" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -55,6 +55,97 @@
         </div>
         <input id="modelInput" type="file" accept=".stl,.obj,model/stl,text/plain" />
         <div class="source-help" id="modelStatus">No 3D model loaded.</div>
+      </div>
+
+      <div class="section geometry-builder-section" id="geometryBuilderSection">
+        <div class="label-row">
+          <span class="group-label">Create 3D Geometry</span>
+          <span class="value">Phase 17</span>
+        </div>
+
+        <label class="control-field" for="geometryType">
+          <span>Primitive</span>
+          <select id="geometryType">
+            <option value="sphere" selected>Sphere</option>
+            <option value="box">Box</option>
+            <option value="cylinder">Cylinder</option>
+            <option value="lathe">Lathe / profile</option>
+            <option value="heightfield">Height field</option>
+          </select>
+        </label>
+
+        <div class="geometry-fields" data-geometry-types="sphere cylinder">
+          <label class="control-field" for="geometryRadius">
+            <span>Radius</span>
+            <input id="geometryRadius" type="number" min="0.05" max="100" step="0.05" value="1" />
+          </label>
+        </div>
+
+        <div class="geometry-fields geometry-two-col" data-geometry-types="box heightfield">
+          <label class="control-field" for="geometryWidth">
+            <span>Width</span>
+            <input id="geometryWidth" type="number" min="0.05" max="100" step="0.05" value="3" />
+          </label>
+          <label class="control-field" for="geometryDepth">
+            <span>Depth</span>
+            <input id="geometryDepth" type="number" min="0.05" max="100" step="0.05" value="3" />
+          </label>
+        </div>
+
+        <div class="geometry-fields" data-geometry-types="box cylinder">
+          <label class="control-field" for="geometryHeight">
+            <span>Height</span>
+            <input id="geometryHeight" type="number" min="0.05" max="100" step="0.05" value="2" />
+          </label>
+        </div>
+
+        <div class="geometry-fields geometry-two-col" data-geometry-types="sphere cylinder lathe">
+          <label class="control-field" for="geometrySegments">
+            <span>Segments</span>
+            <input id="geometrySegments" type="number" min="6" max="128" step="1" value="32" />
+          </label>
+          <label class="control-field" for="geometryRings">
+            <span>Rings</span>
+            <input id="geometryRings" type="number" min="4" max="96" step="1" value="16" />
+          </label>
+        </div>
+
+        <div class="geometry-fields" data-geometry-types="lathe">
+          <label class="control-field" for="geometryProfile">
+            <span>Profile · radius,y pairs</span>
+            <textarea id="geometryProfile" rows="3">0,-1; 0.72,-0.92; 0.92,-0.35; 0.58,0.1; 0.76,0.72; 0,1</textarea>
+          </label>
+          <div class="source-help">Semicolon-separated profile points revolve around the Y axis.</div>
+        </div>
+
+        <div class="geometry-fields" data-geometry-types="heightfield">
+          <label class="control-field" for="geometryPattern">
+            <span>Pattern</span>
+            <select id="geometryPattern">
+              <option value="waves" selected>Waves</option>
+              <option value="ripple">Ripple</option>
+              <option value="saddle">Saddle</option>
+              <option value="radial">Radial</option>
+            </select>
+          </label>
+          <div class="geometry-two-col">
+            <label class="control-field" for="geometryAmplitude">
+              <span>Amplitude</span>
+              <input id="geometryAmplitude" type="number" min="0" max="100" step="0.05" value="0.65" />
+            </label>
+            <label class="control-field" for="geometryFrequency">
+              <span>Frequency</span>
+              <input id="geometryFrequency" type="number" min="0.1" max="20" step="0.1" value="2" />
+            </label>
+          </div>
+          <label class="control-field" for="geometryGrid">
+            <span>Grid resolution</span>
+            <input id="geometryGrid" type="number" min="4" max="80" step="1" value="28" />
+          </label>
+        </div>
+
+        <button class="secondary geometry-generate-btn" id="generateGeometryBtn" type="button">Create Geometry</button>
+        <div class="source-help" id="geometryStatus">Generated geometry uses the same OBJ → normalize → LiDAR pipeline as an uploaded model.</div>
       </div>
 
       <div class="section ink-space-section">
@@ -481,6 +572,7 @@
   <script src="math_fields.js"></script>
   <script src="stroke_placement.js"></script>
   <script src="project_state.js"></script>
+  <script src="geometry_builder.js"></script>
   <script src="history.js"></script>
   <script src="line_renderer.js"></script>
   <script src="export.js"></script>
