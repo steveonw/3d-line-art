@@ -1212,6 +1212,301 @@
     confidenceFragmentation.disabled = !available;
   }
 
+  function inspectionEntries() {
+    if (multiViewBundle?.order?.length) {
+      return multiViewBundle.order
+        .map(name => {
+          const view = multiViewBundle.views?.[name];
+          if (!view?.scan?.scan_id) return null;
+          return {
+            name,
+            label: multiViewViewLabel(name),
+            scan: view.scan
+          };
+        })
+        .filter(Boolean);
+    }
+    if (installedScanMetadata?.scan_id) {
+      return [{
+        name: 'single',
+        label: 'Current scan',
+        scan: installedScanMetadata
+      }];
+    }
+    return [];
+  }
+
+  function inspectionCurrentScanId() {
+    if (multiViewBundle?.order?.length) {
+      const current = multiViewBundle.views?.[resolveMultiViewCurrent()];
+      return current?.scan?.scan_id || null;
+    }
+    return installedScanId || installedScanMetadata?.scan_id || null;
+  }
+
+  function inspectionCameraViews() {
+    return inspectionEntries().map(entry => ({
+      scanId: entry.scan.scan_id,
+      name: entry.name,
+      label: entry.label,
+      position: entry.scan.camera_position,
+      target: entry.scan.camera_target,
+      fov: entry.scan.camera?.fov_deg,
+      width: entry.scan.width,
+      height: entry.scan.height
+    }));
+  }
+
+  function inspectionLayerState() {
+    return {
+      mesh: inspectionShowMesh.checked,
+      points: inspectionShowPoints.checked,
+      rays: inspectionShowRays.checked,
+      cameras: inspectionShowCameras.checked
+    };
+  }
+
+  function ensureInspectionViewer() {
+    if (inspectionViewer) return inspectionViewer;
+    if (!window.LineArtInspectionViewer) {
+      throw new Error('3D inspection viewer is unavailable.');
+    }
+    inspectionViewer = LineArtInspectionViewer.createInspectionViewer({
+      container: inspectionViewport,
+      onSelectScan: scanId => {
+        selectInspectionScanById(scanId).catch(error => {
+          console.error(error);
+          inspectionStatus.textContent = `Could not select scan: ${error.message}`;
+        });
+      }
+    });
+    inspectionViewer.setLayers(inspectionLayerState());
+    return inspectionViewer;
+  }
+
+  function syncInspectionControls() {
+    const entries = inspectionEntries();
+    const selected = inspectionCurrentScanId();
+
+    inspectionScanSelect.innerHTML = '';
+    if (!entries.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No scan yet';
+      inspectionScanSelect.appendChild(option);
+    } else {
+      for (const entry of entries) {
+        const option = document.createElement('option');
+        option.value = entry.scan.scan_id;
+        option.textContent = entry.label;
+        inspectionScanSelect.appendChild(option);
+      }
+      if (entries.some(entry => entry.scan.scan_id === selected)) {
+        inspectionScanSelect.value = selected;
+      }
+    }
+
+    inspectionViewpoints.innerHTML = '';
+    for (const entry of entries) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.scanId = entry.scan.scan_id;
+      button.textContent = entry.label;
+      button.classList.toggle('active', entry.scan.scan_id === selected);
+      button.disabled = !inspectionOpen || inspectionLoading;
+      button.addEventListener('click', () => {
+        selectInspectionScanById(entry.scan.scan_id).catch(error => {
+          console.error(error);
+          inspectionStatus.textContent = `Could not select scan: ${error.message}`;
+        });
+      });
+      inspectionViewpoints.appendChild(button);
+    }
+
+    if (inspectionViewer) {
+      inspectionViewer.setCameraViews(inspectionCameraViews(), selected);
+      inspectionViewer.setLayers(inspectionLayerState());
+    }
+  }
+
+  function updateInspectionHud(sceneSnapshot = inspectionSceneCache, scanSnapshot = null) {
+    const sceneInfo = sceneSnapshot?.scene;
+    const preview = sceneSnapshot?.preview;
+    const scanId = scanSnapshot?.scan_id || inspectionCurrentScanId();
+    const entry = inspectionEntries().find(item => item.scan.scan_id === scanId);
+    inspectionHudTitle.textContent = entry
+      ? `3D inspection · ${entry.label}`
+      : `3D inspection · ${sceneInfo?.name || 'normalized mesh'}`;
+
+    if (scanSnapshot) {
+      inspectionHudDetail.textContent =
+        `${preview?.triangle_count || 0} mesh triangles · ` +
+        `${scanSnapshot.points?.preview_count || 0}/${scanSnapshot.points?.source_count || 0} hit points · ` +
+        `${scanSnapshot.rays?.count || 0} cached hit rays · drag to orbit, Shift/right-drag to pan, wheel to zoom`;
+    } else {
+      inspectionHudDetail.textContent =
+        `${preview?.triangle_count || 0} preview triangles · run LiDAR to add point cloud and hit rays · drag to orbit`;
+    }
+  }
+
+  async function loadInspectionScene({ force = false } = {}) {
+    const viewer = ensureInspectionViewer();
+    const expectedSha = modelReference?.sha256 || null;
+    if (
+      !force &&
+      inspectionSceneCache &&
+      (!expectedSha || inspectionSceneSha === expectedSha)
+    ) {
+      viewer.setSceneSnapshot(inspectionSceneCache);
+      syncInspectionControls();
+      updateInspectionHud(inspectionSceneCache, null);
+      return inspectionSceneCache;
+    }
+
+    inspectionLoading = true;
+    refreshButtons();
+    inspectionStatus.textContent = 'Loading normalized mesh preview…';
+    try {
+      const response = await LidarClient.getInspectionScene();
+      const snapshot = response.inspection;
+      inspectionSceneCache = snapshot;
+      inspectionSceneSha = snapshot?.scene?.sha256 || expectedSha;
+      viewer.setSceneSnapshot(snapshot);
+      syncInspectionControls();
+      inspectionStatus.textContent =
+        `Mesh ready · ${formatCount(snapshot.preview?.triangle_count || 0)} of ` +
+        `${formatCount(snapshot.preview?.source_triangle_count || 0)} triangles shown.`;
+      updateInspectionHud(snapshot, null);
+      return snapshot;
+    } finally {
+      inspectionLoading = false;
+      refreshButtons();
+      syncInspectionControls();
+    }
+  }
+
+  async function loadInspectionScan(scanId) {
+    const viewer = ensureInspectionViewer();
+    if (!scanId) {
+      viewer.setScanSnapshot({
+        scan_id: null,
+        points: { positions: [], confidence: [] },
+        rays: { positions: [] }
+      });
+      updateInspectionHud(inspectionSceneCache, null);
+      return null;
+    }
+
+    const serial = ++inspectionSerial;
+    inspectionLoading = true;
+    refreshButtons();
+    syncInspectionControls();
+    inspectionStatus.textContent = 'Loading cached hit cloud…';
+    try {
+      let snapshot = inspectionScanCache.get(scanId);
+      if (!snapshot) {
+        const response = await LidarClient.getInspectionScan(scanId);
+        snapshot = response.inspection;
+        inspectionScanCache.set(scanId, snapshot);
+      }
+      if (serial !== inspectionSerial) return null;
+
+      viewer.setSelectedScan(scanId);
+      viewer.setScanSnapshot(snapshot);
+      const entry = inspectionEntries().find(item => item.scan.scan_id === scanId);
+      inspectionStatus.textContent =
+        `${entry?.label || 'Scan'} · ${formatCount(snapshot.points?.preview_count || 0)} points · ` +
+        `${formatCount(snapshot.rays?.count || 0)} hit rays.`;
+      updateInspectionHud(inspectionSceneCache, snapshot);
+      syncInspectionControls();
+      return snapshot;
+    } finally {
+      if (serial === inspectionSerial) {
+        inspectionLoading = false;
+        refreshButtons();
+        syncInspectionControls();
+      }
+    }
+  }
+
+  async function selectInspectionScanById(scanId, { syncArt = true } = {}) {
+    if (!scanId) return;
+    const entries = inspectionEntries();
+    const entry = entries.find(item => item.scan.scan_id === scanId);
+    if (!entry) return;
+
+    if (syncArt && multiViewBundle?.order?.includes(entry.name)) {
+      settings.lidar.multiViewCurrent = entry.name;
+      multiViewCurrent.value = entry.name;
+      activateMultiViewSource({ historyKey: 'lidar:multiViewCurrent' });
+    }
+
+    inspectionScanSelect.value = scanId;
+    inspectionViewer?.setSelectedScan(scanId);
+    syncInspectionControls();
+    await loadInspectionScan(scanId);
+  }
+
+  async function setInspectionOpen(nextOpen) {
+    if (nextOpen && !sceneLoaded) return;
+    inspectionOpen = !!nextOpen;
+    inspectionToggle.textContent = inspectionOpen
+      ? 'Close 3D Inspector'
+      : 'Open 3D Inspector';
+
+    if (!inspectionOpen) {
+      inspectionShell.hidden = true;
+      canvasShell.hidden = !sourceImage;
+      emptyState.hidden = !!sourceImage;
+      refreshButtons();
+      syncInspectionControls();
+      return;
+    }
+
+    stopRender(false);
+    inspectionShell.hidden = false;
+    canvasShell.hidden = true;
+    emptyState.hidden = true;
+    ensureInspectionViewer();
+    syncInspectionControls();
+    refreshButtons();
+
+    try {
+      await loadInspectionScene();
+      const scanId = inspectionCurrentScanId();
+      await loadInspectionScan(scanId);
+    } catch (error) {
+      console.error(error);
+      inspectionStatus.textContent = `3D inspection failed: ${error.message}`;
+    }
+  }
+
+  function resetInspectionForScene() {
+    inspectionSerial++;
+    inspectionSceneCache = null;
+    inspectionSceneSha = null;
+    inspectionScanCache.clear();
+    if (inspectionViewer) {
+      inspectionViewer.setSceneSnapshot({
+        preview: { positions: [], center: [0, 1, 0], radius: 1 }
+      });
+      inspectionViewer.setScanSnapshot({
+        scan_id: null,
+        points: { positions: [], confidence: [] },
+        rays: { positions: [] }
+      });
+      inspectionViewer.setCameraViews([], null);
+    }
+    syncInspectionControls();
+  }
+
+  async function refreshInspectionAfterAcquisition() {
+    syncInspectionControls();
+    if (!inspectionOpen) return;
+    const scanId = inspectionCurrentScanId();
+    if (scanId) await selectInspectionScanById(scanId, { syncArt: false });
+  }
+
   function markSettingsChanged(markPreset = true, historyKey = null) {
     if (markPreset && settings.preset !== 'custom') {
       settings.preset = 'custom';
