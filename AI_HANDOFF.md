@@ -750,6 +750,24 @@ Validation includes:
 - frontend debug-color smoke coverage,
 - real Chromium Auto Scan, view switching, stale/fresh sensor settings, and cache replay.
 
+Post-review stabilization on the same Phase 13 branch additionally establishes:
+
+- single-view confidence treats unmeasured beam coherence as neutral rather than incoherent,
+- flat depth-variance fields do not receive the maximum instability penalty,
+- the hard clean-background mask cannot connect an isolated one-point stroke to stale scratch-buffer coordinates,
+- automatic view IDs survive undo/redo and restored project/autosave settings,
+- automatic view labels show human names such as `Low 0°`,
+- the automatic response `current_view` matches the server's actual last-acquired current scan,
+- failed scans restore a non-running summary state,
+- sensor floats are canonicalized once for camera construction, metadata, cache identity, and browser freshness,
+- 0° and 360° yaw are the same canonical sensor request,
+- the first planner step carries real expected-gain metadata,
+- deeply nested JSON is rejected as a bad request instead of surfacing as a 500,
+- mutating loopback API requests validate browser Origin when present and require the expected media type,
+- README/API documentation now includes Phase 13.
+
+Do **not** undo these fixes by forcing Smart Sampling, lowering the 0.72 target merely to make Auto Scan stop earlier, or changing the Phase 13 planner into object-space fusion. Reviews correctly observed that the current planner often chooses similar angular sequences for different models and that the 2D Combined Views mode is an overlay/compositor. Those are known design boundaries, not reasons to blur the Phase 13/14 separation.
+
 ## 12.75. Next task: Phase 14 — Confidence fusion
 
 Roadmap scope:
@@ -805,6 +823,8 @@ Do not weaken:
 
 - `127.0.0.1` binding,
 - Host-header validation,
+- same-loopback Origin validation for browser mutation requests,
+- strict JSON/octet-stream media types on mutation endpoints,
 - upload-size limit,
 - JSON-body-size limit,
 - static path traversal checks,
@@ -880,7 +900,9 @@ Keep these intact:
 - Project JSON does not yet embed cached scan products.
 - Local image bytes are not placed in localStorage.
 - The server is single-user/local and maintains one active operation at a time.
-- Confidence is currently a single-view proxy, not later multi-view confidence fusion.
+- Confidence is currently a corrected single-view proxy, not later multi-view confidence fusion.
+- Phase 13 automatic selection measures view-space angular coverage; it does not know registered unseen object surfaces.
+- Combined Views is a deterministic 2D evidence compositor/overlay, not geometric registration.
 - The current LiDAR camera is pinhole-based single-view scanning.
 - LLM support is optional future work, not infrastructure.
 
@@ -937,6 +959,8 @@ ROADMAP.md
 
 Preserve the Phase 11 content-addressed LRU cache, the Phase 11.5 common art-mapping path, Phase 12's independently inspectable scan IDs/view sets, and Phase 13 automatic acquisition.
 
-Implement multi-view confidence fusion as a separate evidence-combination step over acquired scans. Keep the distinction between Phase 13 view-space acquisition coverage and Phase 14 fused sensor confidence explicit.
+Before designing fusion, inspect owner-controlled `steveonw/lidar-numpy` and other relevant `steveonw` repositories for reusable multi-view/confidence subsystems.
+
+Implement multi-view confidence fusion as a separate evidence-combination step over acquired scans. Keep the distinction between Phase 13 view-space acquisition coverage and Phase 14 fused sensor confidence explicit. If fused uncertainty later feeds back into next-view selection, treat that as an explicit active-perception feedback design rather than quietly retuning the Phase 13 angular planner.
 
 Do not touch Phase 15 3D inspection viewer.
