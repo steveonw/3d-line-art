@@ -2364,6 +2364,7 @@
   document.body.dataset.phase115Ready = 'true';
   document.body.dataset.phase12Ready = 'true';
   document.body.dataset.phase13Ready = 'true';
+  document.body.dataset.phase14Ready = 'true';
 
   if (restoredProject?.source?.kind === 'image') {
     setProjectStatus(
