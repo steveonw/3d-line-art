@@ -115,6 +115,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.page.set_input_files("#modelInput", str(CUBE_OBJ))
         self.page.wait_for_function("!document.getElementById('scanBtn').disabled")
         self.select_control_tab("lidar")
+        self.select_control_tab("lidar")
         self.page.click("#scanBtn")
         self.page.wait_for_function(
             "document.getElementById('scanSummary').textContent.startsWith('Scan ')"
@@ -388,6 +389,7 @@ class BrowserRegressionTests(unittest.TestCase):
                 inspection_scene_requests.append(url)
 
         self.page.on("request", record)
+        self.select_control_tab("model")
         self.page.click("#inspectionToggle")
         self.page.wait_for_function(
             "!document.getElementById('inspectionShell').hidden"
@@ -422,6 +424,7 @@ class BrowserRegressionTests(unittest.TestCase):
         )
 
         self.assertFalse(self.is_disabled("#undoBtn"))
+        self.select_control_tab("source")
         self.page.click("#undoBtn")
         self.page.wait_for_function(
             "document.getElementById('modelPositionX').value === '0'"
@@ -474,6 +477,7 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertEqual(len(scan_requests), 1)
 
+        self.select_control_tab("model")
         self.page.click("#resetModelTransformBtn")
         self.page.wait_for_function(
             "document.getElementById('modelTransformStatus').textContent.includes('Reset')"
@@ -511,6 +515,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         self.page.on("request", record)
 
+        self.select_control_tab("model")
         self.page.select_option("#geometryType", "lathe")
         self.page.fill("#geometrySegments", "18")
         self.page.fill(
@@ -536,6 +541,7 @@ class BrowserRegressionTests(unittest.TestCase):
         )
         self.assertIn("generated-lathe.obj", self.text("#inspectionHudTitle"))
 
+        self.select_control_tab("lidar")
         self.page.select_option("#scanResolution", "160x120")
         self.page.select_option("#raysPerPixel", "1")
         self.page.click("#scanBtn")
@@ -548,6 +554,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.assertEqual(len(scan_requests), 1)
         self.assertIn("Current scan", self.text("#inspectionScanSelect"))
 
+        self.select_control_tab("model")
         self.page.click('#inkSpaceControl button[data-space="3d"]')
         self.page.wait_for_function(
             "document.getElementById('ink3dStatus').textContent.startsWith('3D Ink ready')"
@@ -571,6 +578,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         self.page.on("request", record)
 
+        self.select_control_tab("model")
         self.page.select_option("#geometryType", "box")
         self.page.fill("#geometryWidth", "2")
         self.page.fill("#geometryHeight", "3")
@@ -663,6 +671,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         self.page.on("request", record)
 
+        self.select_control_tab("model")
         self.page.click('#inkSpaceControl button[data-space="3d"]')
         self.page.wait_for_function(
             "document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').classList.contains('active')"
