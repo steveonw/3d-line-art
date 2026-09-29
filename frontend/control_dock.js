@@ -88,8 +88,9 @@
         'inkSpaceControl',
         'inspectionControls'
       ],
-      lidar: ['lidarScanControls', 'lidarArtControls'],
+      lidar: ['lidarScanControls'],
       art: [
+        'lidarArtControls',
         'preset',
         'modeControl',
         'palette',
