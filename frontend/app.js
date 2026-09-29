@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const BUILD_VERSION = '5.3-phase13';
+  const BUILD_VERSION = '5.3-phase14';
   document.body.dataset.build = BUILD_VERSION;
 
   const MAX_IMAGE_SIDE = 1100;
@@ -61,6 +61,10 @@
       depthInfluence: 0.75,
       depthContourStrength: 0.0,
       confidenceSmoothing: 0.0,
+      useFusedConfidence: false,
+      confidenceLength: 0.0,
+      confidenceOpacity: 0.0,
+      confidenceFragmentation: 0.0,
       cleanBackground: false,
       objectCenteredFields: false,
       multiViewMode: 'current',
@@ -121,7 +125,7 @@
       mode: 'black', palette: 'muted', lineCount: 70000, strokeLength: 7.5,
       strokeWeight: 0.82, detail: 2.0, opacity: 0.38, colorStrength: 1.0,
       paletteStrength: 0.75, directionNoise: 0.28, angleQuantize: 0, sampleBias: 0.72, flowStrength: 0.78,
-      lidar: { densitySource: 'confidence', directionSource: 'mixed', geometryEdgeStrength: 1.05, depthInfluence: 0.68, depthContourStrength: 0.35, confidenceSmoothing: 0.80, cleanBackground: true, objectCenteredFields: true }
+      lidar: { densitySource: 'confidence', directionSource: 'mixed', geometryEdgeStrength: 1.05, depthInfluence: 0.68, depthContourStrength: 0.35, confidenceSmoothing: 0.80, useFusedConfidence: true, confidenceLength: 0.45, confidenceOpacity: 0.55, confidenceFragmentation: 0.35, cleanBackground: true, objectCenteredFields: true }
     },
     architecturalScan: {
       mode: 'black', palette: 'monochrome', lineCount: 72000, strokeLength: 11,
@@ -195,6 +199,13 @@
   const depthContourStrengthValue = document.getElementById('depthContourStrengthValue');
   const confidenceSmoothing = document.getElementById('confidenceSmoothing');
   const confidenceSmoothingValue = document.getElementById('confidenceSmoothingValue');
+  const useFusedConfidence = document.getElementById('useFusedConfidence');
+  const confidenceLength = document.getElementById('confidenceLength');
+  const confidenceLengthValue = document.getElementById('confidenceLengthValue');
+  const confidenceOpacity = document.getElementById('confidenceOpacity');
+  const confidenceOpacityValue = document.getElementById('confidenceOpacityValue');
+  const confidenceFragmentation = document.getElementById('confidenceFragmentation');
+  const confidenceFragmentationValue = document.getElementById('confidenceFragmentationValue');
   const cleanBackground = document.getElementById('cleanBackground');
   const objectCenteredFields = document.getElementById('objectCenteredFields');
   const presetSelect = document.getElementById('preset');
@@ -601,6 +612,10 @@
     next.lidar.depthInfluence = clamp(Number(next.lidar.depthInfluence), 0, 1);
     next.lidar.depthContourStrength = clamp(Number(next.lidar.depthContourStrength), 0, 1);
     next.lidar.confidenceSmoothing = clamp(Number(next.lidar.confidenceSmoothing), 0, 1);
+    next.lidar.useFusedConfidence = !!next.lidar.useFusedConfidence;
+    next.lidar.confidenceLength = clamp(Number(next.lidar.confidenceLength), 0, 1);
+    next.lidar.confidenceOpacity = clamp(Number(next.lidar.confidenceOpacity), 0, 1);
+    next.lidar.confidenceFragmentation = clamp(Number(next.lidar.confidenceFragmentation), 0, 1);
     next.lidar.cleanBackground = !!next.lidar.cleanBackground;
     next.lidar.objectCenteredFields = !!next.lidar.objectCenteredFields;
     next.lidar.multiViewMode = next.lidar.multiViewMode === 'combined'
@@ -850,6 +865,10 @@
     depthInfluence,
     depthContourStrength,
     confidenceSmoothing,
+    useFusedConfidence,
+    confidenceLength,
+    confidenceOpacity,
+    confidenceFragmentation,
     cleanBackground,
     objectCenteredFields
   ];
@@ -869,6 +888,10 @@
     depthInfluence.value = s.depthInfluence;
     depthContourStrength.value = s.depthContourStrength;
     confidenceSmoothing.value = s.confidenceSmoothing;
+    useFusedConfidence.checked = !!s.useFusedConfidence;
+    confidenceLength.value = s.confidenceLength;
+    confidenceOpacity.value = s.confidenceOpacity;
+    confidenceFragmentation.value = s.confidenceFragmentation;
     cleanBackground.checked = !!s.cleanBackground;
     objectCenteredFields.checked = !!s.objectCenteredFields;
     multiViewMode.value = s.multiViewMode;
@@ -882,6 +905,9 @@
     depthInfluenceValue.textContent = `${Math.round(s.depthInfluence * 100)}%`;
     depthContourStrengthValue.textContent = `${Math.round(s.depthContourStrength * 100)}%`;
     confidenceSmoothingValue.textContent = `${Math.round(s.confidenceSmoothing * 100)}%`;
+    confidenceLengthValue.textContent = `${Math.round(s.confidenceLength * 100)}%`;
+    confidenceOpacityValue.textContent = `${Math.round(s.confidenceOpacity * 100)}%`;
+    confidenceFragmentationValue.textContent = `${Math.round(s.confidenceFragmentation * 100)}%`;
   }
 
   function syncProceduralControls() {
@@ -956,8 +982,11 @@
     };
   }
 
-  function composeOneLidarView(sourceMaps) {
-    return LineArtAnalysis.composeLidarAnalysisMaps(sourceMaps, lidarArtOptions());
+  function composeOneLidarView(sourceMaps, fusedConfidence = null) {
+    const source = settings.lidar.useFusedConfidence && fusedConfidence
+      ? LineArtAnalysis.withConfidence(sourceMaps, fusedConfidence)
+      : sourceMaps;
+    return LineArtAnalysis.composeLidarAnalysisMaps(source, lidarArtOptions());
   }
 
   function composeCurrentLidarMaps() {
@@ -976,7 +1005,7 @@
           .filter(Boolean)
           .map(view => ({
             name: view.name,
-            maps: composeOneLidarView(view.sourceMaps)
+            maps: composeOneLidarView(view.sourceMaps, view.fusedConfidence)
           }));
         return LineArtMultiView.combineComposedViews(
           entries,
@@ -986,7 +1015,7 @@
         );
       }
 
-      const maps = composeOneLidarView(current.sourceMaps);
+      const maps = composeOneLidarView(current.sourceMaps, current.fusedConfidence);
       if (!settings.lidar.multiViewDebugColors) return maps;
       return {
         ...maps,
@@ -1151,6 +1180,13 @@
   function updateLidarArtControlAvailability(locked = false) {
     const available = sourceKind === 'lidar' && !!lidarSourceMaps && !locked;
     lidarArtControlEls.forEach(el => { el.disabled = !available; });
+    const fusionAvailable = available && !!multiViewBundle?.fusion;
+    useFusedConfidence.disabled = !fusionAvailable;
+    const confidenceEffectsAvailable = available &&
+      (!settings.lidar.useFusedConfidence || fusionAvailable);
+    confidenceLength.disabled = !confidenceEffectsAvailable;
+    confidenceOpacity.disabled = !confidenceEffectsAvailable;
+    confidenceFragmentation.disabled = !confidenceEffectsAvailable;
   }
 
   function markSettingsChanged(markPreset = true, historyKey = null) {
