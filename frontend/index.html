@@ -74,7 +74,7 @@
           </select>
         </label>
 
-        <div class="geometry-fields" data-geometry-types="sphere cylinder">
+        <div class="geometry-fields" data-geometry-types="cylinder">
           <label class="control-field" for="geometryRadius">
             <span>Radius</span>
             <input id="geometryRadius" type="number" min="0.05" max="100" step="0.05" value="1" />
@@ -144,6 +144,7 @@
           </label>
         </div>
 
+        <div class="source-help">Overall scale is normalized like uploaded models; relative dimensions and profile shape are preserved.</div>
         <button class="secondary geometry-generate-btn" id="generateGeometryBtn" type="button">Create Geometry</button>
         <div class="source-help" id="geometryStatus">Generated geometry uses the same OBJ → normalize → LiDAR pipeline as an uploaded model.</div>
       </div>
