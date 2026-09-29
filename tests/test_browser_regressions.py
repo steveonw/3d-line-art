@@ -322,6 +322,29 @@ class BrowserRegressionTests(unittest.TestCase):
             self.is_disabled('#inkSpaceControl button[data-space="3d"]')
         )
 
+        self.assertFalse(self.is_disabled("#undoBtn"))
+        self.page.click("#undoBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelPositionX').value === '0'"
+            " && document.getElementById('modelRotationX').value === '0'"
+            " && document.getElementById('modelScale').value === '1'"
+            " && document.getElementById('modelTransformStatus').textContent.includes('Reset')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(transform_requests), 2)
+        self.assertFalse(self.is_disabled("#redoBtn"))
+
+        self.page.click("#redoBtn")
+        self.page.wait_for_function(
+            "document.getElementById('modelPositionX').value === '2'"
+            " && document.getElementById('modelRotationX').value === '90'"
+            " && document.getElementById('modelScale').value === '1.2'"
+            " && document.getElementById('modelTransformStatus').textContent.startsWith('Applied')",
+            timeout=UI_TIMEOUT_MS,
+        )
+        self.assertEqual(len(transform_requests), 3)
+        self.assertEqual(len(scan_requests), 0)
+
         state = self.page.evaluate(
             """async () => {
               const response = await fetch('/api/state');
@@ -361,7 +384,7 @@ class BrowserRegressionTests(unittest.TestCase):
             " && document.getElementById('scanSummary').textContent.includes('Scan stale')",
             timeout=UI_TIMEOUT_MS,
         )
-        self.assertEqual(len(transform_requests), 2)
+        self.assertEqual(len(transform_requests), 4)
         self.assertEqual(len(scan_requests), 1)
 
     def test_generated_lathe_runs_through_scan_inspection_and_3d_ink(self) -> None:
