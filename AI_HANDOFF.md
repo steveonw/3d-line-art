@@ -15,13 +15,13 @@ steveonw/3d-line-art
 Current development head as of 2026-09-29:
 
 ```text
-branch: post-v05-model-transform
-PR:     #21 — Post-v0.5: add authoritative model transforms
-base:   phase-17-simple-geometry
+branch: post-v05-control-dock
+PR:     #22 — Post-v0.5: add floating dockable Control Dock
+base:   post-v05-model-transform
 CI:     passed
 ```
 
-The numbered core roadmap through **Phase 17 — Simple geometry creation** is complete, and the first post-v0.5 stabilization follow-up (**authoritative Model Transform**) is complete.
+The numbered core roadmap through **Phase 17 — Simple geometry creation** is complete. Two post-v0.5 stabilization follow-ups are now complete: **authoritative Model Transform** and the **floating/dockable Control Dock**.
 
 Default next work remains **post-v0.5 stabilization / later polish**, not a new numbered phase. The optional LLM Scene Assistant remains opt-in and should not be started unless explicitly requested.
 
@@ -76,12 +76,14 @@ main
   ↓
 #20 phase-17-simple-geometry
   ↓
-#21 post-v05-model-transform ← CURRENT HEAD
+#21 post-v05-model-transform
+  ↓
+#22 post-v05-control-dock ← CURRENT HEAD
 ```
 
 There is no numbered Phase 18 in the core roadmap.
 
-For the next normal follow-up branch, branch from `post-v05-model-transform` and base its PR on `post-v05-model-transform`. Keep individual polish/stabilization topics scoped rather than reopening a parallel architecture.
+For the next normal follow-up branch, branch from `post-v05-control-dock` and base its PR on `post-v05-control-dock`. Keep individual polish/stabilization topics scoped rather than reopening a parallel architecture.
 
 Do not base new work on `main` unless the stacked PRs have first been merged/rebased intentionally.
 
@@ -1016,6 +1018,41 @@ Key invariants:
 
 Real Chromium coverage exercises Apply -> Undo -> Redo -> Rescan -> Reset without implicit scans, plus transformed generated-scene autosave recovery after a server reset.
 
+## 12.988. Completed post-v0.5 follow-up — Floating / Dockable Control Dock
+
+The old page-height sidebar has been replaced with a viewport-independent Control Dock.
+
+Desktop behavior:
+
+```text
+Float
+Dock Left
+Dock Right
+Minimize
+Close / reopen
+```
+
+Control categories:
+
+```text
+Source | Model | LiDAR | Art | Export
+```
+
+Architecture / UI invariants:
+
+- the main 2D canvas / Phase 15 Three.js inspection workspace owns the browser viewport,
+- the Control Dock is a fixed overlay and scrolls internally,
+- dragging, resizing, docking, minimizing, closing, or scrolling controls must not move/recenter the artwork underneath,
+- existing control IDs and feature behavior remain authoritative; the dock only reorganizes presentation,
+- LiDAR acquisition controls live under **LiDAR**,
+- LiDAR Art Mapping and drawing controls live under **Art**,
+- panel mode, active tab, floating rectangle, minimized state, and closed state are browser-local UI preferences in `localStorage`,
+- Control Dock state must **not** enter portable project JSON or rendering determinism,
+- desktop float mechanics are adapted from the owner's `steveonw/equationwright` scratch-pad window pattern,
+- at <=800 px the dock becomes a bottom drawer and desktop float/dock buttons are hidden.
+
+Real Chromium coverage measures the same preview rectangle across dock scrolling, right dock, float/drag, left dock, minimize, close/reopen, and reload persistence. Existing browser regressions explicitly select the tab containing the controls they interact with.
+
 ## 12.99. Default next work — post-v0.5 stabilization
 
 The numbered core roadmap is complete. Do not invent a Phase 18 unless the roadmap is deliberately extended.
@@ -1190,13 +1227,16 @@ Start here:
 Post-v0.5 stabilization / later polish
 ```
 
-Branch from `post-v05-model-transform` and base follow-up PRs on `post-v05-model-transform`.
+Branch from `post-v05-control-dock` and base follow-up PRs on `post-v05-control-dock`.
 
 First inspect:
 
 ```text
 ROADMAP.md
 README.md
+frontend/control_dock.js
+frontend/styles.css
+frontend/index.html
 server/scene_transform.py
 server/geometry_generators.py
 server/lidar_bridge.py
@@ -1205,6 +1245,7 @@ server/inspection.py
 frontend/geometry_builder.js
 frontend/inspection_viewer.js
 frontend/app.js
+tests/frontend_control_dock_smoke.js
 tests/test_scene_transform.py
 tests/test_geometry_generators.py
 tests/test_browser_regressions.py
