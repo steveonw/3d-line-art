@@ -1755,6 +1755,52 @@
     }
   }
 
+  function uint8RedChannel(imageData, count) {
+    const out = new Uint8Array(count);
+    const data = imageData.data;
+    for (let p = 0, i = 0; p < count; p++, i += 4) out[p] = data[i];
+    return out;
+  }
+
+  async function attachConfidenceFusion(order, loadedViews) {
+    const scanIds = loadedViews.map(view => view.scan.scan_id);
+    setStatus(`Fusing confidence across ${scanIds.length} cached views...`, 0);
+    const response = await LidarClient.fuseConfidence(scanIds);
+    const fusion = response.fusion;
+    const maps = await LidarClient.fetchFusionMaps(fusion);
+    const byScanId = Object.fromEntries(
+      loadedViews.map(view => [view.scan.scan_id, view])
+    );
+
+    try {
+      for (const scanId of fusion.scan_ids || []) {
+        const target = byScanId[scanId];
+        const item = maps[scanId];
+        if (!target || !item) throw new Error('Confidence fusion returned an unknown scan.');
+        if (
+          item.confidence.width !== target.width ||
+          item.confidence.height !== target.height ||
+          item.support.width !== target.width ||
+          item.support.height !== target.height
+        ) {
+          throw new Error('Fused confidence dimensions do not match the source view.');
+        }
+        const count = target.width * target.height;
+        target.fusedConfidence = uint8RedChannel(item.confidence.imageData, count);
+        target.fusionSupport = uint8RedChannel(item.support.imageData, count);
+        target.fusion = item.descriptor;
+      }
+    } finally {
+      for (const item of Object.values(maps)) {
+        item.confidence.canvas.width = 0;
+        item.confidence.canvas.height = 0;
+        item.support.canvas.width = 0;
+        item.support.canvas.height = 0;
+      }
+    }
+    return fusion;
+  }
+
   function syncMultiViewOptions(order, views) {
     const currentValue = settings.lidar.multiViewCurrent || multiViewCurrent.value;
     multiViewCurrent.innerHTML = '';
@@ -1837,6 +1883,9 @@
         }
       }
 
+      const fusion = await attachConfidenceFusion(order, loadedViews);
+      if (serial !== loadSerial) return;
+
       const combinedRgba = LineArtMultiView.combineShadedPixels(
         loadedViews,
         width,
@@ -1852,7 +1901,8 @@
         views,
         width,
         height,
-        combinedPixels
+        combinedPixels,
+        fusion
       };
 
       if (!views[settings.lidar.multiViewCurrent]) {
@@ -1865,8 +1915,12 @@
         (sum, view) => sum + Number(view.scan.coverage || 0),
         0
       ) / loadedViews.length;
+      const meanFusion = Object.values(fusion.views || {}).reduce(
+        (sum, view) => sum + Number(view.mean_confidence || 0),
+        0
+      ) / Math.max(1, order.length);
       modelStatus.textContent =
-        `${loadedViews[0].scan.scene?.name || '3D model'} - 5 fixed views · ${Math.round(averageCoverage * 100)}% average coverage`;
+        `${loadedViews[0].scan.scene?.name || '3D model'} - 5 fixed views · ${Math.round(averageCoverage * 100)}% average coverage · ${Math.round(meanFusion * 100)}% fused confidence`;
 
       activateMultiViewSource({ install: true });
     } catch (error) {
@@ -1949,6 +2003,9 @@
         }
       }
 
+      const fusion = await attachConfidenceFusion(order, loadedViews);
+      if (serial !== loadSerial) return;
+
       const combinedRgba = LineArtMultiView.combineShadedPixels(
         loadedViews,
         width,
@@ -1964,7 +2021,8 @@
         views,
         width,
         height,
-        combinedPixels
+        combinedPixels,
+        fusion
       };
 
       if (!views[settings.lidar.multiViewCurrent]) {
@@ -1976,8 +2034,12 @@
       scanAutoBtn.textContent = 'Auto Scan';
       const planner = multiview.planner || {};
       const coverageScore = Math.round(Number(planner.coverage_score || 0) * 100);
+      const meanFusion = Object.values(fusion.views || {}).reduce(
+        (sum, view) => sum + Number(view.mean_confidence || 0),
+        0
+      ) / Math.max(1, order.length);
       modelStatus.textContent =
-        `${loadedViews[0].scan.scene?.name || '3D model'} - ${order.length} auto views · ${coverageScore}% view-space coverage · ${planner.stop_reason || 'complete'}`;
+        `${loadedViews[0].scan.scene?.name || '3D model'} - ${order.length} auto views · ${coverageScore}% view-space coverage · ${Math.round(meanFusion * 100)}% fused confidence · ${planner.stop_reason || 'complete'}`;
 
       activateMultiViewSource({ install: true });
     } catch (error) {
