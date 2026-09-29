@@ -1026,6 +1026,8 @@
       : multiViewBundle.order[0];
     if (resolved !== requested) {
       settings.lidar.multiViewCurrent = resolved;
+    }
+    if (multiViewCurrent.value !== resolved) {
       multiViewCurrent.value = resolved;
     }
     return resolved;
@@ -1718,7 +1720,7 @@
   }
 
   function syncMultiViewOptions(order, views) {
-    const currentValue = multiViewCurrent.value;
+    const currentValue = settings.lidar.multiViewCurrent || multiViewCurrent.value;
     multiViewCurrent.innerHTML = '';
     for (const name of order) {
       const option = document.createElement('option');
