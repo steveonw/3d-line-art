@@ -388,7 +388,10 @@ def _bool_option(options: dict[str, Any], key: str, default: bool) -> bool:
 
 def _canonical_sensor_float(value: float) -> float:
     """Quantize sensor floats once so scan geometry, metadata, and cache agree."""
-    rounded = round(float(value), SENSOR_FLOAT_DECIMALS)
+    scale = 10 ** SENSOR_FLOAT_DECIMALS
+    # Sensor floats are validated/clamped non-negative. Match the browser's
+    # Math.round rule so freshness signatures and server metadata agree.
+    rounded = math.floor(float(value) * scale + 0.5) / scale
     return 0.0 if rounded == 0.0 else rounded
 
 
@@ -449,10 +452,10 @@ def _scan_cache_key(scene_info: dict[str, Any], scan_options: dict[str, Any]) ->
         "height": int(scan_options["height"]),
         "rays_per_pixel": int(scan_options["rays_per_pixel"]),
         "smart_sampling": bool(scan_options["smart_sampling"]),
-        "yaw_deg": round(float(scan_options["yaw_deg"]), 6),
-        "elevation_deg": round(float(scan_options["elevation_deg"]), 6),
-        "distance_scale": round(float(scan_options["distance_scale"]), 6),
-        "fov_deg": round(float(scan_options["fov_deg"]), 6),
+        "yaw_deg": float(scan_options["yaw_deg"]),
+        "elevation_deg": float(scan_options["elevation_deg"]),
+        "distance_scale": float(scan_options["distance_scale"]),
+        "fov_deg": float(scan_options["fov_deg"]),
         "seed": int(scan_options["seed"]),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
