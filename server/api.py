@@ -17,8 +17,8 @@ from .state import StudioState
 HOST = "127.0.0.1"
 PORT = 8777
 APP_NAME = "LiDAR Ink Studio"
-SERVER_VERSION = "0.6-phase17"
-API_VERSION = 9
+SERVER_VERSION = "0.6-post-v05-transform"
+API_VERSION = 10
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024
@@ -32,6 +32,7 @@ _JSON_POST_PATHS = {
     "/api/lidar/fusion",
     "/api/ink3d/project",
     "/api/scene/generate",
+    "/api/scene/transform",
 }
 _UPLOAD_POST_PATHS = {"/api/scene/upload"}
 _MUTATING_API_PATHS = _JSON_POST_PATHS | _UPLOAD_POST_PATHS
@@ -259,6 +260,18 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, {"ok": True, "scene": info})
             return
 
+        if method == "POST" and path == "/api/scene/transform":
+            spec = self._read_json(MAX_JSON_BYTES)
+            if not self.server.state.try_begin_operation("scene-transform"):
+                self._busy()
+                return
+            try:
+                info = self.server.lidar.transform_scene(spec)
+            finally:
+                self.server.state.end_operation()
+            self._send_json(HTTPStatus.OK, {"ok": True, "scene": info})
+            return
+
         if method == "POST" and path == "/api/lidar/scan":
             options = self._read_json(MAX_JSON_BYTES)
             if not self.server.state.try_begin_operation("lidar-scan"):
@@ -410,6 +423,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             "/api/lidar/maps",
             "/api/ink3d/project",
             "/api/scene/generate",
+            "/api/scene/transform",
             "/api/inspection/scene",
             "/api/inspection/scan",
         }
