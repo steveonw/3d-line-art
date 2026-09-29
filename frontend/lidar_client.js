@@ -98,6 +98,23 @@
     };
   }
 
+  async function fetchFusionMaps(fusion) {
+    const entries = await Promise.all(
+      (fusion?.scan_ids || []).map(async scanId => {
+        const descriptor = fusion.views?.[scanId];
+        if (!descriptor?.confidence || !descriptor?.support) {
+          throw new Error('Confidence fusion did not provide all required maps.');
+        }
+        const [confidence, support] = await Promise.all([
+          fetchImageData(descriptor.confidence),
+          fetchImageData(descriptor.support)
+        ]);
+        return [scanId, { descriptor, confidence, support }];
+      })
+    );
+    return Object.fromEntries(entries);
+  }
+
   async function fetchScanMaps(scan) {
     const channels = scan?.channels;
     const required = ['shaded', 'depth', 'edge', 'variance', 'confidence'];
@@ -134,6 +151,7 @@
     fuseConfidence,
     getState,
     getMaps,
+    fetchFusionMaps,
     fetchScanMaps
   });
 })();
