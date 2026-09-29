@@ -45,7 +45,9 @@
     camerasRoot.name = 'inspection_cameras';
     const selectedCameraRoot = new THREE.Group();
     selectedCameraRoot.name = 'inspection_selected_camera';
-    scene.add(meshRoot, pointsRoot, raysRoot, camerasRoot, selectedCameraRoot);
+    const inkRoot = new THREE.Group();
+    inkRoot.name = 'world_space_ink';
+    scene.add(meshRoot, pointsRoot, raysRoot, camerasRoot, selectedCameraRoot, inkRoot);
 
     let grid = null;
     const axes = new THREE.AxesHelper(1.2);
@@ -76,7 +78,8 @@
       mesh: true,
       points: true,
       rays: true,
-      cameras: true
+      cameras: true,
+      ink: true
     };
 
     function disposeMaterial(material) {
@@ -209,6 +212,71 @@
       selectedScanId = snapshot?.scan_id || selectedScanId;
       rebuildSelectedCamera();
       syncCameraMaterials();
+      syncLayerVisibility();
+    }
+
+    function setInkSnapshot(snapshot) {
+      clearGroup(inkRoot);
+      if (!snapshot || !snapshot.stroke_count || !snapshot.point_count) {
+        syncLayerVisibility();
+        return;
+      }
+
+      const positions = snapshot.positions || [];
+      const normals = snapshot.normals || [];
+      const offsets = snapshot.stroke_offsets || [];
+      const counts = snapshot.stroke_counts || [];
+      const rgba = snapshot.stroke_rgba || [];
+      const linePositions = [];
+      const lineColors = [];
+      const lift = clamp(sceneRadius * 0.0014, 0.001, 0.012);
+
+      function liftedPoint(index) {
+        const p = index * 3;
+        return [
+          Number(positions[p]) + Number(normals[p] || 0) * lift,
+          Number(positions[p + 1]) + Number(normals[p + 1] || 0) * lift,
+          Number(positions[p + 2]) + Number(normals[p + 2] || 0) * lift
+        ];
+      }
+
+      for (let s = 0; s < offsets.length; s++) {
+        const start = Number(offsets[s]) | 0;
+        const count = Number(counts[s]) | 0;
+        if (count < 2) continue;
+        const ci = s * 4;
+        const alpha = clamp(Number(rgba[ci + 3] ?? 255) / 255, 0.08, 1);
+        const r = clamp(Number(rgba[ci] ?? 12) / 255, 0, 1) * alpha;
+        const g = clamp(Number(rgba[ci + 1] ?? 12) / 255, 0, 1) * alpha;
+        const b = clamp(Number(rgba[ci + 2] ?? 12) / 255, 0, 1) * alpha;
+        for (let p = 0; p < count - 1; p++) {
+          const a = liftedPoint(start + p);
+          const bpos = liftedPoint(start + p + 1);
+          linePositions.push(...a, ...bpos);
+          lineColors.push(r, g, b, r, g, b);
+        }
+      }
+
+      if (linePositions.length) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+          'position',
+          new THREE.Float32BufferAttribute(new Float32Array(linePositions), 3)
+        );
+        geometry.setAttribute(
+          'color',
+          new THREE.Float32BufferAttribute(new Float32Array(lineColors), 3)
+        );
+        const material = new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.96,
+          depthWrite: false
+        });
+        const lines = new THREE.LineSegments(geometry, material);
+        lines.name = 'surface_ink_segments';
+        inkRoot.add(lines);
+      }
       syncLayerVisibility();
     }
 
@@ -347,6 +415,7 @@
       raysRoot.visible = !!layers.rays;
       camerasRoot.visible = !!layers.cameras;
       selectedCameraRoot.visible = !!layers.cameras;
+      inkRoot.visible = !!layers.ink;
       axes.visible = !!layers.mesh;
       if (grid) grid.visible = !!layers.mesh;
     }
@@ -464,6 +533,7 @@
       clearGroup(raysRoot);
       clearGroup(camerasRoot);
       clearGroup(selectedCameraRoot);
+      clearGroup(inkRoot);
       grid?.geometry?.dispose?.();
       disposeMaterial(grid?.material);
       renderer.dispose();
@@ -480,6 +550,9 @@
           ? Math.floor(raysRoot.children[0].geometry.getAttribute('position').count / 2)
           : 0,
         cameraCount: cameraViews.length,
+        inkSegments: inkRoot.children[0]?.geometry?.getAttribute('position')?.count
+          ? Math.floor(inkRoot.children[0].geometry.getAttribute('position').count / 2)
+          : 0,
         selectedScanId
       });
     }
@@ -489,6 +562,7 @@
       setScanSnapshot,
       setCameraViews,
       setSelectedScan,
+      setInkSnapshot,
       setLayers,
       resetView,
       stats,
