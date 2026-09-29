@@ -14,6 +14,65 @@
     ];
   }
 
+  function buildInkSegments(snapshot, sceneRadius = 1) {
+    const positions = snapshot?.positions || [];
+    const normals = snapshot?.normals || [];
+    const offsets = snapshot?.stroke_offsets || [];
+    const counts = snapshot?.stroke_counts || [];
+    const rgba = snapshot?.stroke_rgba || [];
+    const linePositions = [];
+    const lineColors = [];
+    const lift = clamp((Number(sceneRadius) || 1) * 0.0014, 0.001, 0.012);
+
+    function liftedPoint(index) {
+      const p = index * 3;
+      return [
+        Number(positions[p]) + Number(normals[p] || 0) * lift,
+        Number(positions[p + 1]) + Number(normals[p + 1] || 0) * lift,
+        Number(positions[p + 2]) + Number(normals[p + 2] || 0) * lift
+      ];
+    }
+
+    for (let s = 0; s < offsets.length; s++) {
+      const start = Number(offsets[s]) | 0;
+      const count = Number(counts[s]) | 0;
+      if (count < 2) continue;
+      const ci = s * 4;
+      const alpha = clamp(Number(rgba[ci + 3] ?? 255) / 255, 0.08, 1);
+      const red = clamp(Number(rgba[ci] ?? 12) / 255, 0, 1);
+      const green = clamp(Number(rgba[ci + 1] ?? 12) / 255, 0, 1);
+      const blue = clamp(Number(rgba[ci + 2] ?? 12) / 255, 0, 1);
+      for (let p = 0; p < count - 1; p++) {
+        linePositions.push(...liftedPoint(start + p), ...liftedPoint(start + p + 1));
+        lineColors.push(red, green, blue, alpha, red, green, blue, alpha);
+      }
+    }
+    return { positions: linePositions, colors: lineColors };
+  }
+
+  function orbitFromCameraView(view) {
+    if (!view || !Array.isArray(view.position) || !Array.isArray(view.target)) return null;
+    const px = Number(view.position[0]);
+    const py = Number(view.position[1]);
+    const pz = Number(view.position[2]);
+    const tx = Number(view.target[0]);
+    const ty = Number(view.target[1]);
+    const tz = Number(view.target[2]);
+    if (![px, py, pz, tx, ty, tz].every(Number.isFinite)) return null;
+    const dx = px - tx;
+    const dy = py - ty;
+    const dz = pz - tz;
+    const radius = Math.hypot(dx, dy, dz);
+    if (!(radius > 1e-9)) return null;
+    return {
+      target: [tx, ty, tz],
+      radius,
+      theta: Math.atan2(dx, dz),
+      phi: Math.acos(clamp(dy / radius, -1, 1)),
+      fov: clamp(Number(view.fov) || 55, 10, 120)
+    };
+  }
+
   function createInspectionViewer({ container, onSelectScan = null } = {}) {
     const THREE = window.THREE;
     if (!THREE) throw new Error('Three.js must load before inspection_viewer.js');
@@ -222,40 +281,8 @@
         return;
       }
 
-      const positions = snapshot.positions || [];
-      const normals = snapshot.normals || [];
-      const offsets = snapshot.stroke_offsets || [];
-      const counts = snapshot.stroke_counts || [];
-      const rgba = snapshot.stroke_rgba || [];
-      const linePositions = [];
-      const lineColors = [];
-      const lift = clamp(sceneRadius * 0.0014, 0.001, 0.012);
-
-      function liftedPoint(index) {
-        const p = index * 3;
-        return [
-          Number(positions[p]) + Number(normals[p] || 0) * lift,
-          Number(positions[p + 1]) + Number(normals[p + 1] || 0) * lift,
-          Number(positions[p + 2]) + Number(normals[p + 2] || 0) * lift
-        ];
-      }
-
-      for (let s = 0; s < offsets.length; s++) {
-        const start = Number(offsets[s]) | 0;
-        const count = Number(counts[s]) | 0;
-        if (count < 2) continue;
-        const ci = s * 4;
-        const alpha = clamp(Number(rgba[ci + 3] ?? 255) / 255, 0.08, 1);
-        const r = clamp(Number(rgba[ci] ?? 12) / 255, 0, 1) * alpha;
-        const g = clamp(Number(rgba[ci + 1] ?? 12) / 255, 0, 1) * alpha;
-        const b = clamp(Number(rgba[ci + 2] ?? 12) / 255, 0, 1) * alpha;
-        for (let p = 0; p < count - 1; p++) {
-          const a = liftedPoint(start + p);
-          const bpos = liftedPoint(start + p + 1);
-          linePositions.push(...a, ...bpos);
-          lineColors.push(r, g, b, r, g, b);
-        }
-      }
+      const { positions: linePositions, colors: lineColors } =
+        buildInkSegments(snapshot, sceneRadius);
 
       if (linePositions.length) {
         const geometry = new THREE.BufferGeometry();
@@ -265,12 +292,12 @@
         );
         geometry.setAttribute(
           'color',
-          new THREE.Float32BufferAttribute(new Float32Array(lineColors), 3)
+          new THREE.Float32BufferAttribute(new Float32Array(lineColors), 4)
         );
         const material = new THREE.LineBasicMaterial({
           vertexColors: true,
+          vertexAlphas: true,
           transparent: true,
-          opacity: 0.96,
           depthWrite: false
         });
         const lines = new THREE.LineSegments(geometry, material);
@@ -400,6 +427,18 @@
       selectedScanId = scanId || null;
       syncCameraMaterials();
       rebuildSelectedCamera();
+
+      const view = cameraViews.find(item => item.scanId === selectedScanId);
+      const framed = orbitFromCameraView(view);
+      if (framed) {
+        orbit.target.fromArray(framed.target);
+        orbit.radius = framed.radius;
+        orbit.theta = framed.theta;
+        orbit.phi = clamp(framed.phi, 0.08, Math.PI - 0.08);
+        camera.fov = framed.fov;
+        camera.updateProjectionMatrix();
+        updateCamera();
+      }
     }
 
     function setLayers(next = {}) {
@@ -572,6 +611,8 @@
 
   window.LineArtInspectionViewer = Object.freeze({
     createInspectionViewer,
-    confidenceRgb
+    confidenceRgb,
+    buildInkSegments,
+    orbitFromCameraView
   });
 })();
