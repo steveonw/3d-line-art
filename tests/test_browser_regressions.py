@@ -272,7 +272,7 @@ class BrowserRegressionTests(unittest.TestCase):
         self.upload_cube_and_scan()
         self.page.wait_for_function(
             "document.body.dataset.phase16Ready === 'true'"
-            " && !document.querySelector('#inkSpaceControl button[data-space="3d"]').disabled",
+            " && !document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').disabled",
             timeout=SCAN_TIMEOUT_MS,
         )
 
@@ -293,7 +293,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         self.page.click('#inkSpaceControl button[data-space="3d"]')
         self.page.wait_for_function(
-            "document.querySelector('#inkSpaceControl button[data-space="3d"]').classList.contains('active')"
+            "document.querySelector('#inkSpaceControl button[data-space=\\\"3d\\\"]').classList.contains('active')"
             " && !document.getElementById('inspectionShell').hidden"
             " && document.getElementById('ink3dStatus').textContent.startsWith('3D Ink ready')"
             " && document.getElementById('inspectionHudDetail').textContent.includes('surface strokes')",
@@ -338,7 +338,7 @@ class BrowserRegressionTests(unittest.TestCase):
 
         self.page.click('#inkSpaceControl button[data-space="2d"]')
         self.page.wait_for_function(
-            "document.querySelector('#inkSpaceControl button[data-space="2d"]').classList.contains('active')"
+            "document.querySelector('#inkSpaceControl button[data-space=\\\"2d\\\"]').classList.contains('active')"
             " && document.getElementById('inspectionShell').hidden"
             " && !document.getElementById('canvasShell').hidden"
         )
