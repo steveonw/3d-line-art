@@ -30,6 +30,7 @@ jobs:
 
       - name: Check frontend JavaScript syntax
         run: |
+          node --check frontend/ink3d.js
           node --check frontend/inspection_viewer.js
           node --check frontend/analysis_maps.js
           node --check frontend/multiview.js
@@ -52,6 +53,9 @@ jobs:
 
       - name: Run LiDAR mask chord smoke test
         run: node tests/frontend_lidar_mask_chord_smoke.js
+
+      - name: Run 3D Ink smoke test
+        run: node tests/frontend_ink3d_smoke.js
 
       - name: Run 3D inspection viewer smoke test
         run: node tests/frontend_inspection_viewer_smoke.js
