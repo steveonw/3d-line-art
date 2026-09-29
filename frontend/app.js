@@ -1173,6 +1173,7 @@
       highQualityStrokeStore = null;
       highQualityRenderMeta = null;
       highQualityStale = false;
+      resetInk3D('3D Ink waiting for the current view preview.');
       updateScanFreshness();
       updateLidarArtControlAvailability(false);
       refreshButtons();
@@ -1892,7 +1893,7 @@
     const active = !!activeRender;
     const highActive = activeRender?.kind === 'high';
     const exportBusy = exporter.isBusy();
-    const uiLocked = highActive || exportBusy || scanRunning;
+    const uiLocked = highActive || exportBusy || scanRunning || ink3dLoading;
     const sourceReady = projectSourceReady();
     const modelReady = projectModelReady();
     const sensorReady = !(sourceKind === 'lidar' && scanDirty);
@@ -1901,16 +1902,16 @@
     imageInput.disabled = uiLocked;
     modelInput.disabled = uiLocked || modelLoading;
     openProjectBtn.disabled = uiLocked || modelLoading;
-    saveProjectBtn.disabled = highActive || exportBusy || scanRunning || modelLoading;
+    saveProjectBtn.disabled = highActive || exportBusy || scanRunning || modelLoading || ink3dLoading;
 
     scanControlEls.forEach(el => {
-      el.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || highActive || exportBusy;
+      el.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || highActive || exportBusy || ink3dLoading;
     });
-    scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy;
+    scanBtn.disabled = !sceneLoaded || !modelReady || modelLoading || scanRunning || active || exportBusy || ink3dLoading;
     scanMultiBtn.disabled = scanBtn.disabled;
     scanAutoBtn.disabled = scanBtn.disabled;
 
-    const inspectionLocked = modelLoading || scanRunning || highActive || exportBusy;
+    const inspectionLocked = modelLoading || scanRunning || highActive || exportBusy || ink3dLoading;
     inspectionToggle.disabled = !sceneLoaded || inspectionLocked;
     const inspectionHasScans = inspectionEntries().length > 0;
     inspectionScanSelect.disabled =
@@ -1928,6 +1929,28 @@
     inspectionViewpoints.querySelectorAll('button').forEach(button => {
       button.disabled = !inspectionOpen || inspectionLoading || inspectionLocked;
     });
+
+    const inkButtons = inkSpaceControl.querySelectorAll('button[data-space]');
+    const ink2dButton = inkSpaceControl.querySelector('button[data-space="2d"]');
+    const ink3dButton = inkSpaceControl.querySelector('button[data-space="3d"]');
+    const inkCompatible =
+      sourceKind === 'lidar' &&
+      !!sourceImage &&
+      !!displayStrokeStore &&
+      !!displayRenderMeta &&
+      !!currentInk3DScanId() &&
+      sensorReady &&
+      settings.lidar.multiViewMode !== 'combined' &&
+      !active &&
+      !loadingImage &&
+      !modelLoading;
+    if (ink2dButton) ink2dButton.disabled = ink3dLoading;
+    if (ink3dButton) ink3dButton.disabled = !inkCompatible || ink3dLoading || highActive || exportBusy;
+    buildInk3DBtn.disabled = !inkCompatible || ink3dLoading || highActive || exportBusy;
+    buildInk3DBtn.textContent = ink3dLoading
+      ? 'Building 3D Ink…'
+      : (ink3dSnapshot ? 'Refresh 3D Ink' : 'Build 3D Ink');
+    syncInkSpaceButtons();
 
     const multiViewAvailable = !!multiViewBundle && modelReady && !modelLoading;
     multiViewMode.disabled = !multiViewAvailable || uiLocked;
@@ -1950,7 +1973,7 @@
     saveBtn.disabled = !canSave;
     saveSvgBtn.disabled = !canSave;
 
-    historyUiLocked = highActive || exportBusy || scanRunning || modelLoading;
+    historyUiLocked = highActive || exportBusy || scanRunning || modelLoading || ink3dLoading;
     renderHistoryStatus(history.status());
     updateExportNote();
   }
@@ -2011,6 +2034,11 @@
     highQualityStrokeStore = null;
     highQualityRenderMeta = null;
     highQualityStale = false;
+    resetInk3D(
+      kind === 'lidar'
+        ? '3D Ink waiting for the current 2D preview.'
+        : '3D Ink is available after loading and scanning a 3D model.'
+    );
 
     canvas.width = w;
     canvas.height = h;
