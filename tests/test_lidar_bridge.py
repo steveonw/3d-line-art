@@ -161,6 +161,71 @@ class LidarBridgeIntegrationTest(unittest.TestCase):
             "sample cube shading collapsed to a flat winding-dependent tone",
         )
 
+    def test_generated_shapes_cross_the_standard_scene_boundary(self) -> None:
+        bridge = LidarBridge(StudioState())
+        specs = [
+            {"type": "sphere", "segments": 12, "rings": 6},
+            {"type": "box", "width": 2, "height": 3, "depth": 1.5},
+            {"type": "cylinder", "segments": 12, "height": 2.5},
+            {
+                "type": "lathe",
+                "segments": 12,
+                "profile": [[0, -1], [0.8, -0.8], [1, 0], [0.6, 0.8], [0, 1]],
+            },
+            {
+                "type": "heightfield",
+                "grid": 8,
+                "pattern": "ripple",
+                "amplitude": 0.5,
+                "frequency": 2,
+            },
+        ]
+
+        hashes = {}
+        for spec in specs:
+            with self.subTest(kind=spec["type"]):
+                scene = bridge.generate_scene(spec)
+                self.assertEqual(scene["format"], "obj")
+                self.assertTrue(scene["normalized"])
+                self.assertEqual(scene["generator"]["type"], spec["type"])
+                self.assertEqual(scene["name"], f"generated-{spec['type']}.obj")
+                self.assertEqual(len(scene["sha256"]), 64)
+                self.assertGreater(scene["triangles"], 0)
+                self.assertGreater(scene["vertices"], 0)
+                hashes[spec["type"]] = scene["sha256"]
+
+        sphere_again = bridge.generate_scene(specs[0])
+        self.assertEqual(sphere_again["sha256"], hashes["sphere"])
+
+    def test_generated_heightfield_scans_and_inspects_normally(self) -> None:
+        state = StudioState()
+        bridge = LidarBridge(state)
+        scene = bridge.generate_scene({
+            "type": "heightfield",
+            "grid": 10,
+            "pattern": "waves",
+            "width": 3,
+            "depth": 3,
+            "amplitude": 0.55,
+            "frequency": 2,
+        })
+        scan = bridge.scan({
+            "width": 64,
+            "height": 64,
+            "rays_per_pixel": 1,
+            "smart_sampling": False,
+            "seed": 19,
+            "yaw_deg": 35,
+            "elevation_deg": 30,
+        })
+        inspection = bridge.inspection_scene()
+        scan_inspection = bridge.inspection_scan(scan["scan_id"])
+
+        self.assertEqual(scan["scene"]["sha256"], scene["sha256"])
+        self.assertGreater(scan["coverage"], 0)
+        self.assertGreater(inspection["preview"]["triangle_count"], 0)
+        self.assertGreater(scan_inspection["points"]["preview_count"], 0)
+
     def test_confidence_is_meaningful_at_default_ray_count(self) -> None:
         results = {}
         for rays in (1, 2, 4):
